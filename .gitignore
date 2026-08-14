@@ -1,0 +1,21 @@
+# Unreal Engine generated files
+Binaries/
+DerivedDataCache/
+Intermediate/
+Saved/
+
+# IDE and editor files
+.vs/
+.vscode/
+*.sln
+*.suo
+*.user
+*.userprefs
+*.vcxproj
+*.vcxproj.filters
+*.VC.db
+*.opensdf
+*.sdf
+
+# Per-user Unreal content
+Content/Developers/
