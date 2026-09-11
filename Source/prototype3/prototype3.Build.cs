@@ -23,15 +23,7 @@ public class prototype3 : ModuleRules
 
 		PrivateDependencyModuleNames.AddRange(new string[] { });
 
-		PublicIncludePaths.AddRange(new string[] {
-			"prototype3",
-			"prototype3/Variant_Horror",
-			"prototype3/Variant_Horror/UI",
-			"prototype3/Variant_Shooter",
-			"prototype3/Variant_Shooter/AI",
-			"prototype3/Variant_Shooter/UI",
-			"prototype3/Variant_Shooter/Weapons"
-		});
+		PublicIncludePaths.AddRange(new string[] { "prototype3" });
 
 		// Uncomment if you are using Slate UI
 		// PrivateDependencyModuleNames.AddRange(new string[] { "Slate", "SlateCore" });
