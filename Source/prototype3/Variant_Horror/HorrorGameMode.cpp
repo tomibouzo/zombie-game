@@ -2,13 +2,15 @@
 
 
 #include "Variant_Horror/HorrorGameMode.h"
+#include "Variant_Horror/HorrorHUD.h"
 #include "Kismet/GameplayStatics.h"
 #include "GameFramework/PlayerStart.h"
 #include "Engine/World.h"
 
 AHorrorGameMode::AHorrorGameMode()
 {
-	// stub
+	// The HUD supplies the always-visible red health and blue stamina bars.
+	HUDClass = AHorrorHUD::StaticClass();
 }
 
 void AHorrorGameMode::BeginPlay()

@@ -36,6 +36,9 @@ void AHorrorCharacter::BeginPlay()
 
 	// start the sprint tick timer
 	GetWorld()->GetTimerManager().SetTimer(SprintTimer, this, &AHorrorCharacter::SprintFixedTick, SprintFixedTickTime, true);
+
+	// Initialize the UI with full values.
+	OnSprintMeterUpdated.Broadcast(GetStaminaPercent());
 }
 
 void AHorrorCharacter::EndPlay(EEndPlayReason::Type EndPlayReason)
@@ -138,6 +141,11 @@ void AHorrorCharacter::SprintFixedTick()
 	}
 
 	// broadcast the sprint meter updated delegate
-	OnSprintMeterUpdated.Broadcast(SprintMeter / SprintTime);
+	OnSprintMeterUpdated.Broadcast(GetStaminaPercent());
 
+}
+
+float AHorrorCharacter::GetStaminaPercent() const
+{
+	return SprintTime > 0.0f ? SprintMeter / SprintTime : 0.0f;
 }

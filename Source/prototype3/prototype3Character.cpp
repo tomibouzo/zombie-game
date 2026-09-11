@@ -47,6 +47,15 @@ Aprototype3Character::Aprototype3Character()
 	JumpMaxCount = 0;
 }
 
+void Aprototype3Character::BeginPlay()
+{
+	Super::BeginPlay();
+
+	CurrentHealth = MaxHealth;
+	CurrentStamina = MaxStamina;
+	OnHealthUpdated.Broadcast(GetHealthPercent());
+}
+
 void Aprototype3Character::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 {	
 	// Set up action bindings
@@ -120,4 +129,27 @@ void Aprototype3Character::DoJumpEnd()
 {
 	// pass StopJumping to the character
 	StopJumping();
+}
+
+float Aprototype3Character::TakeDamage(float Damage, const FDamageEvent& DamageEvent, AController* EventInstigator, AActor* DamageCauser)
+{
+	if (Damage <= 0.0f || CurrentHealth <= 0.0f)
+	{
+		return 0.0f;
+	}
+
+	const float AppliedDamage = FMath::Min(Damage, CurrentHealth);
+	CurrentHealth = FMath::Max(CurrentHealth - AppliedDamage, 0.0f);
+	OnHealthUpdated.Broadcast(GetHealthPercent());
+	return AppliedDamage;
+}
+
+float Aprototype3Character::GetHealthPercent() const
+{
+	return MaxHealth > 0.0f ? CurrentHealth / MaxHealth : 0.0f;
+}
+
+float Aprototype3Character::GetStaminaPercent() const
+{
+	return MaxStamina > 0.0f ? CurrentStamina / MaxStamina : 0.0f;
 }

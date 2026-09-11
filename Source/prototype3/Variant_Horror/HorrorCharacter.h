@@ -45,7 +45,7 @@ protected:
 	UPROPERTY(EditAnywhere, Category="Sprint", meta = (ClampMin = 0, ClampMax = 1, Units = "s"))
 	float SprintFixedTickTime = 0.03333f;
 
-	/** Sprint stamina amount. Maxes at SprintTime */
+	/** Current stamina in seconds. Maxes at SprintTime. */
 	float SprintMeter = 0.0f;
 
 	/** How long we can sprint for, in seconds */
@@ -67,6 +67,7 @@ protected:
 	/** Sprint tick timer */
 	FTimerHandle SprintTimer;
 
+
 public:
 
 	/** Delegate called when the sprint meter should be updated */
@@ -74,6 +75,7 @@ public:
 
 	/** Delegate called when we start and stop sprinting */
 	FSprintStateChangedDelegate OnSprintStateChanged;
+
 
 protected:
 
@@ -101,4 +103,8 @@ protected:
 
 	/** Called while sprinting at a fixed time interval */
 	void SprintFixedTick();
+
+public:
+	/** Returns the Horror character's sprint stamina normalized to the 0-1 range. */
+	virtual float GetStaminaPercent() const override;
 };

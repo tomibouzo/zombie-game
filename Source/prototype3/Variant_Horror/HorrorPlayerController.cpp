@@ -2,12 +2,11 @@
 
 
 #include "Variant_Horror/HorrorPlayerController.h"
+#include "Blueprint/UserWidget.h"
 #include "EnhancedInputSubsystems.h"
 #include "Engine/LocalPlayer.h"
 #include "InputMappingContext.h"
 #include "prototype3CameraManager.h"
-#include "HorrorCharacter.h"
-#include "HorrorUI.h"
 #include "prototype3.h"
 #include "Widgets/Input/SVirtualJoystick.h"
 
@@ -25,24 +24,6 @@ void AHorrorPlayerController::BeginPlay()
 void AHorrorPlayerController::OnPossess(APawn* aPawn)
 {
 	Super::OnPossess(aPawn);
-
-	// only spawn UI on local player controllers
-	if (IsLocalPlayerController())
-	{
-		// set up the UI for the character
-		if (AHorrorCharacter* HorrorCharacter = Cast<AHorrorCharacter>(aPawn))
-		{
-			// create the UI
-			if (!HorrorUI)
-			{
-				HorrorUI = CreateWidget<UHorrorUI>(this, HorrorUIClass);
-				HorrorUI->AddToPlayerScreen(0);
-			}
-
-			HorrorUI->SetupCharacter(HorrorCharacter);
-		}
-	}
-	
 }
 
 void AHorrorPlayerController::SetupInputComponent()

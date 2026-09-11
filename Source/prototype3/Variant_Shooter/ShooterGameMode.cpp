@@ -2,12 +2,18 @@
 
 
 #include "Variant_Shooter/ShooterGameMode.h"
+#include "Variant_Horror/HorrorHUD.h"
 #include "ShooterUI.h"
 #include "Kismet/GameplayStatics.h"
 #include "Engine/World.h"
 #include "Kismet/GameplayStatics.h"
 #include "GameFramework/PlayerStart.h"
 #include "ShooterPlayerController.h"
+
+AShooterGameMode::AShooterGameMode()
+{
+	HUDClass = AHorrorHUD::StaticClass();
+}
 
 void AShooterGameMode::BeginPlay()
 {

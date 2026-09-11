@@ -30,6 +30,10 @@ public:
 	UFUNCTION()
 	void OnSprintStateChanged(bool bSprinting);
 
+	/** Called when the character's health is updated. */
+	UFUNCTION()
+	void OnHealthUpdated(float Percent);
+
 protected:
 
 	/** Passes control to Blueprint to update the sprint meter widgets */
@@ -39,4 +43,8 @@ protected:
 	/** Passes control to Blueprint to update the sprint meter status */
 	UFUNCTION(BlueprintImplementableEvent, Category="Horror", meta = (DisplayName = "Sprint State Changed"))
 	void BP_SprintStateChanged(bool bSprinting);
+
+	/** Passes control to Blueprint to update the health bar. */
+	UFUNCTION(BlueprintImplementableEvent, Category="Horror", meta = (DisplayName = "Health Updated"))
+	void BP_HealthUpdated(float Percent);
 };

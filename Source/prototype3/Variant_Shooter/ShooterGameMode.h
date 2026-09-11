@@ -48,6 +48,8 @@ protected:
 	virtual AActor* ChoosePlayerStart_Implementation(AController* Player) override;
 
 public:
+	/** Constructor */
+	AShooterGameMode();
 
 	/** Increases the score for the given team */
 	void IncrementTeamScore(uint8 TeamByte);

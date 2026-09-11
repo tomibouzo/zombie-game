@@ -1,0 +1,258 @@
+[
+	{
+		"file": "C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\Plugins\\VisualStudioTools\\Source\\VisualStudioBlueprintDebuggerHelper\\Private\\VisualStudioBlueprintDebuggerHelperModule.cpp",
+		"arguments": [
+			"C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.50.35717\\bin\\Hostx64\\x64\\cl.exe",
+			"@C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\.vscode\\compileCommands_prototype3\\VisualStudioBlueprintDebuggerHelper.0.rsp"
+		],
+		"directory": "C:\\UE_5.8\\Engine\\Source"
+	},
+	{
+		"file": "C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\Plugins\\VisualStudioTools\\Source\\VisualStudioTools\\Private\\BlueprintAssetHelper.cpp",
+		"arguments": [
+			"C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.50.35717\\bin\\Hostx64\\x64\\cl.exe",
+			"@C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\.vscode\\compileCommands_prototype3\\VisualStudioTools.1.rsp"
+		],
+		"directory": "C:\\UE_5.8\\Engine\\Source"
+	},
+	{
+		"file": "C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\Plugins\\VisualStudioTools\\Source\\VisualStudioTools\\Private\\BlueprintReferencesCommandlet.cpp",
+		"arguments": [
+			"C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.50.35717\\bin\\Hostx64\\x64\\cl.exe",
+			"@C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\.vscode\\compileCommands_prototype3\\VisualStudioTools.1.rsp"
+		],
+		"directory": "C:\\UE_5.8\\Engine\\Source"
+	},
+	{
+		"file": "C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\Plugins\\VisualStudioTools\\Source\\VisualStudioTools\\Private\\VSServerCommandlet.cpp",
+		"arguments": [
+			"C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.50.35717\\bin\\Hostx64\\x64\\cl.exe",
+			"@C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\.vscode\\compileCommands_prototype3\\VisualStudioTools.1.rsp"
+		],
+		"directory": "C:\\UE_5.8\\Engine\\Source"
+	},
+	{
+		"file": "C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\Plugins\\VisualStudioTools\\Source\\VisualStudioTools\\Private\\VSTestAdapterCommandlet.cpp",
+		"arguments": [
+			"C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.50.35717\\bin\\Hostx64\\x64\\cl.exe",
+			"@C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\.vscode\\compileCommands_prototype3\\VisualStudioTools.1.rsp"
+		],
+		"directory": "C:\\UE_5.8\\Engine\\Source"
+	},
+	{
+		"file": "C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\Plugins\\VisualStudioTools\\Source\\VisualStudioTools\\Private\\VisualStudioTools.cpp",
+		"arguments": [
+			"C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.50.35717\\bin\\Hostx64\\x64\\cl.exe",
+			"@C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\.vscode\\compileCommands_prototype3\\VisualStudioTools.1.rsp"
+		],
+		"directory": "C:\\UE_5.8\\Engine\\Source"
+	},
+	{
+		"file": "C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\Plugins\\VisualStudioTools\\Source\\VisualStudioTools\\Private\\VisualStudioToolsBlueprintBreakpointExtension.cpp",
+		"arguments": [
+			"C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.50.35717\\bin\\Hostx64\\x64\\cl.exe",
+			"@C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\.vscode\\compileCommands_prototype3\\VisualStudioTools.1.rsp"
+		],
+		"directory": "C:\\UE_5.8\\Engine\\Source"
+	},
+	{
+		"file": "C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\Plugins\\VisualStudioTools\\Source\\VisualStudioTools\\Private\\VisualStudioToolsCommandlet.cpp",
+		"arguments": [
+			"C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.50.35717\\bin\\Hostx64\\x64\\cl.exe",
+			"@C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\.vscode\\compileCommands_prototype3\\VisualStudioTools.1.rsp"
+		],
+		"directory": "C:\\UE_5.8\\Engine\\Source"
+	},
+	{
+		"file": "C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\Plugins\\VisualStudioTools\\Source\\VisualStudioTools\\Private\\VisualStudioToolsCommandletBase.cpp",
+		"arguments": [
+			"C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.50.35717\\bin\\Hostx64\\x64\\cl.exe",
+			"@C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\.vscode\\compileCommands_prototype3\\VisualStudioTools.1.rsp"
+		],
+		"directory": "C:\\UE_5.8\\Engine\\Source"
+	},
+	{
+		"file": "C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\Source\\prototype3\\Variant_Horror\\HorrorCharacter.cpp",
+		"arguments": [
+			"C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.50.35717\\bin\\Hostx64\\x64\\cl.exe",
+			"@C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\.vscode\\compileCommands_prototype3\\prototype3.2.rsp"
+		],
+		"directory": "C:\\UE_5.8\\Engine\\Source"
+	},
+	{
+		"file": "C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\Source\\prototype3\\Variant_Horror\\HorrorGameMode.cpp",
+		"arguments": [
+			"C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.50.35717\\bin\\Hostx64\\x64\\cl.exe",
+			"@C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\.vscode\\compileCommands_prototype3\\prototype3.2.rsp"
+		],
+		"directory": "C:\\UE_5.8\\Engine\\Source"
+	},
+	{
+		"file": "C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\Source\\prototype3\\Variant_Horror\\HorrorPlayerController.cpp",
+		"arguments": [
+			"C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.50.35717\\bin\\Hostx64\\x64\\cl.exe",
+			"@C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\.vscode\\compileCommands_prototype3\\prototype3.2.rsp"
+		],
+		"directory": "C:\\UE_5.8\\Engine\\Source"
+	},
+	{
+		"file": "C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\Source\\prototype3\\Variant_Horror\\UI\\HorrorUI.cpp",
+		"arguments": [
+			"C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.50.35717\\bin\\Hostx64\\x64\\cl.exe",
+			"@C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\.vscode\\compileCommands_prototype3\\prototype3.2.rsp"
+		],
+		"directory": "C:\\UE_5.8\\Engine\\Source"
+	},
+	{
+		"file": "C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\Source\\prototype3\\Variant_Shooter\\AI\\EnvQueryContext_Target.cpp",
+		"arguments": [
+			"C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.50.35717\\bin\\Hostx64\\x64\\cl.exe",
+			"@C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\.vscode\\compileCommands_prototype3\\prototype3.2.rsp"
+		],
+		"directory": "C:\\UE_5.8\\Engine\\Source"
+	},
+	{
+		"file": "C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\Source\\prototype3\\Variant_Shooter\\AI\\ShooterAIController.cpp",
+		"arguments": [
+			"C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.50.35717\\bin\\Hostx64\\x64\\cl.exe",
+			"@C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\.vscode\\compileCommands_prototype3\\prototype3.2.rsp"
+		],
+		"directory": "C:\\UE_5.8\\Engine\\Source"
+	},
+	{
+		"file": "C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\Source\\prototype3\\Variant_Shooter\\AI\\ShooterNPC.cpp",
+		"arguments": [
+			"C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.50.35717\\bin\\Hostx64\\x64\\cl.exe",
+			"@C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\.vscode\\compileCommands_prototype3\\prototype3.2.rsp"
+		],
+		"directory": "C:\\UE_5.8\\Engine\\Source"
+	},
+	{
+		"file": "C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\Source\\prototype3\\Variant_Shooter\\AI\\ShooterNPCSpawner.cpp",
+		"arguments": [
+			"C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.50.35717\\bin\\Hostx64\\x64\\cl.exe",
+			"@C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\.vscode\\compileCommands_prototype3\\prototype3.2.rsp"
+		],
+		"directory": "C:\\UE_5.8\\Engine\\Source"
+	},
+	{
+		"file": "C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\Source\\prototype3\\Variant_Shooter\\AI\\ShooterStateTreeUtility.cpp",
+		"arguments": [
+			"C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.50.35717\\bin\\Hostx64\\x64\\cl.exe",
+			"@C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\.vscode\\compileCommands_prototype3\\prototype3.2.rsp"
+		],
+		"directory": "C:\\UE_5.8\\Engine\\Source"
+	},
+	{
+		"file": "C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\Source\\prototype3\\Variant_Shooter\\ShooterCharacter.cpp",
+		"arguments": [
+			"C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.50.35717\\bin\\Hostx64\\x64\\cl.exe",
+			"@C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\.vscode\\compileCommands_prototype3\\prototype3.2.rsp"
+		],
+		"directory": "C:\\UE_5.8\\Engine\\Source"
+	},
+	{
+		"file": "C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\Source\\prototype3\\Variant_Shooter\\ShooterGameMode.cpp",
+		"arguments": [
+			"C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.50.35717\\bin\\Hostx64\\x64\\cl.exe",
+			"@C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\.vscode\\compileCommands_prototype3\\prototype3.2.rsp"
+		],
+		"directory": "C:\\UE_5.8\\Engine\\Source"
+	},
+	{
+		"file": "C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\Source\\prototype3\\Variant_Shooter\\ShooterPlayerController.cpp",
+		"arguments": [
+			"C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.50.35717\\bin\\Hostx64\\x64\\cl.exe",
+			"@C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\.vscode\\compileCommands_prototype3\\prototype3.2.rsp"
+		],
+		"directory": "C:\\UE_5.8\\Engine\\Source"
+	},
+	{
+		"file": "C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\Source\\prototype3\\Variant_Shooter\\UI\\ShooterBulletCounterUI.cpp",
+		"arguments": [
+			"C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.50.35717\\bin\\Hostx64\\x64\\cl.exe",
+			"@C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\.vscode\\compileCommands_prototype3\\prototype3.2.rsp"
+		],
+		"directory": "C:\\UE_5.8\\Engine\\Source"
+	},
+	{
+		"file": "C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\Source\\prototype3\\Variant_Shooter\\UI\\ShooterUI.cpp",
+		"arguments": [
+			"C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.50.35717\\bin\\Hostx64\\x64\\cl.exe",
+			"@C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\.vscode\\compileCommands_prototype3\\prototype3.2.rsp"
+		],
+		"directory": "C:\\UE_5.8\\Engine\\Source"
+	},
+	{
+		"file": "C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\Source\\prototype3\\Variant_Shooter\\Weapons\\ShooterPickup.cpp",
+		"arguments": [
+			"C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.50.35717\\bin\\Hostx64\\x64\\cl.exe",
+			"@C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\.vscode\\compileCommands_prototype3\\prototype3.2.rsp"
+		],
+		"directory": "C:\\UE_5.8\\Engine\\Source"
+	},
+	{
+		"file": "C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\Source\\prototype3\\Variant_Shooter\\Weapons\\ShooterProjectile.cpp",
+		"arguments": [
+			"C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.50.35717\\bin\\Hostx64\\x64\\cl.exe",
+			"@C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\.vscode\\compileCommands_prototype3\\prototype3.2.rsp"
+		],
+		"directory": "C:\\UE_5.8\\Engine\\Source"
+	},
+	{
+		"file": "C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\Source\\prototype3\\Variant_Shooter\\Weapons\\ShooterWeapon.cpp",
+		"arguments": [
+			"C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.50.35717\\bin\\Hostx64\\x64\\cl.exe",
+			"@C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\.vscode\\compileCommands_prototype3\\prototype3.2.rsp"
+		],
+		"directory": "C:\\UE_5.8\\Engine\\Source"
+	},
+	{
+		"file": "C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\Source\\prototype3\\Variant_Shooter\\Weapons\\ShooterWeaponHolder.cpp",
+		"arguments": [
+			"C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.50.35717\\bin\\Hostx64\\x64\\cl.exe",
+			"@C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\.vscode\\compileCommands_prototype3\\prototype3.2.rsp"
+		],
+		"directory": "C:\\UE_5.8\\Engine\\Source"
+	},
+	{
+		"file": "C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\Source\\prototype3\\prototype3.cpp",
+		"arguments": [
+			"C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.50.35717\\bin\\Hostx64\\x64\\cl.exe",
+			"@C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\.vscode\\compileCommands_prototype3\\prototype3.2.rsp"
+		],
+		"directory": "C:\\UE_5.8\\Engine\\Source"
+	},
+	{
+		"file": "C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\Source\\prototype3\\prototype3CameraManager.cpp",
+		"arguments": [
+			"C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.50.35717\\bin\\Hostx64\\x64\\cl.exe",
+			"@C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\.vscode\\compileCommands_prototype3\\prototype3.2.rsp"
+		],
+		"directory": "C:\\UE_5.8\\Engine\\Source"
+	},
+	{
+		"file": "C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\Source\\prototype3\\prototype3Character.cpp",
+		"arguments": [
+			"C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.50.35717\\bin\\Hostx64\\x64\\cl.exe",
+			"@C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\.vscode\\compileCommands_prototype3\\prototype3.2.rsp"
+		],
+		"directory": "C:\\UE_5.8\\Engine\\Source"
+	},
+	{
+		"file": "C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\Source\\prototype3\\prototype3GameMode.cpp",
+		"arguments": [
+			"C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.50.35717\\bin\\Hostx64\\x64\\cl.exe",
+			"@C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\.vscode\\compileCommands_prototype3\\prototype3.2.rsp"
+		],
+		"directory": "C:\\UE_5.8\\Engine\\Source"
+	},
+	{
+		"file": "C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\Source\\prototype3\\prototype3PlayerController.cpp",
+		"arguments": [
+			"C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.50.35717\\bin\\Hostx64\\x64\\cl.exe",
+			"@C:\\Users\\tomib\\Documents\\Unreal Projects\\prototype3\\.vscode\\compileCommands_prototype3\\prototype3.2.rsp"
+		],
+		"directory": "C:\\UE_5.8\\Engine\\Source"
+	}
+]

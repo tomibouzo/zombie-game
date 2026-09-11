@@ -83,6 +83,11 @@ float AShooterCharacter::TakeDamage(float Damage, struct FDamageEvent const& Dam
 	return Damage;
 }
 
+float AShooterCharacter::GetHealthPercent() const
+{
+	return MaxHP > 0.0f ? FMath::Max(CurrentHP / MaxHP, 0.0f) : 0.0f;
+}
+
 void AShooterCharacter::DoAim(float Yaw, float Pitch)
 {
 	// only route inputs if the character is not dead

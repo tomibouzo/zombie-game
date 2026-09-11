@@ -110,6 +110,9 @@ public:
 	/** Handle incoming damage */
 	virtual float TakeDamage(float Damage, struct FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser) override;
 
+	/** Uses the shooter mode's existing health system for the universal vitals HUD. */
+	virtual float GetHealthPercent() const override;
+
 public:
 
 	/** Handles aim inputs from either controls or UI interfaces */
