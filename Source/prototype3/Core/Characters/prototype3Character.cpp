@@ -2,19 +2,23 @@
 
 #include "Core/Characters/prototype3Character.h"
 #include "Core/PlayerControllers/prototype3PlayerController.h"
+#include "Gameplay/Combat/Melee/PlayerMeleeComponent.h"
 #include "Animation/AnimInstance.h"
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "EnhancedInputComponent.h"
+#include "Engine/World.h"
 #include "InputAction.h"
 #include "InputActionValue.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "HAL/PlatformTime.h"
 #include "UObject/ConstructorHelpers.h"
 #include "prototype3.h"
 
 Aprototype3Character::Aprototype3Character()
 {
+	MeleeComponent = CreateDefaultSubobject<UPlayerMeleeComponent>(TEXT("Melee"));
 	// Set size for collision capsule
 	GetCapsuleComponent()->InitCapsuleSize(55.f, 96.0f);
 	
@@ -46,6 +50,10 @@ Aprototype3Character::Aprototype3Character()
 	GetCharacterMovement()->BrakingDecelerationFalling = 1500.0f;
 	GetCharacterMovement()->AirControl = 0.5f;
 	GetCharacterMovement()->MaxWalkSpeed = WalkSpeed;
+	GetCharacterMovement()->GetNavAgentPropertiesRef().bCanCrouch = true;
+	GetCharacterMovement()->bCanWalkOffLedgesWhenCrouching = true;
+	GetCharacterMovement()->SetCrouchedHalfHeight(CrouchHalfHeight);
+	GetCharacterMovement()->MaxWalkSpeedCrouched = CrouchSpeed;
 
 	static ConstructorHelpers::FObjectFinder<UInputAction> SprintActionAsset(TEXT("/Game/Input/Actions/IA_Sprint.IA_Sprint"));
 	if (SprintActionAsset.Succeeded())
@@ -63,10 +71,21 @@ void Aprototype3Character::BeginPlay()
 
 	CurrentHealth = MaxHealth;
 	CurrentStamina = MaxStamina;
+	StaminaRecoveryResumeTime = 0.0;
 	bSprintExhausted = false;
 	bIsSprinting = false;
 	bSprintInputHeld = false;
 	bRunInputHeld = false;
+	bCrouchInputHeld = false;
+	bCrouchedAtInputStart = false;
+	CrouchInputStartTime = 0.0;
+	StandingFirstPersonMeshLocation = FirstPersonMesh->GetRelativeLocation();
+	GetCharacterMovement()->GetNavAgentPropertiesRef().bCanCrouch = true;
+	// Apply at startup too so existing Blueprint defaults pick up the ledge fix.
+	GetCharacterMovement()->bCanWalkOffLedgesWhenCrouching = true;
+	GetCharacterMovement()->SetCrouchedHalfHeight(FMath::Clamp(CrouchHalfHeight,
+		GetCapsuleComponent()->GetUnscaledCapsuleRadius(), GetCapsuleComponent()->GetUnscaledCapsuleHalfHeight()));
+	GetCharacterMovement()->MaxWalkSpeedCrouched = CrouchSpeed;
 	GetCharacterMovement()->MaxWalkSpeed = WalkSpeed;
 	OnHealthUpdated.Broadcast(GetHealthPercent());
 	OnSprintStateChanged.Broadcast(false, GetStaminaPercent());
@@ -96,6 +115,27 @@ void Aprototype3Character::SetupPlayerInputComponent(UInputComponent* PlayerInpu
 				EnhancedInputComponent->BindAction(RunAction, ETriggerEvent::Started, this, &Aprototype3Character::DoStartRun);
 				EnhancedInputComponent->BindAction(RunAction, ETriggerEvent::Completed, this, &Aprototype3Character::DoEndRun);
 				EnhancedInputComponent->BindAction(RunAction, ETriggerEvent::Canceled, this, &Aprototype3Character::DoEndRun);
+			}
+
+			if (UInputAction* CrouchAction = PlayerController->GetCrouchAction())
+			{
+				EnhancedInputComponent->BindAction(CrouchAction, ETriggerEvent::Started, this, &Aprototype3Character::CrouchInputStarted);
+				EnhancedInputComponent->BindAction(CrouchAction, ETriggerEvent::Completed, this, &Aprototype3Character::CrouchInputCompleted);
+				EnhancedInputComponent->BindAction(CrouchAction, ETriggerEvent::Canceled, this, &Aprototype3Character::CrouchInputCanceled);
+			}
+
+			if (UInputAction* PrimaryAction = PlayerController->GetPrimaryAction())
+			{
+				EnhancedInputComponent->BindAction(PrimaryAction, ETriggerEvent::Started, this, &Aprototype3Character::DoPrimaryActionStart);
+				EnhancedInputComponent->BindAction(PrimaryAction, ETriggerEvent::Completed, this, &Aprototype3Character::DoPrimaryActionEnd);
+				EnhancedInputComponent->BindAction(PrimaryAction, ETriggerEvent::Canceled, this, &Aprototype3Character::DoPrimaryActionEnd);
+			}
+
+			if (UInputAction* SecondaryAction = PlayerController->GetSecondaryAction())
+			{
+				EnhancedInputComponent->BindAction(SecondaryAction, ETriggerEvent::Started, this, &Aprototype3Character::DoSecondaryActionStart);
+				EnhancedInputComponent->BindAction(SecondaryAction, ETriggerEvent::Completed, this, &Aprototype3Character::DoSecondaryActionEnd);
+				EnhancedInputComponent->BindAction(SecondaryAction, ETriggerEvent::Canceled, this, &Aprototype3Character::DoSecondaryActionEnd);
 			}
 		}
 
@@ -169,7 +209,7 @@ void Aprototype3Character::DoJumpEnd()
 void Aprototype3Character::DoStartRun()
 {
 	bRunInputHeld = true;
-	if (!bIsSprinting && !bSprintExhausted && CurrentStamina > 0.0f)
+	if (!bIsCrouched && !GetCharacterMovement()->bWantsToCrouch && !bIsSprinting && !bSprintExhausted && CurrentStamina > 0.0f)
 	{
 		GetCharacterMovement()->MaxWalkSpeed = RunSpeed;
 	}
@@ -193,19 +233,107 @@ void Aprototype3Character::DoEndSprint()
 {
 	bSprintInputHeld = false;
 	bIsSprinting = false;
-	GetCharacterMovement()->MaxWalkSpeed = bRunInputHeld && !bSprintExhausted && CurrentStamina > 0.0f ? RunSpeed : WalkSpeed;
+	GetCharacterMovement()->MaxWalkSpeed = !bIsCrouched && !GetCharacterMovement()->bWantsToCrouch && bRunInputHeld && !bSprintExhausted && CurrentStamina > 0.0f ? RunSpeed : WalkSpeed;
 	OnSprintStateChanged.Broadcast(false, GetStaminaPercent());
+}
+
+void Aprototype3Character::DoStartCrouch()
+{
+	Crouch();
+	bIsSprinting = false;
+	GetCharacterMovement()->MaxWalkSpeed = WalkSpeed;
+	OnSprintStateChanged.Broadcast(false, GetStaminaPercent());
+}
+
+void Aprototype3Character::DoPrimaryActionStart_Implementation()
+{
+	MeleeComponent->StartAttacking();
+}
+
+void Aprototype3Character::DoPrimaryActionEnd_Implementation()
+{
+	MeleeComponent->StopAttacking();
+}
+
+void Aprototype3Character::DoSecondaryActionStart_Implementation()
+{
+	// Reserved for future use, aim, block, or interaction behavior.
+}
+
+void Aprototype3Character::DoSecondaryActionEnd_Implementation()
+{
+}
+
+void Aprototype3Character::DoEndCrouch()
+{
+	UnCrouch();
+}
+
+void Aprototype3Character::CrouchInputStarted()
+{
+	if (bCrouchInputHeld)
+	{
+		return;
+	}
+
+	bCrouchInputHeld = true;
+	bCrouchedAtInputStart = bIsCrouched || GetCharacterMovement()->bWantsToCrouch;
+	CrouchInputStartTime = FPlatformTime::Seconds();
+	// Respond immediately, then distinguish a tap from a hold on release.
+	DoStartCrouch();
+}
+
+void Aprototype3Character::CrouchInputCompleted()
+{
+	if (!bCrouchInputHeld)
+	{
+		return;
+	}
+
+	bCrouchInputHeld = false;
+	const double HeldSeconds = FPlatformTime::Seconds() - CrouchInputStartTime;
+	if (bCrouchedAtInputStart || HeldSeconds >= CrouchHoldThreshold)
+	{
+		DoEndCrouch();
+	}
+	// A short tap from standing leaves the crouch request active.
+}
+
+void Aprototype3Character::CrouchInputCanceled()
+{
+	// A canceled action must never be interpreted as a tap that latches crouch.
+	bCrouchInputHeld = false;
+	DoEndCrouch();
+}
+
+void Aprototype3Character::OnStartCrouch(float HalfHeightAdjust, float ScaledHalfHeightAdjust)
+{
+	Super::OnStartCrouch(HalfHeightAdjust, ScaledHalfHeightAdjust);
+
+	// The parent body mesh offsets upward to keep its feet planted. Cancel that
+	// offset, then lower the head-mounted view within the shorter capsule too.
+	FirstPersonMesh->SetRelativeLocation(StandingFirstPersonMeshLocation - FVector(0.0f, 0.0f, 2.0f * HalfHeightAdjust));
+}
+
+void Aprototype3Character::OnEndCrouch(float HalfHeightAdjust, float ScaledHalfHeightAdjust)
+{
+	Super::OnEndCrouch(HalfHeightAdjust, ScaledHalfHeightAdjust);
+	FirstPersonMesh->SetRelativeLocation(StandingFirstPersonMeshLocation);
 }
 
 void Aprototype3Character::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
 
+	const float PreviousStamina = CurrentStamina;
 	const bool bIsMoving = GetVelocity().SizeSquared2D() > FMath::Square(1.0f);
-	const bool bCanSprint = bSprintInputHeld && bIsMoving && !bSprintExhausted && CurrentStamina > 0.0f;
+	// Include the request so Ctrl suppresses stamina drain immediately, and the
+	// actual state so releasing Ctrl under a ceiling cannot resume run/sprint.
+	const bool bCrouchActive = bIsCrouched || GetCharacterMovement()->bWantsToCrouch;
+	const bool bCanSprint = !bCrouchActive && bSprintInputHeld && bIsMoving && !bSprintExhausted && CurrentStamina > 0.0f;
 	const bool bWasSprinting = bIsSprinting;
 	bIsSprinting = bCanSprint;
-	bool bIsRunning = !bIsSprinting && bRunInputHeld && bIsMoving && !bSprintExhausted && CurrentStamina > 0.0f;
+	bool bIsRunning = !bCrouchActive && !bIsSprinting && bRunInputHeld && bIsMoving && !bSprintExhausted && CurrentStamina > 0.0f;
 
 	if (bIsSprinting || bIsRunning)
 	{
@@ -220,7 +348,10 @@ void Aprototype3Character::Tick(float DeltaSeconds)
 	}
 	else
 	{
-		CurrentStamina = FMath::Min(CurrentStamina + (StaminaRecoveryPerSecond * DeltaSeconds), MaxStamina);
+		const float RecoveryMultiplier = bIsCrouched ? CrouchStaminaRecoveryMultiplier : 1.0f;
+		const float RecoverySeconds = static_cast<float>(FMath::Clamp(
+			GetWorld()->GetTimeSeconds() - StaminaRecoveryResumeTime, 0.0, static_cast<double>(DeltaSeconds)));
+		CurrentStamina = FMath::Min(CurrentStamina + (StaminaRecoveryPerSecond * RecoveryMultiplier * RecoverySeconds), MaxStamina);
 		if (CurrentStamina >= MaxStamina)
 		{
 			bSprintExhausted = false;
@@ -228,7 +359,8 @@ void Aprototype3Character::Tick(float DeltaSeconds)
 	}
 
 	GetCharacterMovement()->MaxWalkSpeed = bIsSprinting ? SprintSpeed : (bIsRunning ? RunSpeed : WalkSpeed);
-	if (bWasSprinting != bIsSprinting || !FMath::IsNearlyEqual(CurrentStamina, MaxStamina))
+	GetCharacterMovement()->MaxWalkSpeedCrouched = CrouchSpeed;
+	if (bWasSprinting != bIsSprinting || CurrentStamina != PreviousStamina)
 	{
 		OnSprintStateChanged.Broadcast(bIsSprinting, GetStaminaPercent());
 	}
@@ -250,6 +382,26 @@ float Aprototype3Character::TakeDamage(float Damage, const FDamageEvent& DamageE
 float Aprototype3Character::GetHealthPercent() const
 {
 	return MaxHealth > 0.0f ? CurrentHealth / MaxHealth : 0.0f;
+}
+
+bool Aprototype3Character::TryConsumeStamina(float Amount, float RecoveryDelay)
+{
+	if (!IsAlive() || !GetWorld() || !FMath::IsFinite(Amount) || Amount < 0.0f || CurrentStamina < Amount)
+	{
+		return false;
+	}
+
+	CurrentStamina = FMath::Max(CurrentStamina - Amount, 0.0f);
+	StaminaRecoveryResumeTime = FMath::Max(StaminaRecoveryResumeTime,
+		GetWorld()->GetTimeSeconds() + FMath::Max(RecoveryDelay, 0.0f));
+	if (CurrentStamina <= 0.0f)
+	{
+		bSprintExhausted = true;
+		bIsSprinting = false;
+		GetCharacterMovement()->MaxWalkSpeed = WalkSpeed;
+	}
+	OnSprintStateChanged.Broadcast(bIsSprinting, GetStaminaPercent());
+	return true;
 }
 
 float Aprototype3Character::GetStaminaPercent() const

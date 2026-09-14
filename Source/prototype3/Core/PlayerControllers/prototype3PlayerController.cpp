@@ -20,6 +20,35 @@ Aprototype3PlayerController::Aprototype3PlayerController()
 	RuntimeRunAction = CreateDefaultSubobject<UInputAction>(TEXT("RunAction"));
 	RuntimeRunAction->ValueType = EInputActionValueType::Boolean;
 	RuntimeRunAction->bConsumeInput = true;
+
+	RuntimeCrouchAction = CreateDefaultSubobject<UInputAction>(TEXT("CrouchAction"));
+	RuntimeCrouchAction->ValueType = EInputActionValueType::Boolean;
+	RuntimeCrouchAction->bConsumeInput = true;
+
+}
+
+UInputAction* Aprototype3PlayerController::GetPrimaryAction()
+{
+	if (!RuntimePrimaryAction || RuntimePrimaryAction->HasAnyFlags(RF_DefaultSubObject)
+		|| RuntimePrimaryAction->GetOuter() != this)
+	{
+		RuntimePrimaryAction = NewObject<UInputAction>(this, NAME_None, RF_Transient);
+		RuntimePrimaryAction->ValueType = EInputActionValueType::Boolean;
+		RuntimePrimaryAction->bConsumeInput = true;
+	}
+	return RuntimePrimaryAction.Get();
+}
+
+UInputAction* Aprototype3PlayerController::GetSecondaryAction()
+{
+	if (!RuntimeSecondaryAction || RuntimeSecondaryAction->HasAnyFlags(RF_DefaultSubObject)
+		|| RuntimeSecondaryAction->GetOuter() != this)
+	{
+		RuntimeSecondaryAction = NewObject<UInputAction>(this, NAME_None, RF_Transient);
+		RuntimeSecondaryAction->ValueType = EInputActionValueType::Boolean;
+		RuntimeSecondaryAction->bConsumeInput = true;
+	}
+	return RuntimeSecondaryAction.Get();
 }
 
 void Aprototype3PlayerController::BeginPlay()
@@ -62,14 +91,27 @@ void Aprototype3PlayerController::SetupInputComponent()
 				Subsystem->AddMappingContext(CurrentContext, 0);
 			}
 
-			// Keep run/sprint controls independent of individual map IMCs.
+			// Keep movement and primary/secondary actions independent of individual map IMCs.
 			// This is intentionally runtime-only; it does not mutate any .uasset.
 			if (!RuntimeSprintMappingContext)
 			{
 				RuntimeSprintMappingContext = NewObject<UInputMappingContext>(this, TEXT("RuntimeSprintMappingContext"));
+			}
+			else
+			{
+				Subsystem->RemoveMappingContext(RuntimeSprintMappingContext);
+			}
+			// Rebuild even when a context survived input setup or an editor reload.
+			// Never retain mappings to an older action object than the character binds.
+			{
+				RuntimeSprintMappingContext->UnmapAll();
 				// Higher-priority Shift mappings consume any legacy Shift-to-sprint bindings.
 				RuntimeSprintMappingContext->MapKey(RuntimeRunAction, EKeys::LeftShift);
 				RuntimeSprintMappingContext->MapKey(RuntimeRunAction, EKeys::RightShift);
+				RuntimeSprintMappingContext->MapKey(RuntimeCrouchAction, EKeys::LeftControl);
+				RuntimeSprintMappingContext->MapKey(RuntimeCrouchAction, EKeys::RightControl);
+				RuntimeSprintMappingContext->MapKey(GetPrimaryAction(), EKeys::LeftMouseButton);
+				RuntimeSprintMappingContext->MapKey(GetSecondaryAction(), EKeys::RightMouseButton);
 				RuntimeSprintAction = LoadObject<UInputAction>(nullptr, TEXT("/Game/Input/Actions/IA_Sprint.IA_Sprint"));
 				if (RuntimeSprintAction)
 				{

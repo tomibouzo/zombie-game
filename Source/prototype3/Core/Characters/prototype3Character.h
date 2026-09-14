@@ -11,6 +11,7 @@ class UInputComponent;
 class USkeletalMeshComponent;
 class UCameraComponent;
 class UInputAction;
+class UPlayerMeleeComponent;
 struct FInputActionValue;
 
 DECLARE_LOG_CATEGORY_EXTERN(LogTemplateCharacter, Log, All);
@@ -33,6 +34,9 @@ class Aprototype3Character : public ACharacter
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
 	UCameraComponent* FirstPersonCameraComponent;
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta=(AllowPrivateAccess="true"))
+	TObjectPtr<UPlayerMeleeComponent> MeleeComponent;
+
 protected:
 	/** Maximum health available to this character. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Health", meta = (ClampMin = 1.0, AllowPrivateAccess = "true"))
@@ -54,13 +58,36 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Sprint", meta = (ClampMin = 0.0, AllowPrivateAccess = "true"))
 	float WalkSpeed = 350.0f;
 
+	/** Movement speed while crouched, including when run or sprint is held. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Crouch", meta = (ClampMin = 0.0, Units = "cm/s"))
+	float CrouchSpeed = 150.0f;
+
+	/** Half the crouched capsule height; clamped to the capsule radius and standing height. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Crouch", meta = (ClampMin = 0.0, Units = "cm"))
+	float CrouchHalfHeight = 60.0f;
+
+	/** Presses shorter than this toggle crouch; longer holds stand on release. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Crouch", meta = (ClampMin = 0.0, Units = "s"))
+	float CrouchHoldThreshold = 0.25f;
+
+	/** Multiplies normal stamina recovery while physically crouched. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Crouch", meta = (ClampMin = 0.0))
+	float CrouchStaminaRecoveryMultiplier = 1.5f;
+
+	bool bCrouchInputHeld = false;
+	bool bCrouchedAtInputStart = false;
+	double CrouchInputStartTime = 0.0;
+
+	/** Standing first-person mesh position, including Blueprint adjustments. */
+	FVector StandingFirstPersonMeshLocation = FVector::ZeroVector;
+
 	/** Movement speed while Shift is held, unless sprinting. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Run", meta = (ClampMin = 0.0, AllowPrivateAccess = "true"))
 	float RunSpeed = 500.0f;
 
 	/** Stamina consumed each second of actual running. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Run", meta = (ClampMin = 0.0, AllowPrivateAccess = "true"))
-	float RunStaminaDrainPerSecond = 1.0f;
+	float RunStaminaDrainPerSecond = 2.0f;
 
 	/** Movement speed while Alt is held and stamina remains. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Sprint", meta = (ClampMin = 0.0, AllowPrivateAccess = "true"))
@@ -68,7 +95,7 @@ protected:
 
 	/** Stamina consumed each second of actual sprinting. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Sprint", meta = (ClampMin = 0.0, AllowPrivateAccess = "true"))
-	float StaminaDrainPerSecond = 2.0f;
+	float StaminaDrainPerSecond = 4.0f;
 
 	/** Stamina restored each second while neither running nor sprinting. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Sprint", meta = (ClampMin = 0.0, AllowPrivateAccess = "true"))
@@ -85,6 +112,9 @@ protected:
 
 	/** Set by the run input action while Shift is held. */
 	bool bRunInputHeld = false;
+
+	/** Attacks defer regeneration until their recovery period ends. */
+	double StaminaRecoveryResumeTime = 0.0;
 
 
 	/** Jump Input Action */
@@ -150,6 +180,39 @@ protected:
 	UFUNCTION(BlueprintCallable, Category="Input")
 	virtual void DoEndSprint();
 
+	/** Generic action entry points. Future held items can provide their own behavior. */
+	UFUNCTION(BlueprintCallable, BlueprintNativeEvent, Category="Input|Actions")
+	void DoPrimaryActionStart();
+	virtual void DoPrimaryActionStart_Implementation();
+
+	UFUNCTION(BlueprintCallable, BlueprintNativeEvent, Category="Input|Actions")
+	void DoPrimaryActionEnd();
+	virtual void DoPrimaryActionEnd_Implementation();
+
+	UFUNCTION(BlueprintCallable, BlueprintNativeEvent, Category="Input|Actions")
+	void DoSecondaryActionStart();
+	virtual void DoSecondaryActionStart_Implementation();
+
+	UFUNCTION(BlueprintCallable, BlueprintNativeEvent, Category="Input|Actions")
+	void DoSecondaryActionEnd();
+	virtual void DoSecondaryActionEnd_Implementation();
+
+	/** Hold to crouch. Crouching takes priority over running and sprinting. */
+	UFUNCTION(BlueprintCallable, Category="Input")
+	virtual void DoStartCrouch();
+
+	/** Requests standing; Character Movement waits until there is enough headroom. */
+	UFUNCTION(BlueprintCallable, Category="Input")
+	virtual void DoEndCrouch();
+
+	/** Keyboard tap/hold interpretation, separate from explicit Blueprint crouch requests. */
+	void CrouchInputStarted();
+	void CrouchInputCompleted();
+	void CrouchInputCanceled();
+
+	virtual void OnStartCrouch(float HalfHeightAdjust, float ScaledHalfHeightAdjust) override;
+	virtual void OnEndCrouch(float HalfHeightAdjust, float ScaledHalfHeightAdjust) override;
+
 protected:
 
 	/** Set up input action bindings */
@@ -169,6 +232,13 @@ public:
 
 	/** Returns first person camera component **/
 	UCameraComponent* GetFirstPersonCameraComponent() const { return FirstPersonCameraComponent; }
+
+	UFUNCTION(BlueprintPure, Category="Health")
+	bool IsAlive() const { return CurrentHealth > 0.0f; }
+
+	/** Pays a one-off action cost atomically; rejected actions spend no stamina. */
+	UFUNCTION(BlueprintCallable, Category="Stamina")
+	bool TryConsumeStamina(float Amount, float RecoveryDelay = 0.0f);
 
 	/** Delegate called whenever health changes. */
 	FPlayerHealthUpdatedDelegate OnHealthUpdated;
