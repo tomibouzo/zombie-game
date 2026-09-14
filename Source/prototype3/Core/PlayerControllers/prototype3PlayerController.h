@@ -28,6 +28,13 @@ public:
 	/** The run action shared by the controller's mappings and the possessed character. */
 	UInputAction* GetRunAction() const { return RuntimeRunAction.Get(); }
 
+	/** The tap/hold crouch action shared with the possessed character. */
+	UInputAction* GetCrouchAction() const { return RuntimeCrouchAction.Get(); }
+
+	/** Lazily created after Blueprint defaults load; mappings and bindings share these instances. */
+	UInputAction* GetPrimaryAction();
+	UInputAction* GetSecondaryAction();
+
 protected:
 
 	/** Input Mapping Contexts */
@@ -38,7 +45,7 @@ protected:
 	UPROPERTY(EditAnywhere, Category="Input|Input Mappings")
 	TArray<UInputMappingContext*> MobileExcludedMappingContexts;
 
-	/** Runtime-only mapping for Shift running and Alt sprinting. */
+	/** Runtime-only movement and primary/secondary action mappings. */
 	UPROPERTY(Transient)
 	TObjectPtr<UInputMappingContext> RuntimeSprintMappingContext;
 
@@ -49,6 +56,16 @@ protected:
 	/** Run action owned by this controller; no content asset is required. */
 	UPROPERTY(Transient)
 	TObjectPtr<UInputAction> RuntimeRunAction;
+
+	/** Crouch action owned by this controller; no content asset is required. */
+	UPROPERTY(Transient)
+	TObjectPtr<UInputAction> RuntimeCrouchAction;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UInputAction> RuntimePrimaryAction;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UInputAction> RuntimeSecondaryAction;
 
 	/** Mobile controls widget to spawn */
 	UPROPERTY(EditAnywhere, Category="Input|Touch Controls")
