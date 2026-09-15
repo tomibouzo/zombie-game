@@ -73,9 +73,9 @@ void Aprototype3Character::BeginPlay()
 	CurrentStamina = MaxStamina;
 	StaminaRecoveryResumeTime = 0.0;
 	bSprintExhausted = false;
-	bIsSprinting = false;
-	bSprintInputHeld = false;
-	bRunInputHeld = false;
+	LocomotionIntent = FPlayerLocomotionIntent();
+	ActiveGait = EPlayerLocomotionGait::Walking;
+	ActiveStance = bIsCrouched ? EPlayerLocomotionStance::Crouching : EPlayerLocomotionStance::Standing;
 	bCrouchInputHeld = false;
 	bCrouchedAtInputStart = false;
 	CrouchInputStartTime = 0.0;
@@ -102,19 +102,21 @@ void Aprototype3Character::SetupPlayerInputComponent(UInputComponent* PlayerInpu
 
 		// Moving
 		EnhancedInputComponent->BindAction(MoveAction, ETriggerEvent::Triggered, this, &Aprototype3Character::MoveInput);
+		EnhancedInputComponent->BindAction(MoveAction, ETriggerEvent::Completed, this, &Aprototype3Character::MoveInput);
+		EnhancedInputComponent->BindAction(MoveAction, ETriggerEvent::Canceled, this, &Aprototype3Character::MoveInput);
 
 		// Looking/Aiming
 		EnhancedInputComponent->BindAction(LookAction, ETriggerEvent::Triggered, this, &Aprototype3Character::LookInput);
 		EnhancedInputComponent->BindAction(MouseLookAction, ETriggerEvent::Triggered, this, &Aprototype3Character::LookInput);
 
-		// Hold Shift to run. The controller owns the shared runtime action and mappings.
+		// Tap Shift to toggle run, or hold it to run only until release.
 		if (Aprototype3PlayerController* PlayerController = Cast<Aprototype3PlayerController>(GetController()))
 		{
 			if (UInputAction* RunAction = PlayerController->GetRunAction())
 			{
-				EnhancedInputComponent->BindAction(RunAction, ETriggerEvent::Started, this, &Aprototype3Character::DoStartRun);
-				EnhancedInputComponent->BindAction(RunAction, ETriggerEvent::Completed, this, &Aprototype3Character::DoEndRun);
-				EnhancedInputComponent->BindAction(RunAction, ETriggerEvent::Canceled, this, &Aprototype3Character::DoEndRun);
+				EnhancedInputComponent->BindAction(RunAction, ETriggerEvent::Started, this, &Aprototype3Character::RunInputStarted);
+				EnhancedInputComponent->BindAction(RunAction, ETriggerEvent::Completed, this, &Aprototype3Character::RunInputCompleted);
+				EnhancedInputComponent->BindAction(RunAction, ETriggerEvent::Canceled, this, &Aprototype3Character::RunInputCanceled);
 			}
 
 			if (UInputAction* CrouchAction = PlayerController->GetCrouchAction())
@@ -139,12 +141,12 @@ void Aprototype3Character::SetupPlayerInputComponent(UInputComponent* PlayerInpu
 			}
 		}
 
-		// Hold Alt to sprint; releasing it returns to running or walking.
+		// Tap Alt to toggle sprint, or hold it to sprint only until release.
 		if (SprintAction)
 		{
-			EnhancedInputComponent->BindAction(SprintAction, ETriggerEvent::Started, this, &Aprototype3Character::DoStartSprint);
-			EnhancedInputComponent->BindAction(SprintAction, ETriggerEvent::Completed, this, &Aprototype3Character::DoEndSprint);
-			EnhancedInputComponent->BindAction(SprintAction, ETriggerEvent::Canceled, this, &Aprototype3Character::DoEndSprint);
+			EnhancedInputComponent->BindAction(SprintAction, ETriggerEvent::Started, this, &Aprototype3Character::SprintInputStarted);
+			EnhancedInputComponent->BindAction(SprintAction, ETriggerEvent::Completed, this, &Aprototype3Character::SprintInputCompleted);
+			EnhancedInputComponent->BindAction(SprintAction, ETriggerEvent::Canceled, this, &Aprototype3Character::SprintInputCanceled);
 		}
 	}
 	else
@@ -163,7 +165,6 @@ void Aprototype3Character::MoveInput(const FInputActionValue& Value)
 	DoMove(MovementVector.X, MovementVector.Y);
 
 }
-
 void Aprototype3Character::LookInput(const FInputActionValue& Value)
 {
 	// get the Vector2D look axis
@@ -186,6 +187,7 @@ void Aprototype3Character::DoAim(float Yaw, float Pitch)
 
 void Aprototype3Character::DoMove(float Right, float Forward)
 {
+	LocomotionIntent.MovementInput = FVector2D(Right, Forward);
 	if (GetController())
 	{
 		// pass the move inputs
@@ -208,45 +210,50 @@ void Aprototype3Character::DoJumpEnd()
 
 void Aprototype3Character::DoStartRun()
 {
-	bRunInputHeld = true;
-	if (!bIsCrouched && !GetCharacterMovement()->bWantsToCrouch && !bIsSprinting && !bSprintExhausted && CurrentStamina > 0.0f)
-	{
-		GetCharacterMovement()->MaxWalkSpeed = RunSpeed;
-	}
+	ToggleGaitRequest(EPlayerLocomotionGait::Running);
 }
 
 void Aprototype3Character::DoEndRun()
 {
-	bRunInputHeld = false;
-	if (!bIsSprinting)
-	{
-		GetCharacterMovement()->MaxWalkSpeed = WalkSpeed;
-	}
+	LocomotionIntent.Run = FPlayerGaitInputIntent();
+	ResolveLocomotionState();
 }
 
 void Aprototype3Character::DoStartSprint()
 {
-	bSprintInputHeld = true;
+	ToggleGaitRequest(EPlayerLocomotionGait::Sprinting);
 }
 
 void Aprototype3Character::DoEndSprint()
 {
-	bSprintInputHeld = false;
-	bIsSprinting = false;
-	GetCharacterMovement()->MaxWalkSpeed = !bIsCrouched && !GetCharacterMovement()->bWantsToCrouch && bRunInputHeld && !bSprintExhausted && CurrentStamina > 0.0f ? RunSpeed : WalkSpeed;
-	OnSprintStateChanged.Broadcast(false, GetStaminaPercent());
+	const bool bWasSprinting = IsSprinting();
+	LocomotionIntent.Sprint = FPlayerGaitInputIntent();
+	ResolveLocomotionState();
+	if (bWasSprinting != IsSprinting())
+	{
+		OnSprintStateChanged.Broadcast(IsSprinting(), GetStaminaPercent());
+	}
 }
 
 void Aprototype3Character::DoStartCrouch()
 {
+	// Resolve first, then let latched gait requests yield to crouch while a
+	// physically held Shift/Alt key keeps crouch blocked until release.
+	ResolveLocomotionState();
+	if (!CanStartCrouch())
+	{
+		return;
+	}
+
+	ClearSpeedRequests();
 	Crouch();
-	bIsSprinting = false;
-	GetCharacterMovement()->MaxWalkSpeed = WalkSpeed;
+	SetActiveGait(EPlayerLocomotionGait::Walking);
 	OnSprintStateChanged.Broadcast(false, GetStaminaPercent());
 }
 
 void Aprototype3Character::DoPrimaryActionStart_Implementation()
 {
+	RequestStandingForAction();
 	MeleeComponent->StartAttacking();
 }
 
@@ -267,6 +274,280 @@ void Aprototype3Character::DoSecondaryActionEnd_Implementation()
 void Aprototype3Character::DoEndCrouch()
 {
 	UnCrouch();
+}
+
+void Aprototype3Character::RequestStandingForAction()
+{
+	if (bIsCrouched || GetCharacterMovement()->bWantsToCrouch)
+	{
+		// Keep bCrouchInputHeld intact. If Ctrl is still down, releasing it only
+		// finishes that press; the player must press Ctrl again to crouch again.
+		DoEndCrouch();
+	}
+}
+
+bool Aprototype3Character::IsStandingForAction() const
+{
+	return !IsCrouchActive();
+}
+
+bool Aprototype3Character::HasForwardMovementInput() const
+{
+	return LocomotionIntent.MovementInput.Y > UE_KINDA_SMALL_NUMBER;
+}
+
+float Aprototype3Character::GetDirectionalMovementSpeedMultiplier() const
+{
+	const bool bHasMovementInput = !LocomotionIntent.MovementInput.IsNearlyZero(UE_KINDA_SMALL_NUMBER);
+	return bHasMovementInput && !HasForwardMovementInput() ? SideAndBackSpeedMultiplier : 1.0f;
+}
+
+void Aprototype3Character::ToggleGaitRequest(EPlayerLocomotionGait RequestedGait)
+{
+	FPlayerGaitInputIntent* GaitIntent = FindGaitInputIntent(RequestedGait);
+	if (!GaitIntent)
+	{
+		return;
+	}
+
+	if (IsCrouchActive() && !HasForwardMovementInput())
+	{
+		// A stationary crouch deliberately ignores Shift/Alt. Do not latch a
+		// request that could unexpectedly stand the character later.
+		return;
+	}
+
+	GaitIntent->bToggled = !GaitIntent->bToggled;
+	if (IsCrouchActive())
+	{
+		if (HasRequestedGait())
+		{
+			// Character Movement keeps the crouched capsule if headroom is blocked.
+			// The request remains pending and resolves only after standing succeeds.
+			RequestStandingForAction();
+		}
+		else if (bIsCrouched)
+		{
+			// Cancel a pending stand request if the speed toggle is pressed again
+			// while an overhead obstruction still keeps the character crouched.
+			Crouch();
+		}
+	}
+
+	ResolveLocomotionState();
+}
+
+void Aprototype3Character::GaitInputStarted(EPlayerLocomotionGait RequestedGait)
+{
+	FPlayerGaitInputIntent* GaitIntent = FindGaitInputIntent(RequestedGait);
+	if (!GaitIntent || GaitIntent->bHeld)
+	{
+		return;
+	}
+
+	if (IsCrouchActive() && !HasForwardMovementInput())
+	{
+		// A gait key pressed during a stationary crouch is ignored completely,
+		// including if the player keeps holding it and moves afterward.
+		return;
+	}
+
+	GaitIntent->bHeld = true;
+	GaitIntent->bToggledAtPress = GaitIntent->bToggled;
+	GaitIntent->InputStartTime = FPlatformTime::Seconds();
+
+	if (IsCrouchActive())
+	{
+		RequestStandingForAction();
+	}
+
+	ResolveLocomotionState();
+}
+
+void Aprototype3Character::GaitInputCompleted(EPlayerLocomotionGait RequestedGait)
+{
+	FPlayerGaitInputIntent* GaitIntent = FindGaitInputIntent(RequestedGait);
+	if (!GaitIntent || !GaitIntent->bHeld)
+	{
+		return;
+	}
+
+	const double HeldSeconds = FPlatformTime::Seconds() - GaitIntent->InputStartTime;
+	GaitIntent->bHeld = false;
+	GaitIntent->bToggled = HeldSeconds < GaitHoldThreshold
+		? !GaitIntent->bToggledAtPress
+		: false;
+	GaitIntent->bToggledAtPress = false;
+
+	if (bIsCrouched && !HasRequestedGait())
+	{
+		// If standing was blocked for the entire hold, releasing the gait key
+		// cancels that pending stand request and keeps the crouch latched.
+		Crouch();
+	}
+
+	ResolveLocomotionState();
+	if (bCrouchInputHeld && !HasHeldGaitInput())
+	{
+		// Ctrl may have been pressed while this gait key was held. Honor that
+		// still-held crouch request as soon as the final gait key is released.
+		DoStartCrouch();
+	}
+}
+
+void Aprototype3Character::GaitInputCanceled(EPlayerLocomotionGait RequestedGait)
+{
+	FPlayerGaitInputIntent* GaitIntent = FindGaitInputIntent(RequestedGait);
+	if (!GaitIntent)
+	{
+		return;
+	}
+
+	*GaitIntent = FPlayerGaitInputIntent();
+	if (bIsCrouched && !HasRequestedGait())
+	{
+		Crouch();
+	}
+	ResolveLocomotionState();
+	if (bCrouchInputHeld && !HasHeldGaitInput())
+	{
+		DoStartCrouch();
+	}
+}
+
+FPlayerGaitInputIntent* Aprototype3Character::FindGaitInputIntent(EPlayerLocomotionGait RequestedGait)
+{
+	if (RequestedGait == EPlayerLocomotionGait::Running)
+	{
+		return &LocomotionIntent.Run;
+	}
+	if (RequestedGait == EPlayerLocomotionGait::Sprinting)
+	{
+		return &LocomotionIntent.Sprint;
+	}
+	return nullptr;
+}
+
+const FPlayerGaitInputIntent* Aprototype3Character::FindGaitInputIntent(EPlayerLocomotionGait RequestedGait) const
+{
+	if (RequestedGait == EPlayerLocomotionGait::Running)
+	{
+		return &LocomotionIntent.Run;
+	}
+	if (RequestedGait == EPlayerLocomotionGait::Sprinting)
+	{
+		return &LocomotionIntent.Sprint;
+	}
+	return nullptr;
+}
+
+bool Aprototype3Character::HasHeldGaitInput() const
+{
+	return LocomotionIntent.Run.bHeld || LocomotionIntent.Sprint.bHeld;
+}
+
+bool Aprototype3Character::HasRequestedGait() const
+{
+	return LocomotionIntent.Run.IsRequested() || LocomotionIntent.Sprint.IsRequested();
+}
+
+void Aprototype3Character::ResolveLocomotionState()
+{
+	ActiveStance = bIsCrouched
+		? EPlayerLocomotionStance::Crouching
+		: EPlayerLocomotionStance::Standing;
+
+	const bool bIsMoving = GetVelocity().SizeSquared2D() > FMath::Square(1.0f);
+	if (IsCrouchActive() || !HasForwardMovementInput() || !bIsMoving || !CanUseStaminaMovement())
+	{
+		SetActiveGait(EPlayerLocomotionGait::Walking);
+		return;
+	}
+
+	if (LocomotionIntent.Sprint.IsRequested())
+	{
+		SetActiveGait(EPlayerLocomotionGait::Sprinting);
+	}
+	else if (LocomotionIntent.Run.IsRequested())
+	{
+		SetActiveGait(EPlayerLocomotionGait::Running);
+	}
+	else
+	{
+		SetActiveGait(EPlayerLocomotionGait::Walking);
+	}
+}
+
+void Aprototype3Character::SetActiveGait(EPlayerLocomotionGait NewGait)
+{
+	ActiveGait = NewGait;
+
+	float StandingSpeed = WalkSpeed;
+	if (ActiveGait == EPlayerLocomotionGait::Running)
+	{
+		StandingSpeed = RunSpeed;
+	}
+	else if (ActiveGait == EPlayerLocomotionGait::Sprinting)
+	{
+		StandingSpeed = SprintSpeed;
+	}
+
+	const float DirectionalSpeedMultiplier = GetDirectionalMovementSpeedMultiplier();
+	GetCharacterMovement()->MaxWalkSpeed = StandingSpeed * DirectionalSpeedMultiplier;
+	GetCharacterMovement()->MaxWalkSpeedCrouched = CrouchSpeed * DirectionalSpeedMultiplier;
+}
+
+void Aprototype3Character::ClearSpeedRequests()
+{
+	LocomotionIntent.Run = FPlayerGaitInputIntent();
+	LocomotionIntent.Sprint = FPlayerGaitInputIntent();
+}
+
+bool Aprototype3Character::CanStartCrouch() const
+{
+	// Latched gait requests yield to crouch, even while they are actively moving.
+	// A physically held Shift/Alt key blocks crouch until that key is released.
+	return !HasHeldGaitInput();
+}
+
+bool Aprototype3Character::IsCrouchActive() const
+{
+	return bIsCrouched || GetCharacterMovement()->bWantsToCrouch;
+}
+
+bool Aprototype3Character::CanUseStaminaMovement() const
+{
+	return !bSprintExhausted && CurrentStamina > 0.0f;
+}
+
+void Aprototype3Character::RunInputStarted()
+{
+	GaitInputStarted(EPlayerLocomotionGait::Running);
+}
+
+void Aprototype3Character::RunInputCompleted()
+{
+	GaitInputCompleted(EPlayerLocomotionGait::Running);
+}
+
+void Aprototype3Character::RunInputCanceled()
+{
+	GaitInputCanceled(EPlayerLocomotionGait::Running);
+}
+
+void Aprototype3Character::SprintInputStarted()
+{
+	GaitInputStarted(EPlayerLocomotionGait::Sprinting);
+}
+
+void Aprototype3Character::SprintInputCompleted()
+{
+	GaitInputCompleted(EPlayerLocomotionGait::Sprinting);
+}
+
+void Aprototype3Character::SprintInputCanceled()
+{
+	GaitInputCanceled(EPlayerLocomotionGait::Sprinting);
 }
 
 void Aprototype3Character::CrouchInputStarted()
@@ -309,6 +590,8 @@ void Aprototype3Character::CrouchInputCanceled()
 void Aprototype3Character::OnStartCrouch(float HalfHeightAdjust, float ScaledHalfHeightAdjust)
 {
 	Super::OnStartCrouch(HalfHeightAdjust, ScaledHalfHeightAdjust);
+	ActiveStance = EPlayerLocomotionStance::Crouching;
+	SetActiveGait(EPlayerLocomotionGait::Walking);
 
 	// The parent body mesh offsets upward to keep its feet planted. Cancel that
 	// offset, then lower the head-mounted view within the shorter capsule too.
@@ -318,7 +601,9 @@ void Aprototype3Character::OnStartCrouch(float HalfHeightAdjust, float ScaledHal
 void Aprototype3Character::OnEndCrouch(float HalfHeightAdjust, float ScaledHalfHeightAdjust)
 {
 	Super::OnEndCrouch(HalfHeightAdjust, ScaledHalfHeightAdjust);
+	ActiveStance = EPlayerLocomotionStance::Standing;
 	FirstPersonMesh->SetRelativeLocation(StandingFirstPersonMeshLocation);
+	ResolveLocomotionState();
 }
 
 void Aprototype3Character::Tick(float DeltaSeconds)
@@ -326,14 +611,10 @@ void Aprototype3Character::Tick(float DeltaSeconds)
 	Super::Tick(DeltaSeconds);
 
 	const float PreviousStamina = CurrentStamina;
-	const bool bIsMoving = GetVelocity().SizeSquared2D() > FMath::Square(1.0f);
-	// Include the request so Ctrl suppresses stamina drain immediately, and the
-	// actual state so releasing Ctrl under a ceiling cannot resume run/sprint.
-	const bool bCrouchActive = bIsCrouched || GetCharacterMovement()->bWantsToCrouch;
-	const bool bCanSprint = !bCrouchActive && bSprintInputHeld && bIsMoving && !bSprintExhausted && CurrentStamina > 0.0f;
-	const bool bWasSprinting = bIsSprinting;
-	bIsSprinting = bCanSprint;
-	bool bIsRunning = !bCrouchActive && !bIsSprinting && bRunInputHeld && bIsMoving && !bSprintExhausted && CurrentStamina > 0.0f;
+	const bool bWasSprinting = IsSprinting();
+	ResolveLocomotionState();
+	const bool bIsRunning = IsRunning();
+	const bool bIsSprinting = IsSprinting();
 
 	if (bIsSprinting || bIsRunning)
 	{
@@ -342,8 +623,7 @@ void Aprototype3Character::Tick(float DeltaSeconds)
 		if (CurrentStamina <= 0.0f)
 		{
 			bSprintExhausted = true;
-			bIsSprinting = false;
-			bIsRunning = false;
+			SetActiveGait(EPlayerLocomotionGait::Walking);
 		}
 	}
 	else
@@ -352,17 +632,15 @@ void Aprototype3Character::Tick(float DeltaSeconds)
 		const float RecoverySeconds = static_cast<float>(FMath::Clamp(
 			GetWorld()->GetTimeSeconds() - StaminaRecoveryResumeTime, 0.0, static_cast<double>(DeltaSeconds)));
 		CurrentStamina = FMath::Min(CurrentStamina + (StaminaRecoveryPerSecond * RecoveryMultiplier * RecoverySeconds), MaxStamina);
-		if (CurrentStamina >= MaxStamina)
+		if (CurrentStamina >= MaxStamina * ExhaustionRecoveryFraction)
 		{
 			bSprintExhausted = false;
 		}
 	}
 
-	GetCharacterMovement()->MaxWalkSpeed = bIsSprinting ? SprintSpeed : (bIsRunning ? RunSpeed : WalkSpeed);
-	GetCharacterMovement()->MaxWalkSpeedCrouched = CrouchSpeed;
-	if (bWasSprinting != bIsSprinting || CurrentStamina != PreviousStamina)
+	if (bWasSprinting != IsSprinting() || CurrentStamina != PreviousStamina)
 	{
-		OnSprintStateChanged.Broadcast(bIsSprinting, GetStaminaPercent());
+		OnSprintStateChanged.Broadcast(IsSprinting(), GetStaminaPercent());
 	}
 }
 
@@ -397,10 +675,9 @@ bool Aprototype3Character::TryConsumeStamina(float Amount, float RecoveryDelay)
 	if (CurrentStamina <= 0.0f)
 	{
 		bSprintExhausted = true;
-		bIsSprinting = false;
-		GetCharacterMovement()->MaxWalkSpeed = WalkSpeed;
+		SetActiveGait(EPlayerLocomotionGait::Walking);
 	}
-	OnSprintStateChanged.Broadcast(bIsSprinting, GetStaminaPercent());
+	OnSprintStateChanged.Broadcast(IsSprinting(), GetStaminaPercent());
 	return true;
 }
 

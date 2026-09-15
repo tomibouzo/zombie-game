@@ -18,6 +18,42 @@ DECLARE_LOG_CATEGORY_EXTERN(LogTemplateCharacter, Log, All);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FPlayerHealthUpdatedDelegate, float, Percentage);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FPlayerSprintStateChangedDelegate, bool, bSprinting, float, StaminaPercent);
 
+/** Mutually exclusive movement speeds the character can actually perform. */
+UENUM(BlueprintType)
+enum class EPlayerLocomotionGait : uint8
+{
+	Walking,
+	Running,
+	Sprinting
+};
+
+/** Physical posture reported to gameplay systems. */
+UENUM(BlueprintType)
+enum class EPlayerLocomotionStance : uint8
+{
+	Standing,
+	Crouching
+};
+
+/** One gait key's hybrid tap-to-toggle and hold-until-release intent. */
+struct FPlayerGaitInputIntent
+{
+	bool bToggled = false;
+	bool bHeld = false;
+	bool bToggledAtPress = false;
+	double InputStartTime = 0.0;
+
+	bool IsRequested() const { return bToggled || bHeld; }
+};
+
+/** Persistent input requests, kept separate from the resolved physical state. */
+struct FPlayerLocomotionIntent
+{
+	FVector2D MovementInput = FVector2D::ZeroVector;
+	FPlayerGaitInputIntent Run;
+	FPlayerGaitInputIntent Sprint;
+};
+
 /**
  *  A basic first person character
  */
@@ -58,7 +94,26 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Sprint", meta = (ClampMin = 0.0, AllowPrivateAccess = "true"))
 	float WalkSpeed = 350.0f;
 
-	/** Movement speed while crouched, including when run or sprint is held. */
+	/** Speed multiplier used whenever the player has side or backward movement input. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Movement", meta = (ClampMin = 0.0, ClampMax = 1.0, AllowPrivateAccess = "true"))
+	float SideAndBackSpeedMultiplier = 0.666667f;
+
+	/** What the player is requesting; the resolver decides what can actually happen. */
+	FPlayerLocomotionIntent LocomotionIntent;
+
+	/** Current resolved gait. Input toggles alone do not change this state. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Movement|State")
+	EPlayerLocomotionGait ActiveGait = EPlayerLocomotionGait::Walking;
+
+	/** Current physical stance. Unreal's crouch state remains the collision authority. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Movement|State")
+	EPlayerLocomotionStance ActiveStance = EPlayerLocomotionStance::Standing;
+
+	/** Presses shorter than this toggle run/sprint; longer presses last until release. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Movement|Input", meta = (ClampMin = 0.0, Units = "s"))
+	float GaitHoldThreshold = 0.25f;
+
+	/** Movement speed while crouched. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Crouch", meta = (ClampMin = 0.0, Units = "cm/s"))
 	float CrouchSpeed = 150.0f;
 
@@ -81,7 +136,7 @@ protected:
 	/** Standing first-person mesh position, including Blueprint adjustments. */
 	FVector StandingFirstPersonMeshLocation = FVector::ZeroVector;
 
-	/** Movement speed while Shift is held, unless sprinting. */
+	/** Movement speed while run is toggled on, unless sprinting. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Run", meta = (ClampMin = 0.0, AllowPrivateAccess = "true"))
 	float RunSpeed = 500.0f;
 
@@ -89,7 +144,7 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Run", meta = (ClampMin = 0.0, AllowPrivateAccess = "true"))
 	float RunStaminaDrainPerSecond = 2.0f;
 
-	/** Movement speed while Alt is held and stamina remains. */
+	/** Movement speed while sprint is toggled on and stamina remains. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Sprint", meta = (ClampMin = 0.0, AllowPrivateAccess = "true"))
 	float SprintSpeed = 700.0f;
 
@@ -101,17 +156,12 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Sprint", meta = (ClampMin = 0.0, AllowPrivateAccess = "true"))
 	float StaminaRecoveryPerSecond = 50.0f;
 
-	/** Running and sprinting lock at zero stamina until full recovery. */
+	/** Running and sprinting lock at zero stamina until the recovery threshold. */
 	bool bSprintExhausted = false;
 
-	/** True only while the sprint key is held, the player is moving, and stamina is available. */
-	bool bIsSprinting = false;
-
-	/** Set by the sprint input action while Alt is held. */
-	bool bSprintInputHeld = false;
-
-	/** Set by the run input action while Shift is held. */
-	bool bRunInputHeld = false;
+	/** Fraction of maximum stamina required to unlock run and sprint after exhaustion. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Stamina", meta = (ClampMin = 0.0, ClampMax = 1.0))
+	float ExhaustionRecoveryFraction = 0.25f;
 
 	/** Attacks defer regeneration until their recovery period ends. */
 	double StaminaRecoveryResumeTime = 0.0;
@@ -164,19 +214,19 @@ protected:
 	UFUNCTION(BlueprintCallable, Category="Input")
 	virtual void DoJumpEnd();
 
-	/** Starts running while the input remains held. */
+	/** Toggles the persistent run request for Blueprint or non-keyboard callers. */
 	UFUNCTION(BlueprintCallable, Category="Input")
 	virtual void DoStartRun();
 
-	/** Stops running when the input is released. */
+	/** Explicitly clears the persistent run input state. */
 	UFUNCTION(BlueprintCallable, Category="Input")
 	virtual void DoEndRun();
 
-	/** Starts sprinting while the input remains held and stamina permits it. */
+	/** Toggles the persistent sprint request for Blueprint or non-keyboard callers. */
 	UFUNCTION(BlueprintCallable, Category="Input")
 	virtual void DoStartSprint();
 
-	/** Stops sprinting immediately when the input is released. */
+	/** Explicitly clears the persistent sprint input state. */
 	UFUNCTION(BlueprintCallable, Category="Input")
 	virtual void DoEndSprint();
 
@@ -197,13 +247,41 @@ protected:
 	void DoSecondaryActionEnd();
 	virtual void DoSecondaryActionEnd_Implementation();
 
-	/** Hold to crouch. Crouching takes priority over running and sprinting. */
+	/** Starts crouching unless run or sprint is actually being performed. */
 	UFUNCTION(BlueprintCallable, Category="Input")
 	virtual void DoStartCrouch();
 
 	/** Requests standing; Character Movement waits until there is enough headroom. */
 	UFUNCTION(BlueprintCallable, Category="Input")
 	virtual void DoEndCrouch();
+
+	/** Centralized locomotion requests, state resolution, and transition policy. */
+	void ToggleGaitRequest(EPlayerLocomotionGait RequestedGait);
+	void GaitInputStarted(EPlayerLocomotionGait RequestedGait);
+	void GaitInputCompleted(EPlayerLocomotionGait RequestedGait);
+	void GaitInputCanceled(EPlayerLocomotionGait RequestedGait);
+	FPlayerGaitInputIntent* FindGaitInputIntent(EPlayerLocomotionGait RequestedGait);
+	const FPlayerGaitInputIntent* FindGaitInputIntent(EPlayerLocomotionGait RequestedGait) const;
+	bool HasHeldGaitInput() const;
+	bool HasRequestedGait() const;
+	void ResolveLocomotionState();
+	void SetActiveGait(EPlayerLocomotionGait NewGait);
+	void ClearSpeedRequests();
+	bool CanStartCrouch() const;
+	bool IsCrouchActive() const;
+	bool CanUseStaminaMovement() const;
+
+	/** Run and sprint are available whenever movement has a forward component. */
+	bool HasForwardMovementInput() const;
+	float GetDirectionalMovementSpeedMultiplier() const;
+
+	/** Keyboard tap/hold interpretation for run and sprint. */
+	void RunInputStarted();
+	void RunInputCompleted();
+	void RunInputCanceled();
+	void SprintInputStarted();
+	void SprintInputCompleted();
+	void SprintInputCanceled();
 
 	/** Keyboard tap/hold interpretation, separate from explicit Blueprint crouch requests. */
 	void CrouchInputStarted();
@@ -240,6 +318,14 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Stamina")
 	bool TryConsumeStamina(float Amount, float RecoveryDelay = 0.0f);
 
+	/** Requests a standing posture without re-arming crouch input. */
+	UFUNCTION(BlueprintCallable, Category="Movement")
+	void RequestStandingForAction();
+
+	/** True once the capsule is standing and no crouch request is active. */
+	UFUNCTION(BlueprintPure, Category="Movement")
+	bool IsStandingForAction() const;
+
 	/** Delegate called whenever health changes. */
 	FPlayerHealthUpdatedDelegate OnHealthUpdated;
 
@@ -259,6 +345,16 @@ public:
 
 	/** Returns whether the character is currently sprinting. */
 	UFUNCTION(BlueprintPure, Category="Sprint")
-	bool IsSprinting() const { return bIsSprinting; }
+	bool IsSprinting() const { return ActiveGait == EPlayerLocomotionGait::Sprinting; }
+
+	/** Returns whether the character is currently running. */
+	UFUNCTION(BlueprintPure, Category="Run")
+	bool IsRunning() const { return ActiveGait == EPlayerLocomotionGait::Running; }
+
+	UFUNCTION(BlueprintPure, Category="Movement|State")
+	EPlayerLocomotionGait GetActiveGait() const { return ActiveGait; }
+
+	UFUNCTION(BlueprintPure, Category="Movement|State")
+	EPlayerLocomotionStance GetActiveStance() const { return ActiveStance; }
 
 };
