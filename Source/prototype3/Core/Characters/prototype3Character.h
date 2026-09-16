@@ -12,6 +12,7 @@ class USkeletalMeshComponent;
 class UCameraComponent;
 class UInputAction;
 class UPlayerMeleeComponent;
+class UPlayerVitalsComponent;
 struct FInputActionValue;
 
 DECLARE_LOG_CATEGORY_EXTERN(LogTemplateCharacter, Log, All);
@@ -37,22 +38,17 @@ class Aprototype3Character : public ACharacter
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta=(AllowPrivateAccess="true"))
 	TObjectPtr<UPlayerMeleeComponent> MeleeComponent;
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta=(AllowPrivateAccess="true"))
+	TObjectPtr<UPlayerVitalsComponent> VitalsComponent;
+
 protected:
 	/** Maximum health available to this character. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Health", meta = (ClampMin = 1.0, AllowPrivateAccess = "true"))
 	float MaxHealth = 100.0f;
 
-	/** Current health remaining. */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Health", meta = (AllowPrivateAccess = "true"))
-	float CurrentHealth = 0.0f;
-
 	/** Maximum stamina available for sprinting. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Stamina", meta = (ClampMin = 1.0, AllowPrivateAccess = "true"))
 	float MaxStamina = 100.0f;
-
-	/** Current stamina remaining. */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Stamina", meta = (AllowPrivateAccess = "true"))
-	float CurrentStamina = 0.0f;
 
 	/** Movement speed when neither run nor sprint is active. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Sprint", meta = (ClampMin = 0.0, AllowPrivateAccess = "true"))
@@ -101,9 +97,6 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Sprint", meta = (ClampMin = 0.0, AllowPrivateAccess = "true"))
 	float StaminaRecoveryPerSecond = 50.0f;
 
-	/** Running and sprinting lock at zero stamina until full recovery. */
-	bool bSprintExhausted = false;
-
 	/** True only while the sprint key is held, the player is moving, and stamina is available. */
 	bool bIsSprinting = false;
 
@@ -112,10 +105,6 @@ protected:
 
 	/** Set by the run input action while Shift is held. */
 	bool bRunInputHeld = false;
-
-	/** Attacks defer regeneration until their recovery period ends. */
-	double StaminaRecoveryResumeTime = 0.0;
-
 
 	/** Jump Input Action */
 	UPROPERTY(EditAnywhere, Category ="Input")
@@ -233,8 +222,12 @@ public:
 	/** Returns first person camera component **/
 	UCameraComponent* GetFirstPersonCameraComponent() const { return FirstPersonCameraComponent; }
 
+	/** Returns the component that owns health and stamina state. */
+	UFUNCTION(BlueprintPure, Category="Player|Components")
+	UPlayerVitalsComponent* GetPlayerVitalsComponent() const { return VitalsComponent; }
+
 	UFUNCTION(BlueprintPure, Category="Health")
-	bool IsAlive() const { return CurrentHealth > 0.0f; }
+	bool IsAlive() const;
 
 	/** Pays a one-off action cost atomically; rejected actions spend no stamina. */
 	UFUNCTION(BlueprintCallable, Category="Stamina")

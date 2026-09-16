@@ -3,6 +3,7 @@
 #include "Core/Characters/prototype3Character.h"
 #include "Core/PlayerControllers/prototype3PlayerController.h"
 #include "Gameplay/Combat/Melee/PlayerMeleeComponent.h"
+#include "Gameplay/Player/Vitals/PlayerVitalsComponent.h"
 #include "Animation/AnimInstance.h"
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
@@ -18,6 +19,7 @@
 
 Aprototype3Character::Aprototype3Character()
 {
+	VitalsComponent = CreateDefaultSubobject<UPlayerVitalsComponent>(TEXT("Vitals"));
 	MeleeComponent = CreateDefaultSubobject<UPlayerMeleeComponent>(TEXT("Melee"));
 	// Set size for collision capsule
 	GetCapsuleComponent()->InitCapsuleSize(55.f, 96.0f);
@@ -69,10 +71,7 @@ void Aprototype3Character::BeginPlay()
 {
 	Super::BeginPlay();
 
-	CurrentHealth = MaxHealth;
-	CurrentStamina = MaxStamina;
-	StaminaRecoveryResumeTime = 0.0;
-	bSprintExhausted = false;
+	VitalsComponent->InitializeVitals(MaxHealth, MaxStamina, StaminaRecoveryPerSecond);
 	bIsSprinting = false;
 	bSprintInputHeld = false;
 	bRunInputHeld = false;
@@ -209,7 +208,8 @@ void Aprototype3Character::DoJumpEnd()
 void Aprototype3Character::DoStartRun()
 {
 	bRunInputHeld = true;
-	if (!bIsCrouched && !GetCharacterMovement()->bWantsToCrouch && !bIsSprinting && !bSprintExhausted && CurrentStamina > 0.0f)
+	if (!bIsCrouched && !GetCharacterMovement()->bWantsToCrouch && !bIsSprinting
+		&& !VitalsComponent->IsStaminaExhausted() && VitalsComponent->GetCurrentStamina() > 0.0f)
 	{
 		GetCharacterMovement()->MaxWalkSpeed = RunSpeed;
 	}
@@ -233,7 +233,9 @@ void Aprototype3Character::DoEndSprint()
 {
 	bSprintInputHeld = false;
 	bIsSprinting = false;
-	GetCharacterMovement()->MaxWalkSpeed = !bIsCrouched && !GetCharacterMovement()->bWantsToCrouch && bRunInputHeld && !bSprintExhausted && CurrentStamina > 0.0f ? RunSpeed : WalkSpeed;
+	GetCharacterMovement()->MaxWalkSpeed = !bIsCrouched && !GetCharacterMovement()->bWantsToCrouch
+		&& bRunInputHeld && !VitalsComponent->IsStaminaExhausted()
+		&& VitalsComponent->GetCurrentStamina() > 0.0f ? RunSpeed : WalkSpeed;
 	OnSprintStateChanged.Broadcast(false, GetStaminaPercent());
 }
 
@@ -325,23 +327,24 @@ void Aprototype3Character::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
 
-	const float PreviousStamina = CurrentStamina;
+	const float PreviousStamina = VitalsComponent->GetCurrentStamina();
 	const bool bIsMoving = GetVelocity().SizeSquared2D() > FMath::Square(1.0f);
 	// Include the request so Ctrl suppresses stamina drain immediately, and the
 	// actual state so releasing Ctrl under a ceiling cannot resume run/sprint.
 	const bool bCrouchActive = bIsCrouched || GetCharacterMovement()->bWantsToCrouch;
-	const bool bCanSprint = !bCrouchActive && bSprintInputHeld && bIsMoving && !bSprintExhausted && CurrentStamina > 0.0f;
+	const bool bCanSprint = !bCrouchActive && bSprintInputHeld && bIsMoving
+		&& !VitalsComponent->IsStaminaExhausted() && VitalsComponent->GetCurrentStamina() > 0.0f;
 	const bool bWasSprinting = bIsSprinting;
 	bIsSprinting = bCanSprint;
-	bool bIsRunning = !bCrouchActive && !bIsSprinting && bRunInputHeld && bIsMoving && !bSprintExhausted && CurrentStamina > 0.0f;
+	bool bIsRunning = !bCrouchActive && !bIsSprinting && bRunInputHeld && bIsMoving
+		&& !VitalsComponent->IsStaminaExhausted() && VitalsComponent->GetCurrentStamina() > 0.0f;
 
 	if (bIsSprinting || bIsRunning)
 	{
 		const float DrainPerSecond = bIsSprinting ? StaminaDrainPerSecond : RunStaminaDrainPerSecond;
-		CurrentStamina = FMath::Max(CurrentStamina - (DrainPerSecond * DeltaSeconds), 0.0f);
-		if (CurrentStamina <= 0.0f)
+		VitalsComponent->DrainStamina(DrainPerSecond * DeltaSeconds);
+		if (VitalsComponent->IsStaminaExhausted())
 		{
-			bSprintExhausted = true;
 			bIsSprinting = false;
 			bIsRunning = false;
 		}
@@ -349,18 +352,12 @@ void Aprototype3Character::Tick(float DeltaSeconds)
 	else
 	{
 		const float RecoveryMultiplier = bIsCrouched ? CrouchStaminaRecoveryMultiplier : 1.0f;
-		const float RecoverySeconds = static_cast<float>(FMath::Clamp(
-			GetWorld()->GetTimeSeconds() - StaminaRecoveryResumeTime, 0.0, static_cast<double>(DeltaSeconds)));
-		CurrentStamina = FMath::Min(CurrentStamina + (StaminaRecoveryPerSecond * RecoveryMultiplier * RecoverySeconds), MaxStamina);
-		if (CurrentStamina >= MaxStamina)
-		{
-			bSprintExhausted = false;
-		}
+		VitalsComponent->RecoverStamina(DeltaSeconds, RecoveryMultiplier);
 	}
 
 	GetCharacterMovement()->MaxWalkSpeed = bIsSprinting ? SprintSpeed : (bIsRunning ? RunSpeed : WalkSpeed);
 	GetCharacterMovement()->MaxWalkSpeedCrouched = CrouchSpeed;
-	if (bWasSprinting != bIsSprinting || CurrentStamina != PreviousStamina)
+	if (bWasSprinting != bIsSprinting || VitalsComponent->GetCurrentStamina() != PreviousStamina)
 	{
 		OnSprintStateChanged.Broadcast(bIsSprinting, GetStaminaPercent());
 	}
@@ -368,35 +365,28 @@ void Aprototype3Character::Tick(float DeltaSeconds)
 
 float Aprototype3Character::TakeDamage(float Damage, const FDamageEvent& DamageEvent, AController* EventInstigator, AActor* DamageCauser)
 {
-	if (Damage <= 0.0f || CurrentHealth <= 0.0f)
+	const float AppliedDamage = VitalsComponent->ApplyDamage(Damage);
+	if (AppliedDamage > 0.0f)
 	{
-		return 0.0f;
+		OnHealthUpdated.Broadcast(GetHealthPercent());
 	}
-
-	const float AppliedDamage = FMath::Min(Damage, CurrentHealth);
-	CurrentHealth = FMath::Max(CurrentHealth - AppliedDamage, 0.0f);
-	OnHealthUpdated.Broadcast(GetHealthPercent());
 	return AppliedDamage;
 }
 
 float Aprototype3Character::GetHealthPercent() const
 {
-	return MaxHealth > 0.0f ? CurrentHealth / MaxHealth : 0.0f;
+	return VitalsComponent ? VitalsComponent->GetHealthPercent() : 0.0f;
 }
 
 bool Aprototype3Character::TryConsumeStamina(float Amount, float RecoveryDelay)
 {
-	if (!IsAlive() || !GetWorld() || !FMath::IsFinite(Amount) || Amount < 0.0f || CurrentStamina < Amount)
+	if (!VitalsComponent || !VitalsComponent->TryConsumeStamina(Amount, RecoveryDelay))
 	{
 		return false;
 	}
 
-	CurrentStamina = FMath::Max(CurrentStamina - Amount, 0.0f);
-	StaminaRecoveryResumeTime = FMath::Max(StaminaRecoveryResumeTime,
-		GetWorld()->GetTimeSeconds() + FMath::Max(RecoveryDelay, 0.0f));
-	if (CurrentStamina <= 0.0f)
+	if (VitalsComponent->IsStaminaExhausted())
 	{
-		bSprintExhausted = true;
 		bIsSprinting = false;
 		GetCharacterMovement()->MaxWalkSpeed = WalkSpeed;
 	}
@@ -406,5 +396,10 @@ bool Aprototype3Character::TryConsumeStamina(float Amount, float RecoveryDelay)
 
 float Aprototype3Character::GetStaminaPercent() const
 {
-	return MaxStamina > 0.0f ? CurrentStamina / MaxStamina : 0.0f;
+	return VitalsComponent ? VitalsComponent->GetStaminaPercent() : 0.0f;
+}
+
+bool Aprototype3Character::IsAlive() const
+{
+	return VitalsComponent && VitalsComponent->IsAlive();
 }
