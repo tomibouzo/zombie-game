@@ -3,6 +3,7 @@
 #include "Core/Characters/prototype3Character.h"
 #include "Core/PlayerControllers/prototype3PlayerController.h"
 #include "Gameplay/Combat/Melee/PlayerMeleeComponent.h"
+#include "Gameplay/Player/Vitals/PlayerVitalsComponent.h"
 #include "Animation/AnimInstance.h"
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
@@ -18,6 +19,7 @@
 
 Aprototype3Character::Aprototype3Character()
 {
+	VitalsComponent = CreateDefaultSubobject<UPlayerVitalsComponent>(TEXT("Vitals"));
 	MeleeComponent = CreateDefaultSubobject<UPlayerMeleeComponent>(TEXT("Melee"));
 	// Set size for collision capsule
 	GetCapsuleComponent()->InitCapsuleSize(55.f, 96.0f);
@@ -69,10 +71,8 @@ void Aprototype3Character::BeginPlay()
 {
 	Super::BeginPlay();
 
-	CurrentHealth = MaxHealth;
-	CurrentStamina = MaxStamina;
-	StaminaRecoveryResumeTime = 0.0;
-	bSprintExhausted = false;
+	VitalsComponent->InitializeVitals(MaxHealth, MaxStamina, StaminaRecoveryPerSecond,
+		ExhaustionRecoveryFraction);
 	LocomotionIntent = FPlayerLocomotionIntent();
 	ActiveGait = EPlayerLocomotionGait::Walking;
 	ActiveStance = bIsCrouched ? EPlayerLocomotionStance::Crouching : EPlayerLocomotionStance::Standing;
@@ -535,7 +535,8 @@ bool Aprototype3Character::IsCrouchActive() const
 
 bool Aprototype3Character::CanUseStaminaMovement() const
 {
-	return !bSprintExhausted && CurrentStamina > 0.0f;
+	return VitalsComponent && !VitalsComponent->IsStaminaExhausted()
+		&& VitalsComponent->GetCurrentStamina() > 0.0f;
 }
 
 void Aprototype3Character::RunInputStarted()
@@ -628,7 +629,7 @@ void Aprototype3Character::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
 
-	const float PreviousStamina = CurrentStamina;
+	const float PreviousStamina = VitalsComponent->GetCurrentStamina();
 	const bool bWasSprinting = IsSprinting();
 	ResolveLocomotionState();
 	const bool bIsRunning = IsRunning();
@@ -637,26 +638,19 @@ void Aprototype3Character::Tick(float DeltaSeconds)
 	if (bIsSprinting || bIsRunning)
 	{
 		const float DrainPerSecond = bIsSprinting ? StaminaDrainPerSecond : RunStaminaDrainPerSecond;
-		CurrentStamina = FMath::Max(CurrentStamina - (DrainPerSecond * DeltaSeconds), 0.0f);
-		if (CurrentStamina <= 0.0f)
+		VitalsComponent->DrainStamina(DrainPerSecond * DeltaSeconds);
+		if (VitalsComponent->IsStaminaExhausted())
 		{
-			bSprintExhausted = true;
 			SetActiveGait(EPlayerLocomotionGait::Walking);
 		}
 	}
 	else
 	{
 		const float RecoveryMultiplier = bIsCrouched ? CrouchStaminaRecoveryMultiplier : 1.0f;
-		const float RecoverySeconds = static_cast<float>(FMath::Clamp(
-			GetWorld()->GetTimeSeconds() - StaminaRecoveryResumeTime, 0.0, static_cast<double>(DeltaSeconds)));
-		CurrentStamina = FMath::Min(CurrentStamina + (StaminaRecoveryPerSecond * RecoveryMultiplier * RecoverySeconds), MaxStamina);
-		if (CurrentStamina >= MaxStamina * ExhaustionRecoveryFraction)
-		{
-			bSprintExhausted = false;
-		}
+		VitalsComponent->RecoverStamina(DeltaSeconds, RecoveryMultiplier);
 	}
 
-	if (bWasSprinting != IsSprinting() || CurrentStamina != PreviousStamina)
+	if (bWasSprinting != IsSprinting() || VitalsComponent->GetCurrentStamina() != PreviousStamina)
 	{
 		OnSprintStateChanged.Broadcast(IsSprinting(), GetStaminaPercent());
 	}
@@ -664,35 +658,28 @@ void Aprototype3Character::Tick(float DeltaSeconds)
 
 float Aprototype3Character::TakeDamage(float Damage, const FDamageEvent& DamageEvent, AController* EventInstigator, AActor* DamageCauser)
 {
-	if (Damage <= 0.0f || CurrentHealth <= 0.0f)
+	const float AppliedDamage = VitalsComponent->ApplyDamage(Damage);
+	if (AppliedDamage > 0.0f)
 	{
-		return 0.0f;
+		OnHealthUpdated.Broadcast(GetHealthPercent());
 	}
-
-	const float AppliedDamage = FMath::Min(Damage, CurrentHealth);
-	CurrentHealth = FMath::Max(CurrentHealth - AppliedDamage, 0.0f);
-	OnHealthUpdated.Broadcast(GetHealthPercent());
 	return AppliedDamage;
 }
 
 float Aprototype3Character::GetHealthPercent() const
 {
-	return MaxHealth > 0.0f ? CurrentHealth / MaxHealth : 0.0f;
+	return VitalsComponent ? VitalsComponent->GetHealthPercent() : 0.0f;
 }
 
 bool Aprototype3Character::TryConsumeStamina(float Amount, float RecoveryDelay)
 {
-	if (!IsAlive() || !GetWorld() || !FMath::IsFinite(Amount) || Amount < 0.0f || CurrentStamina < Amount)
+	if (!VitalsComponent || !VitalsComponent->TryConsumeStamina(Amount, RecoveryDelay))
 	{
 		return false;
 	}
 
-	CurrentStamina = FMath::Max(CurrentStamina - Amount, 0.0f);
-	StaminaRecoveryResumeTime = FMath::Max(StaminaRecoveryResumeTime,
-		GetWorld()->GetTimeSeconds() + FMath::Max(RecoveryDelay, 0.0f));
-	if (CurrentStamina <= 0.0f)
+	if (VitalsComponent->IsStaminaExhausted())
 	{
-		bSprintExhausted = true;
 		SetActiveGait(EPlayerLocomotionGait::Walking);
 	}
 	OnSprintStateChanged.Broadcast(IsSprinting(), GetStaminaPercent());
@@ -701,5 +688,10 @@ bool Aprototype3Character::TryConsumeStamina(float Amount, float RecoveryDelay)
 
 float Aprototype3Character::GetStaminaPercent() const
 {
-	return MaxStamina > 0.0f ? CurrentStamina / MaxStamina : 0.0f;
+	return VitalsComponent ? VitalsComponent->GetStaminaPercent() : 0.0f;
+}
+
+bool Aprototype3Character::IsAlive() const
+{
+	return VitalsComponent && VitalsComponent->IsAlive();
 }
