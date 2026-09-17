@@ -291,15 +291,29 @@ bool Aprototype3Character::IsStandingForAction() const
 	return !IsCrouchActive();
 }
 
+bool Aprototype3Character::HasMovementInput() const
+{
+	return !LocomotionIntent.MovementInput.IsNearlyZero(UE_KINDA_SMALL_NUMBER);
+}
+
 bool Aprototype3Character::HasForwardMovementInput() const
 {
 	return LocomotionIntent.MovementInput.Y > UE_KINDA_SMALL_NUMBER;
 }
 
+bool Aprototype3Character::IsGaitAllowedForMovementInput(EPlayerLocomotionGait Gait) const
+{
+	if (!HasMovementInput())
+	{
+		return false;
+	}
+
+	return Gait != EPlayerLocomotionGait::Sprinting || HasForwardMovementInput();
+}
+
 float Aprototype3Character::GetDirectionalMovementSpeedMultiplier() const
 {
-	const bool bHasMovementInput = !LocomotionIntent.MovementInput.IsNearlyZero(UE_KINDA_SMALL_NUMBER);
-	return bHasMovementInput && !HasForwardMovementInput() ? SideAndBackSpeedMultiplier : 1.0f;
+	return HasMovementInput() && !HasForwardMovementInput() ? SideAndBackSpeedMultiplier : 1.0f;
 }
 
 void Aprototype3Character::ToggleGaitRequest(EPlayerLocomotionGait RequestedGait)
@@ -310,10 +324,10 @@ void Aprototype3Character::ToggleGaitRequest(EPlayerLocomotionGait RequestedGait
 		return;
 	}
 
-	if (IsCrouchActive() && !HasForwardMovementInput())
+	if (IsCrouchActive() && !IsGaitAllowedForMovementInput(RequestedGait))
 	{
-		// A stationary crouch deliberately ignores Shift/Alt. Do not latch a
-		// request that could unexpectedly stand the character later.
+		// Ignore gait inputs that cannot apply in the current direction instead
+		// of latching a request that could unexpectedly stand the character later.
 		return;
 	}
 
@@ -345,10 +359,10 @@ void Aprototype3Character::GaitInputStarted(EPlayerLocomotionGait RequestedGait)
 		return;
 	}
 
-	if (IsCrouchActive() && !HasForwardMovementInput())
+	if (IsCrouchActive() && !IsGaitAllowedForMovementInput(RequestedGait))
 	{
-		// A gait key pressed during a stationary crouch is ignored completely,
-		// including if the player keeps holding it and moves afterward.
+		// A disallowed gait key pressed while crouched is ignored completely,
+		// including if the player keeps holding it and changes direction afterward.
 		return;
 	}
 
@@ -458,17 +472,19 @@ void Aprototype3Character::ResolveLocomotionState()
 		: EPlayerLocomotionStance::Standing;
 
 	const bool bIsMoving = GetVelocity().SizeSquared2D() > FMath::Square(1.0f);
-	if (IsCrouchActive() || !HasForwardMovementInput() || !bIsMoving || !CanUseStaminaMovement())
+	if (IsCrouchActive() || !bIsMoving || !CanUseStaminaMovement())
 	{
 		SetActiveGait(EPlayerLocomotionGait::Walking);
 		return;
 	}
 
-	if (LocomotionIntent.Sprint.IsRequested())
+	if (LocomotionIntent.Sprint.IsRequested()
+		&& IsGaitAllowedForMovementInput(EPlayerLocomotionGait::Sprinting))
 	{
 		SetActiveGait(EPlayerLocomotionGait::Sprinting);
 	}
-	else if (LocomotionIntent.Run.IsRequested())
+	else if (LocomotionIntent.Run.IsRequested()
+		&& IsGaitAllowedForMovementInput(EPlayerLocomotionGait::Running))
 	{
 		SetActiveGait(EPlayerLocomotionGait::Running);
 	}
@@ -485,7 +501,7 @@ void Aprototype3Character::SetActiveGait(EPlayerLocomotionGait NewGait)
 	float StandingSpeed = WalkSpeed;
 	if (ActiveGait == EPlayerLocomotionGait::Running)
 	{
-		StandingSpeed = RunSpeed;
+		StandingSpeed = HasForwardMovementInput() ? RunSpeed : SideAndBackRunSpeed;
 	}
 	else if (ActiveGait == EPlayerLocomotionGait::Sprinting)
 	{
@@ -493,7 +509,9 @@ void Aprototype3Character::SetActiveGait(EPlayerLocomotionGait NewGait)
 	}
 
 	const float DirectionalSpeedMultiplier = GetDirectionalMovementSpeedMultiplier();
-	GetCharacterMovement()->MaxWalkSpeed = StandingSpeed * DirectionalSpeedMultiplier;
+	GetCharacterMovement()->MaxWalkSpeed = ActiveGait == EPlayerLocomotionGait::Walking
+		? StandingSpeed * DirectionalSpeedMultiplier
+		: StandingSpeed;
 	GetCharacterMovement()->MaxWalkSpeedCrouched = CrouchSpeed * DirectionalSpeedMultiplier;
 }
 

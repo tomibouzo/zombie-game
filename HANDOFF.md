@@ -1,238 +1,204 @@
 # Project handoff
 
-Updated: 2026-09-14
+Updated: 2026-09-16
 
-## Project and current state
+## Project and repository state
 
 - Unreal Engine 5.8 C++ project: `prototype3.uproject`.
 - Local project: `C:\Users\tomib\Documents\Unreal Projects\prototype3`.
-- Engine location used for the last successful build: `C:\UE_5.8`.
-- Configured editor/startup game map: `/Game/FirstPerson/Lvl_FirstPerson`.
+- Engine used for successful builds: `C:\UE_5.8`.
+- Startup map: `/Game/FirstPerson/Lvl_FirstPerson`.
 - Default game mode: `/Game/FirstPerson/Blueprints/BP_FirstPersonGameMode`.
-- Latest commit observed: `9dc1d59` (`organized files. adjusted values, created a new function`).
-- At task start, only `AGENTS.md` and `HANDOFF.md` were untracked. Crouch work now
-  modifies the shared character/controller source; no commit has been made.
-- The user approved implementing crouch on 2026-09-14.
-- The user then requested fixing crouched ledge movement, combined tap/hold Ctrl
-  input, and 1.5x stamina recovery while crouched. These changes are implemented.
-- Milestone requirements and remaining work are saved in `MILESTONE_1.md`.
-  Keep its implementation checkboxes and separate validation checklist current
-  as each feature is completed; the user requested ongoing tracking.
-- Current approved work: unarmed left-click attacks and reserved right-click
-  action input. The user clarified that the earlier no-compilation request applied
-  only to the drain adjustment; normal compilation is authorized for this work.
-- Latest request authorized compilation and checking before the user pushes,
-  and saving changes. The build retry succeeded; files are saved on disk.
+- Current branch: `feature/tomi-01-locomotion-state` at `6eba6ef`
+  (`Refactor locomotion, crouch, and melee state handling`). Local and remote
+  feature branches match.
+- `main` and `origin/main` both point to `c25495b`
+  (`Add crouching and basic unarmed melee combat (#1)`).
+- The feature commit was accidentally pushed directly to `main`. It was first
+  preserved on the remote feature branch, then local and remote `main` were
+  restored to `c25495b` with `--force-with-lease`. The feature branch is now one
+  commit ahead of `main`.
+- No pull request has been opened or merged for `6eba6ef` yet.
+- `MILESTONE_1.md` remains the milestone requirements and validation tracker.
 
-## Implemented movement and stamina
+### Intentional uncommitted map work
 
-The user chose walking, running on Shift, and sprinting on Alt. Both running and
-sprinting use stamina; sprinting is faster and consumes more. We kept the existing
-sprint system and added running, rather than renaming sprint.
+- The working tree contains World Partition / One File Per Actor changes under
+  `Content/__ExternalActors__/FirstPerson/Lvl_FirstPerson`: 12 tracked actor
+  packages are deleted and two new actor packages are untracked.
+- The user confirmed these edits are intentional: a hittable test character was
+  added, some objects were removed, and a low ceiling was added for crouch tests.
+- The user restored these edits after the branch correction, opened the level,
+  and reported that it worked correctly. The temporary stash was then dropped.
+- These actor edits are local-only, uncommitted, and not backed up on GitHub.
+  Do not discard them. Decide whether they are permanent test-arena content
+  before committing them, and keep them separate from unrelated source changes.
+
+## Finalized locomotion architecture
+
+The character now separates input requests from resolved physical state:
+
+- `FPlayerGaitInputIntent` stores each gait key's held/toggled state, whether it
+  was toggled at press time, and press start time.
+- `FPlayerLocomotionIntent` stores movement input plus separate run and sprint
+  intent.
+- `EPlayerLocomotionGait` is the mutually exclusive resolved gait: Walking,
+  Running, or Sprinting.
+- `EPlayerLocomotionStance` reports the physical stance: Standing or Crouching.
+- `ResolveLocomotionState()` is the central policy point. It considers crouch,
+  forward input, horizontal velocity, stamina/exhaustion, and request priority.
+- `SetActiveGait()` is the central place that applies walking/running/sprinting
+  speed to Character Movement. Sprint has priority over run.
+- Blueprint-accessible getters expose active gait, stance, running, and sprinting.
+- Unreal Character Movement remains authoritative for whether the capsule can
+  physically crouch or stand. Crouch callbacks synchronize the reported stance.
+
+This avoids treating a toggle request as proof that an action is being performed,
+prevents simultaneous run/sprint states, and gives melee and future systems a
+small public state interface instead of duplicating movement rules.
+
+## Current movement, stamina, and input behavior
 
 Current C++ defaults (Blueprint overrides may differ):
 
-| Variable | Value | Meaning |
-| --- | --- | --- |
+| Variable | Default | Meaning |
+| --- | ---: | --- |
 | `MaxHealth` | 100 | Starting and maximum health |
 | `MaxStamina` | 100 | Starting and maximum stamina |
-| `WalkSpeed` | 350 | Walking speed, cm/s |
-| `RunSpeed` | 500 | Running speed, cm/s |
-| `SprintSpeed` | 700 | Sprinting speed, cm/s |
-| `RunStaminaDrainPerSecond` | 2 | Running stamina drain per second |
-| `StaminaDrainPerSecond` | 4 | Sprinting stamina drain per second |
-| `StaminaRecoveryPerSecond` | 50 | Recovery while neither running nor sprinting |
+| `WalkSpeed` | 350 cm/s | Forward walking speed |
+| `SideAndBackSpeedMultiplier` | 0.666667 | Pure side/back speed is one-third slower |
+| `RunSpeed` | 500 cm/s | Forward/forward-diagonal running speed |
+| `SprintSpeed` | 700 cm/s | Forward/forward-diagonal sprint speed |
+| `CrouchSpeed` | 150 cm/s | Crouched movement speed |
+| `RunStaminaDrainPerSecond` | 2 | Actual running drain |
+| `StaminaDrainPerSecond` | 4 | Actual sprinting drain |
+| `StaminaRecoveryPerSecond` | 50 | Base recovery |
+| `CrouchStaminaRecoveryMultiplier` | 1.5 | Actual crouched recovery multiplier |
+| `ExhaustionRecoveryFraction` | 0.25 | Unlock gait after recovering 25% stamina |
+| `GaitHoldThreshold` | 0.25 s | Tap-versus-hold boundary for Shift/Alt |
+| `CrouchHoldThreshold` | 0.25 s | Tap-versus-hold boundary for Ctrl |
 
-- Left/right Shift run; left/right Alt sprint. Alt takes priority if both are held.
-- Releasing Alt returns to running if Shift is still held and stamina permits it.
-- Drain requires actual horizontal movement. Standing still permits recovery.
-- Empty stamina locks both running and sprinting until full recovery; movement falls back to walking.
-- `CurrentHealth` and `CurrentStamina` initialize from their maxima at BeginPlay.
-- The character writes Character Movement's `MaxWalkSpeed` every tick. Tune the
-  character's speed variables rather than only the component's default speed.
-- In `BP_FirstPersonCharacter` Class Defaults, the new run settings are under
-  `Run`; existing walking/sprinting and drain/recovery settings are under `Sprint`.
+- Left/right Shift control running; left/right Alt control sprinting.
+- A short Shift/Alt press toggles that gait. Holding activates it until release.
+  Pressing and holding an already toggled gait keeps it active, then clears it
+  on release rather than canceling immediately on key-down.
+- Pure sideways/backward input uses the one-third speed reduction. Forward
+  diagonals remain full speed and qualify for run/sprint. Pure side/back input
+  currently receives no run/sprint boost or drain.
+- Drain requires the resolved gait plus actual horizontal movement. Stationary
+  gait requests recover stamina rather than draining it.
+- Empty stamina forces Walking. Run/sprint become available again after recovery
+  reaches 25% of maximum; the request may remain pending.
+- Sprint wins whenever run and sprint are both requested.
 
-## Relevant code and architecture
+### Crouch and gait transitions
 
-- `Source/prototype3/Core/Characters/prototype3Character.h` and `.cpp`: health,
-  movement speeds, run/sprint input handlers, stamina update and exhaustion logic.
-- `Source/prototype3/Core/PlayerControllers/prototype3PlayerController.h` and `.cpp`:
-  runtime Enhanced Input mappings; controller-owned run action exposed through
-  `GetRunAction()`. Existing `/Game/Input/Actions/IA_Sprint` maps to Alt. Shift run
-  mappings use priority 1 to consume older lower-priority Shift sprint mappings.
-- No new run `.uasset` was needed. Run bindings handle Started, Completed, Canceled.
-- `Source/prototype3/Legacy/README.md` describes retired prototype modes. Do not
-  add new gameplay dependencies to legacy classes. Reusable behavior belongs in
-  `Gameplay`, map startup in `Core`, presentation in `UI`.
-- Legacy Horror has a separate sprint implementation (`SprintTime`, `SprintMeter`);
-  Shooter has separate health (`MaxHP`). The current movement work targets the
-  shared first-person character/controller, not a unification of legacy systems.
+- Ctrl cancels tap-toggled run/sprint requests and starts crouching, even if the
+  character was moving at run/sprint speed.
+- A physically held Shift or Alt blocks crouch until release. If Ctrl remains
+  held, crouch begins after the final held gait key releases.
+- While physically crouched without forward input, Shift/Alt are ignored and do
+  not latch a delayed request.
+- While crouched with forward input, Shift/Alt request standing. Run/sprint does
+  not become active until Unreal confirms that standing physically succeeded.
+- Under a low ceiling the character remains crouched at crouch speed. A tapped
+  gait request stays pending and resolves after headroom becomes available.
+- Existing Ctrl behavior remains: tap toggles crouch; hold crouches only until
+  release; Unreal prevents standing without headroom and retries when clear.
+- `bCanWalkOffLedgesWhenCrouching` remains enabled. Camera height changes are
+  immediate; no smoothing or dedicated crouch animation has been added.
 
-## Crouch implementation (2026-09-14)
+## Melee integration
 
-- Either Ctrl supports both tap and hold: press crouches immediately; a release
-  before `CrouchHoldThreshold` (default 0.25 seconds) from standing leaves crouch
-  toggled on. Tap again to stand on release. Holding for at least the threshold
-  stands on release. Holding from an already toggled crouch also stands on release.
-  Timing uses elapsed real time. Canceled input requests standing without toggling.
-- Unreal Character Movement handles capsule resizing and refuses to stand until headroom is clear,
-  then automatically retries while the player moves out from under the obstacle.
-- `BP_FirstPersonCharacter` Class Defaults > `Crouch`: `CrouchSpeed` defaults to
-  150 cm/s; `CrouchHalfHeight` defaults to 60 cm (120 cm total capsule height).
-  Half height is applied at BeginPlay and clamped between capsule radius and
-  standing half height. Speed is applied each tick.
-- Crouch overrides both run and sprint and allows stamina recovery,
-  including while moving or blocked from standing. Held Shift/Alt resumes its
-  normal behavior after standing, subject to the existing exhaustion lock.
-- `CrouchStaminaRecoveryMultiplier` defaults to 1.5 (75 stamina/second with the
-  default base recovery of 50), applied to actual crouched state. Both the
-  multiplier and tap/hold threshold are editable in Class Defaults > `Crouch`.
-  Stamina updates now broadcast the final recovery step to full as well.
-- `bCanWalkOffLedgesWhenCrouching` is enabled in the constructor and BeginPlay
-  to fix the reported sticking at ledges and override old Blueprint defaults.
-  This allows walking/falling off edges; `JumpMaxCount = 0` remains unchanged.
-- Controller owns `RuntimeCrouchAction`, exposes `GetCrouchAction()`, and maps
-  both Ctrl keys in the existing priority-1 runtime context. No new asset needed.
-- Character exposes `DoStartCrouch`/`DoEndCrouch` as explicit Blueprint requests.
-  Keyboard Started/Completed/Canceled events use separate `CrouchInput*`
-  handlers to interpret taps and holds.
-- The head-mounted camera follows the first-person mesh. Crouch callbacks offset
-  that mesh to cancel the parent body's height compensation and lower the view
-  with the capsule top; standing restores the position captured at BeginPlay.
-- View height changes immediately; smooth transitions and crouch animation
-  assets have not been added. The user tested the first crouch version and
-  reported the ledge issue; the revised behavior needs Play-mode validation.
+- The existing unarmed system remains on `UPlayerMeleeComponent`: LMB attacks,
+  holding repeats, RMB is reserved, accepted swings cost stamina, and point
+  damage uses a camera-directed blocking sweep.
+- Primary attack requests standing before starting.
+- Every repeated `TryAttack()` requests and verifies standing again. Punches do
+  not execute while crouched or while a low ceiling prevents standing; held LMB
+  keeps retrying through the existing attack loop.
+- An action-forced stand does not re-arm crouch. The player must press Ctrl again
+  after the action stands them.
+- Melee defaults remain damage 10, stamina cost 10, interval 0.525 s, hit delay
+  0.175 s, reach 150 cm, and radius 12 cm.
 
-## Build and validation
+## Relevant files
 
-- Pre-push review (2026-09-14): user reports attacking works after restarting
-  the computer. This confirms recovery of the reported input symptom, not every
-  gameplay checklist item or the exact cause. Reviewed all pending character,
-  controller, and new melee source; no push-blocking issue found. Fresh
-  `git diff --check` passed. No source edits or new build during this review;
-  the previously successful `-0009.dll` build postdates all six gameplay files.
-  Include both untracked `PlayerMeleeComponent` source files in the commit.
-  Git's system `core.autocrlf=true` explains the LF-to-CRLF warning; no Git
-  settings or line endings were changed.
+- `Source/prototype3/Core/Characters/prototype3Character.h/.cpp`: locomotion
+  intent/state types, gait and crouch input, resolver, stamina, speeds, posture,
+  health, and action entry points.
+- `Source/prototype3/Core/PlayerControllers/prototype3PlayerController.h/.cpp`:
+  runtime Enhanced Input mappings. Shift uses the controller-owned run action;
+  Alt uses `/Game/Input/Actions/IA_Sprint`; Ctrl uses the runtime crouch action.
+- `Source/prototype3/Gameplay/Combat/Melee/PlayerMeleeComponent.h/.cpp`: repeated
+  unarmed attack flow, standing validation, stamina spending, delayed hit sweep,
+  damage, and animation.
+- `MILESTONE_1.md`: accepted milestone scope and outstanding validation.
+- `Source/prototype3/Legacy/README.md`: retired modes. Do not add new gameplay
+  dependencies to legacy classes.
 
-- Attack regression follow-up (2026-09-14): user reports LMB does nothing,
-  including no stamina consumption, after compilation. User will perform gameplay
-  validation. Changed controller primary/secondary actions from constructor default
-  subobjects to lazy runtime transient objects shared by mappings and character
-  bindings. Input setup now clears/rebuilds the runtime context instead of retaining
-  its old mappings. This addresses suspected stale action/default state after hot
-  reload; the exact runtime cause and gameplay recovery are not yet confirmed.
-  Run/crouch actions and melee timing/damage/stamina logic are unchanged by this fix.
-  Fresh validation: `prototype3Editor Win64 Development` succeeded in 164 seconds,
-  producing `UnrealEditor-prototype3-0009.dll`; restricted attempt failed without
-  diagnostics, approved retry succeeded. `git diff --check` passed. No gameplay
-  test was performed; user should verify tap, hold, release, and stamina spending.
+## Validation actually performed
 
-- The drain adjustment on 2026-09-14 doubled running drain from 1 to 2
-  and sprinting drain from 2 to 4 stamina/second. The user requested
-  no compilation for that adjustment alone, not as an ongoing preference.
-  Recovery rates are unchanged. The user subsequently supplied milestone 1 and
-  chose unarmed melee as the next implementation.
+- `prototype3Editor Win64 Development` compiled successfully after the initial
+  locomotion-state refactor, producing `UnrealEditor-prototype3-0015.dll`.
+- A second full build after hybrid Shift/Alt handling and the 25% exhaustion
+  threshold succeeded on 2026-09-15, including Unreal Header Tool and C++
+  compilation, producing `UnrealEditor-prototype3-0016.dll`.
+- `git diff --check` passed after both implementations. A fresh comparison of
+  `main...feature/tomi-01-locomotion-state` also passed on 2026-09-16.
+- Editor logs show `-0016.dll` loaded, `-0017.dll` subsequently hot-loaded, and
+  PIE sessions started and stopped successfully. This is startup/smoke evidence,
+  not proof of every gameplay transition.
+- The user reported that the locomotion/crouch behavior worked, and later
+  reopened and played the intentionally edited test level successfully after the
+  stash/branch repair.
+- No itemized final Play-mode record confirms every hybrid tap/hold timing case,
+  simultaneous Shift/Alt release order, exact 25% exhaustion boundary, or every
+  melee repetition/damage edge case. Keep those checks open in `MILESTONE_1.md`.
 
-- Melee work: added `Gameplay/Combat/Melee/PlayerMeleeComponent.h`
-  and `.cpp`, attached as the character's `Melee` component. Defaults are damage
-  10, stamina cost 10, interval 0.525 s, hit delay 0.175 s, reach 150 cm, radius 12 cm.
-  Interval/delay were shortened by 12.5% from 0.6/0.2 s. Animation playback scales
-  with the interval. LMB starts repeating punches; RMB is mapped but does nothing. Both actions
-  have overridable start/end handlers for future held-item behavior. No item
-  types, equipment, interaction, aiming, or blocking implementation was added.
-- `StartAttacking` enables melee component ticking and attempts an immediate
-  swing. Held ticking retries through `TryAttack` and its cooldown/stamina guards.
-  `StopAttacking` disables ticking on release/canceled input; pending hits finish.
-  Insufficient stamina permits recovery and retry while held. Death/loss of
-  possession stops repetition; EndPlay disables ticking and clears the hit timer.
-- Melee spends stamina on accepted swings (including misses), pauses recovery
-  for the interval, and blocks attacks when dead, too soon, or short of stamina.
-  Hit checks use the current camera at impact time, ignore self, stop at the
-  first blocker, and apply Unreal point damage. The Camera collision channel is
-  used because stock Pawn collision ignores Visibility. Targets must block that
-  channel and implement damage/health handling. Authority-only; no client RPCs.
-- Existing `MM_Attack_01` AnimSequence is loaded and played in the body's
-  `DefaultSlot`; the first-person mesh copies the body pose. Montage-instance
-  root motion is disabled to retain normal movement. Component events expose
-  attack start and blocking impact for future feedback.
-- Initial melee validation on 2026-09-14: `prototype3Editor Win64 Development`
-  succeeded in about 114 seconds, including header generation, melee component,
-  character/controller compilation, and the doubled movement drain defaults.
-  The restricted attempt exited without diagnostics; the approved unrestricted
-  retry succeeded. `git diff --check` passed.
-- The editor loaded `UnrealEditor-prototype3-0005.dll` and `MM_Attack_01`,
-  recompiled the character/controller Blueprints, and completed re-instancing.
-  No gameplay test was performed. Animation appearance, hit timing, damage,
-  and stamina behavior still need verification; see the milestone checklist.
-- Latest faster/repeating melee verification (2026-09-14): build retry succeeded
-  with the target up to date; `-0006.dll` is newer than the changed source and
-  the editor log confirms successful reload/re-instancing of the new methods.
-  `git diff --check` passed. Assistant started Play mode successfully, but could
-  not conclusively verify attacks before the user stopped Computer Use with
-  Escape. Do not mark gameplay checks complete based on that smoke test.
-- Resolved the VS Code save conflict for `prototype3Character.h` on 2026-09-14.
-  The unsaved buffer was an older version missing run/crouch/melee declarations
-  and the stamina-drain declaration. Saved it to the Git-ignored backup
-  `Saved/ConflictBackups/prototype3Character.unsaved-20260914.h.txt`, then
-  reopened the current saved header. No gameplay source was changed by this
-  resolution; the previous successful build still applies.
-
-Historical build: 2026-09-11, succeeded for
-`prototype3Editor Win64 Development`. The running editor detected
-`UnrealEditor-prototype3-0002.dll`, hot-reloaded the module, and completed
-re-instancing. No editor restart was needed for that build.
-
-PowerShell build command used:
+Build command:
 
 ```powershell
 & 'C:/UE_5.8/Engine/Build/BatchFiles/Build.bat' prototype3Editor Win64 Development '-Project=C:/Users/tomib/Documents/Unreal Projects/prototype3/prototype3.uproject' -WaitMutex
 ```
 
-- Live Coding was disabled in editor settings when checked on 2026-09-11.
-- The restricted build exited without diagnostics; the approved unrestricted
-  retry succeeded. Use the normal permission flow if another build needs it.
-- That build took about 287 seconds. Low available memory limited compilation
-  to one process; the shared header change rebuilt dependent classes.
-- No direct gameplay test was performed by the assistant. User replied "great",
-  but did not explicitly report gameplay test results.
-- On 2026-09-14, source values, movement logic, map config, and Git state were
-  inspected initially for documentation, before the crouch implementation.
-- Initial crouch validation on 2026-09-14: `prototype3Editor Win64 Development`
-  succeeded in about 120 seconds, including Unreal Header Tool and compilation
-  of the modified character/controller. The restricted attempt exited without
-  diagnostics; the approved unrestricted retry succeeded.
-- The running editor loaded `UnrealEditor-prototype3-0003.dll`, recompiled the
-  first-person character/controller Blueprints, and reported successful reload
-  and re-instancing. Live Coding was still disabled. No restart was performed.
-- `git diff --check` passed. Engine source inspection confirmed built-in
-  crouched speed selection and obstructed-standing retry behavior. No fresh
-  Play-mode test was performed; camera appearance and collision interaction
-  remain to be checked in-game.
-- Latest validation after the ledge/tap-hold/recovery changes: editor build
-  succeeded in about 104 seconds on 2026-09-14. Restricted build exited without
-  diagnostics; approved unrestricted retry succeeded. The editor hot-reloaded
-  `UnrealEditor-prototype3-0004.dll`, recompiled `BP_FirstPersonCharacter`, and
-  completed re-instancing. `git diff --check` passed. Source inspection confirmed
-  the crouched ledge restriction defaults to false in Unreal and is now enabled
-  by the character. No assistant Play-mode test was performed for these changes.
+## Remaining and planned work
 
-## Remaining milestone work
+### User-approved final addition for this branch (not implemented)
 
-See `MILESTONE_1.md`: attributes (Fitness, Strength, Melee Skill), derived values,
-extensible modifiers, integration with movement/stamina/melee, and validation.
-Weapons, shooting, enemies, equipment, inventory, and status effects are later
-scope. Zombie hearing was only an assistant suggestion and is not in milestone 1.
+- Before opening the pull request, allow running and sprinting during pure
+  sideways and backward movement, but keep those directions slower than forward
+  running/sprinting. Preserve full-speed forward diagonals unless the user changes
+  that decision.
+- The current implementation only permits run/sprint when movement has a forward
+  component; pure side/back remains reduced walking/crouch speed and has no gait
+  stamina drain. This is the behavior the final addition must replace.
+- Implement this on `feature/tomi-01-locomotion-state`, then test directional
+  speed, drain, gait priority, crouch transitions, and exhaustion before opening
+  the pull request into `main`.
+
+### Existing milestone work
+
+- Implement Fitness, Strength, and Melee Skill; define derived-stat formulas and
+  an extensible modifier system; route movement, stamina, and melee through them.
+- Complete the gameplay validation checklist in `MILESTONE_1.md`, especially
+  melee tap/hold/damage/stamina cases and crouch/low-ceiling combinations.
+- Weapons, shooting, enemies, equipment, inventory, and status effects remain
+  later scope. Zombie hearing was only an earlier suggestion and is not approved
+  milestone work.
 
 ## Continuing in a new task
 
-Read these notes, inspect current project state, and follow the user's next
-request. If validating movement, check each key separately, both together,
-release order, stationary stamina, depletion, and full recovery in Play mode.
-For crouch, also check each Ctrl key, tap/tap, hold/release, hold while toggled,
-Ctrl with Shift/Alt, standing requests under a low ceiling, automatic standing
-after clearing it, falling off ledges while crouched, repeated crouch camera
-height, and 1.5x stamina recovery (including the last step to full).
+1. Read this file and inspect Git status before changing anything.
+2. Preserve the intentional uncommitted External Actor map files.
+3. Work on the current feature branch, not `main`.
+4. Implement the user-approved reduced-speed side/back run and sprint as the
+   final addition to this branch. Keep the intent/gait/stance separation intact.
+5. Validate tap and hold for both Shift and Alt; both keys together and each
+   release order; Ctrl against toggled versus physically held gait; stationary
+   and moving crouch; obstructed standing; exhaustion to exactly 25%; pure side,
+   backward, forward, and diagonal movement; and stamina drain/recovery.
+6. Keep implemented work separate from suggestions and update `MILESTONE_1.md`
+   only when checks have actually been performed.
 
-`UH` is the user's project shorthand for updating these notes; see `AGENTS.md`.
+`UH` is the shorthand for updating these notes; see `AGENTS.md`.

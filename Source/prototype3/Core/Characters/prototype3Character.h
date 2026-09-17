@@ -98,6 +98,10 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Movement", meta = (ClampMin = 0.0, ClampMax = 1.0, AllowPrivateAccess = "true"))
 	float SideAndBackSpeedMultiplier = 0.666667f;
 
+	/** Running speed without forward input; keeps 67% of the normal run speed bonus. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Run", meta = (ClampMin = 0.0, Units = "cm/s", AllowPrivateAccess = "true"))
+	float SideAndBackRunSpeed = 450.5f;
+
 	/** What the player is requesting; the resolver decides what can actually happen. */
 	FPlayerLocomotionIntent LocomotionIntent;
 
@@ -271,8 +275,10 @@ protected:
 	bool IsCrouchActive() const;
 	bool CanUseStaminaMovement() const;
 
-	/** Run and sprint are available whenever movement has a forward component. */
+	/** Direction checks use the resolved Enhanced Input axes, so opposing keys cancel naturally. */
+	bool HasMovementInput() const;
 	bool HasForwardMovementInput() const;
+	bool IsGaitAllowedForMovementInput(EPlayerLocomotionGait Gait) const;
 	float GetDirectionalMovementSpeedMultiplier() const;
 
 	/** Keyboard tap/hold interpretation for run and sprint. */
