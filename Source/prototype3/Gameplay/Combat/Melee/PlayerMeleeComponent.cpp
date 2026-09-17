@@ -60,6 +60,14 @@ bool UPlayerMeleeComponent::TryAttack()
 		return false;
 	}
 
+	// Every repeated punch requires the standing posture, not just the initial
+	// mouse press. Under a low ceiling, retry once the capsule can fully stand.
+	Character->RequestStandingForAction();
+	if (!Character->IsStandingForAction())
+	{
+		return false;
+	}
+
 	const float Interval = FMath::Max(AttackInterval, 0.05f);
 	// Reserve the cooldown before spending: stamina listeners may invoke other actions.
 	NextAttackTime = World->GetTimeSeconds() + Interval;
