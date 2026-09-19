@@ -1,3 +1,10 @@
+# Keep text files deterministic across Windows and other development platforms.
+* text=auto eol=lf
+
+# Preserve conventional Windows line endings for command-shell scripts.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
 # Store Unreal binary assets through Git LFS.
 *.uasset filter=lfs diff=lfs merge=lfs -text
 *.umap filter=lfs diff=lfs merge=lfs -text

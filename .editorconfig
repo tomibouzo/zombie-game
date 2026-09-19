@@ -1,3 +1,13 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+
+[*.{bat,cmd}]
+end_of_line = crlf
+
 [*.{cpp,h}]
 
 # Naming convention rules (note: currently need to be ordered from more to less specific)
