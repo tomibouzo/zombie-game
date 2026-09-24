@@ -13,7 +13,6 @@ class UCameraComponent;
 class UInputAction;
 class UPlayerMeleeComponent;
 class UPlayerVitalsComponent;
-class UInventoryComponent;
 struct FInputActionValue;
 
 DECLARE_LOG_CATEGORY_EXTERN(LogTemplateCharacter, Log, All);
@@ -77,9 +76,6 @@ class Aprototype3Character : public ACharacter
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta=(AllowPrivateAccess="true"))
 	TObjectPtr<UPlayerVitalsComponent> VitalsComponent;
-
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta=(AllowPrivateAccess="true"))
-	TObjectPtr<UInventoryComponent> InventoryComponent;
 
 protected:
 	/** Maximum health available to this character. */
@@ -314,9 +310,6 @@ public:
 	/** Returns the component that owns health and stamina state. */
 	UFUNCTION(BlueprintPure, Category="Player|Components")
 	UPlayerVitalsComponent* GetPlayerVitalsComponent() const { return VitalsComponent; }
-
-	UFUNCTION(BlueprintPure, Category="Player|Components")
-	UInventoryComponent* GetInventoryComponent() const { return InventoryComponent; }
 
 	UFUNCTION(BlueprintPure, Category="Health")
 	bool IsAlive() const;

@@ -4,7 +4,6 @@
 #include "Core/PlayerControllers/prototype3PlayerController.h"
 #include "Gameplay/Combat/Melee/PlayerMeleeComponent.h"
 #include "Gameplay/Player/Vitals/PlayerVitalsComponent.h"
-#include "Gameplay/Player/Inventory/InventoryComponent.h"
 #include "Animation/AnimInstance.h"
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
@@ -21,7 +20,6 @@
 Aprototype3Character::Aprototype3Character()
 {
 	VitalsComponent = CreateDefaultSubobject<UPlayerVitalsComponent>(TEXT("Vitals"));
-	InventoryComponent = CreateDefaultSubobject<UInventoryComponent>(TEXT("Inventory"));
 	MeleeComponent = CreateDefaultSubobject<UPlayerMeleeComponent>(TEXT("Melee"));
 	// Set size for collision capsule
 	GetCapsuleComponent()->InitCapsuleSize(55.f, 96.0f);
@@ -515,9 +513,6 @@ void Aprototype3Character::SetActiveGait(EPlayerLocomotionGait NewGait)
 		? StandingSpeed * DirectionalSpeedMultiplier
 		: StandingSpeed;
 	GetCharacterMovement()->MaxWalkSpeedCrouched = CrouchSpeed * DirectionalSpeedMultiplier;
-	const float LoadMultiplier = InventoryComponent ? InventoryComponent->GetMovementSpeedMultiplier() : 1.0f;
-	GetCharacterMovement()->MaxWalkSpeed *= LoadMultiplier;
-	GetCharacterMovement()->MaxWalkSpeedCrouched *= LoadMultiplier;
 }
 
 void Aprototype3Character::ClearSpeedRequests()
@@ -643,7 +638,7 @@ void Aprototype3Character::Tick(float DeltaSeconds)
 	if (bIsSprinting || bIsRunning)
 	{
 		const float DrainPerSecond = bIsSprinting ? StaminaDrainPerSecond : RunStaminaDrainPerSecond;
-		VitalsComponent->DrainStamina(DrainPerSecond * DeltaSeconds * InventoryComponent->GetStaminaDrainMultiplier());
+		VitalsComponent->DrainStamina(DrainPerSecond * DeltaSeconds);
 		if (VitalsComponent->IsStaminaExhausted())
 		{
 			SetActiveGait(EPlayerLocomotionGait::Walking);

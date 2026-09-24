@@ -12,8 +12,7 @@ playable behavior before the next phase begins.
 
 1. `PlayerVitalsComponent`: owns health, stamina, recovery delay, and exhaustion.
 2. Item data and capabilities: defines what an inventory item is and can do.
-3. `InventoryComponent`: owns shaped grid items, stacks, layered containers,
-   quick/open access, and occupancy-based low/medium/high load.
+3. `InventoryComponent`: owns item stacks and quantities.
 4. `EquipmentComponent`: selects an inventory item for an equipment slot.
 5. `PlayerActionRouterComponent`: routes input to equipped capabilities, with
    `PlayerMeleeComponent` as the unarmed fallback.
@@ -35,15 +34,9 @@ hierarchy.
 - World actors without an inventory item definition or storable capability are
   not accepted by the inventory.
 
-The first bandage is a health-consumable definition with storable, usable, and
-healing capabilities; bandages do not stack. Ammo explicitly opts into stacking.
-Item-specific type switches do not belong in
+The first bandage is a health-consumable definition with storable, stackable,
+usable, and healing capabilities. Item-specific type switches do not belong in
 the character, inventory, equipment, or action router.
-
-The inventory foundation and its current limits are described in
-`INVENTORY_GUIDE.md`. Individual item weights, equipment/rarity rules, world
-pickups, UI, persistence, multiplayer, and 3D backpack animations are not part
-of this foundation. Load currently measures occupied cells, not kilograms.
 
 ## Parallel work and file ownership
 
