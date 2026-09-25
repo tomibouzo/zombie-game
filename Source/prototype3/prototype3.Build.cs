@@ -14,6 +14,7 @@ public class prototype3 : ModuleRules
 			"Engine",
 			"InputCore",
 			"EnhancedInput",
+			"GameplayTags",
 			"AIModule",
 			"StateTreeModule",
 			"GameplayStateTreeModule",
