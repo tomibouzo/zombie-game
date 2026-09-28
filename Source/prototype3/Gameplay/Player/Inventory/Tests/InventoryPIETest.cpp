@@ -11,11 +11,21 @@
 #include "Misc/Parse.h"
 #include "HAL/PlatformTime.h"
 #include "InputCoreTypes.h"
+#include "InputKeyEventArgs.h"
+#include "UI/Inventory/InventoryInputSettings.h"
 
 class FInventoryPIECheck : public IAutomationLatentCommand
 {
 public:
 	explicit FInventoryPIECheck(FAutomationTestBase* InTest) : Test(InTest), Started(FPlatformTime::Seconds()) {}
+	virtual ~FInventoryPIECheck() override
+	{
+		if (OriginalToggle.IsValid())
+		{
+			FString Error;
+			GetMutableDefault<UInventoryInputSettings>()->TrySetKey(EInventoryControl::Toggle, OriginalToggle, Error);
+		}
+	}
 	virtual bool Update() override
 	{
 		UWorld* World = GEditor ? GEditor->PlayWorld : nullptr;
@@ -29,7 +39,13 @@ public:
 		if (Phase == 0)
 		{
 			bOriginalCursor = Controller->bShowMouseCursor;
-			Controller->ToggleInventoryDemo();
+			auto* Settings = GetMutableDefault<UInventoryInputSettings>();
+			OriginalToggle = Settings->GetKey(EInventoryControl::Toggle);
+			FString Error;
+			for (FKey Candidate : { EKeys::F3, EKeys::F4, EKeys::F5, EKeys::F6, EKeys::F7, EKeys::F8, EKeys::F9, EKeys::F10 })
+				if (Candidate != OriginalToggle && Settings->TrySetKey(EInventoryControl::Toggle, Candidate, Error)) break;
+			Test->TestTrue(TEXT("Toggle is rebound during Play"), Settings->GetKey(EInventoryControl::Toggle) != OriginalToggle);
+			OpenWithInput(Controller);
 			++Phase;
 			return false;
 		}
@@ -44,17 +60,17 @@ public:
 			Test->TestTrue(TEXT("Movement disabled while UI is open"), Controller->IsMoveInputIgnored());
 			const auto Focus = FSlateApplication::Get().GetKeyboardFocusedWidget();
 			Test->TestTrue(TEXT("Keyboard focus reaches the inventory panel"), Focus.IsValid() && Focus->GetType() == TEXT("SInventoryPanel"));
-			FSlateApplication::Get().ProcessKeyDownEvent(FKeyEvent(EKeys::I, FModifierKeysState(), 0, false, 0, 0));
+			FSlateApplication::Get().ProcessKeyDownEvent(FKeyEvent(GetDefault<UInventoryInputSettings>()->GetKey(EInventoryControl::Toggle), FModifierKeysState(), 0, false, 0, 0));
 			++Phase;
 			return false;
 		}
-		Test->TestEqual(TEXT("I removes the screen"), Visible, 0);
+		Test->TestEqual(TEXT("Rebound key removes the screen"), Visible, 0);
 		Test->TestEqual(TEXT("Cursor restored"), Controller->bShowMouseCursor, bOriginalCursor);
 		Test->TestFalse(TEXT("Movement restored"), Controller->IsMoveInputIgnored());
 		Test->TestFalse(TEXT("Look restored"), Controller->IsLookInputIgnored());
 		if (Phase == 2)
 		{
-			Controller->ToggleInventoryDemo();
+			OpenWithInput(Controller);
 			++Phase;
 			return false;
 		}
@@ -62,6 +78,14 @@ public:
 		return true;
 	}
 private:
+	void OpenWithInput(Aprototype3PlayerController* Controller)
+	{
+		FInputKeyEventArgs Event;
+		Event.Key = GetDefault<UInventoryInputSettings>()->GetKey(EInventoryControl::Toggle);
+		Event.Event = IE_Pressed;
+		Controller->InputKey(Event);
+	}
+	FKey OriginalToggle;
 	FAutomationTestBase* Test;
 	double Started;
 	int32 Phase = 0;

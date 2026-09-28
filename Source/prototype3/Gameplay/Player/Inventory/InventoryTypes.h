@@ -1,5 +1,4 @@
 #pragma once
-
 #include "CoreMinimal.h"
 #include "Gameplay/Items/ItemInstance.h"
 #include "InventoryTypes.generated.h"
@@ -13,7 +12,19 @@ enum class EInventoryResult : uint8
 	DuplicateId, NotFound, OutOfBounds, Occupied
 };
 
-/** Temporary inventory geometry, separate from the shared item contract. */
+/** Filled convex polygon. A union of parts represents concave silhouettes and holes. */
+USTRUCT(BlueprintType)
+struct PROTOTYPE3_API FInventoryShapePart
+{
+	GENERATED_BODY()
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Inventory")
+	TArray<FVector2D> Vertices;
+	bool IsValid() const;
+	bool Contains(FVector2D Point) const;
+	bool Overlaps(const FInventoryShapePart& Other) const;
+};
+
+/** Explicit silhouette, independent of item art and the shared item contract. */
 USTRUCT(BlueprintType)
 struct PROTOTYPE3_API FInventoryItemProfile
 {
@@ -22,15 +33,16 @@ struct PROTOTYPE3_API FInventoryItemProfile
 	FName Id;
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Inventory")
 	TObjectPtr<UItemDefinition> Definition = nullptr;
-	/** Explicit geometry is required: a missing icon never implies a size. */
+	/** Local coordinates centered on the silhouette's bounding box. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Inventory")
-	TArray<FIntPoint> OccupiedCells;
+	TArray<FInventoryShapePart> ShapeParts;
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Inventory")
 	bool bAllowRotation = true;
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Inventory")
 	bool bProvisional = true;
 	bool IsValid() const;
-	TArray<FIntPoint> GetRotatedCells(int32 QuarterTurns) const;
+	TArray<FInventoryShapePart> GetTransformedParts(FVector2D Center, double AngleDegrees) const;
+	bool Contains(FVector2D Point, FVector2D Center, double AngleDegrees) const;
 };
 
 USTRUCT(BlueprintType)
@@ -40,10 +52,10 @@ struct PROTOTYPE3_API FInventoryPocket
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Inventory")
 	FName Id;
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Inventory")
-	FIntPoint Size = FIntPoint(4, 4);
+	FVector2D Size = FVector2D(560, 560);
 };
 
-/** Placement belongs to the inventory; identity and quantity belong to the instance. */
+/** Position is the center; positive angles turn clockwise in the UI's downward Y axis. */
 USTRUCT(BlueprintType)
 struct PROTOTYPE3_API FInventoryEntry
 {
@@ -55,7 +67,15 @@ struct PROTOTYPE3_API FInventoryEntry
 	UPROPERTY(BlueprintReadOnly, Category="Inventory")
 	FName PocketId;
 	UPROPERTY(BlueprintReadOnly, Category="Inventory")
-	FIntPoint Position = FIntPoint::ZeroValue;
+	FVector2D Position = FVector2D::ZeroVector;
 	UPROPERTY(BlueprintReadOnly, Category="Inventory")
-	int32 QuarterTurns = 0;
+	double AngleDegrees = 0;
 };
+
+namespace InventoryGeometry
+{
+	// Numerical tolerance in logical units, not a gameplay gap or packing margin.
+	constexpr double Tolerance = 1.e-7;
+	PROTOTYPE3_API bool IsFinite(FVector2D Point);
+	PROTOTYPE3_API double NormalizeAngle(double Degrees);
+}

@@ -2,48 +2,48 @@
 #include "Gameplay/Player/Inventory/InventoryComponent.h"
 #include "Gameplay/Items/ItemDefinition.h"
 #include "Rendering/DrawElements.h"
+#include "Rendering/SlateRenderer.h"
+#include "Framework/Application/SlateApplication.h"
 #include "Styling/CoreStyle.h"
-#include "InputCoreTypes.h"
 
-namespace { constexpr float CellSize = 52.0f; }
+namespace
+{
+bool InRect(FVector2D P, double X, double Y, double W, double H)
+{
+	return P.X >= X && P.X <= X + W && P.Y >= Y && P.Y <= Y + H;
+}
+}
 
 void SInventoryPanel::Construct(const FArguments& Args)
 {
 	Inventory = Args._Inventory;
+	Controls = Args._Controls ? Args._Controls : GetMutableDefault<UInventoryInputSettings>();
+	bSaveControls = Args._SaveControls;
 	OnClose = Args._OnClose;
-	SetCanTick(false);
+	SetCanTick(true);
 }
 
-FVector2D SInventoryPanel::PocketOrigin(int32 Index) { return FVector2D(Index == 0 ? 40 : 580, 190); }
+void SInventoryPanel::Tick(const FGeometry& Geometry, double Time, float Delta)
+{
+	SLeafWidget::Tick(Geometry, Time, Delta);
+	if (Controls.IsValid() && Active() && (bTurnLeft || bTurnRight))
+		Turn((static_cast<int32>(bTurnRight) - static_cast<int32>(bTurnLeft)) * Controls->TurnSpeed * Delta);
+}
 
-bool SInventoryPanel::Locate(FVector2D Point, FName& PocketId, FIntPoint& Cell) const
+bool SInventoryPanel::HitItem(FVector2D Point, FInventoryEntry& OutEntry) const
 {
 	if (!Inventory.IsValid()) return false;
-	const TArray<FInventoryPocket> Pockets = Inventory->GetPockets();
-	for (int32 Index = 0; Index < Pockets.Num(); ++Index)
-	{
-		const FVector2D Local = (Point - PocketOrigin(Index)) / CellSize;
-		if (Local.X >= 0 && Local.Y >= 0 && Local.X < Pockets[Index].Size.X && Local.Y < Pockets[Index].Size.Y)
-		{
-			PocketId = Pockets[Index].Id;
-			Cell = FIntPoint(FMath::FloorToInt(Local.X), FMath::FloorToInt(Local.Y));
-			return true;
-		}
-	}
-	return false;
-}
-
-bool SInventoryPanel::HitItem(FVector2D Point, FInventoryEntry& OutEntry, FIntPoint& Cell) const
-{
-	FName Pocket;
-	if (!Locate(Point, Pocket, Cell)) return false;
-	for (const FInventoryEntry& Entry : Inventory->GetEntries())
+	const FVector2D Local = Point - PocketOrigin();
+	const auto Pockets = Inventory->GetPockets();
+	if (Pockets.IsEmpty() || !InRect(Local, 0, 0, Pockets[0].Size.X, Pockets[0].Size.Y)) return false;
+	const auto Entries = Inventory->GetEntries();
+	for (int32 I = Entries.Num() - 1; I >= 0; --I)
 	{
 		FInventoryItemProfile Profile;
-		if (Entry.PocketId == Pocket && Inventory->GetProfile(Entry.ProfileId, Profile)
-			&& Profile.GetRotatedCells(Entry.QuarterTurns).Contains(Cell - Entry.Position))
+		if (Entries[I].PocketId == Pockets[0].Id && Inventory->GetProfile(Entries[I].ProfileId, Profile)
+			&& Profile.Contains(Local, Entries[I].Position, Entries[I].AngleDegrees))
 		{
-			OutEntry = Entry;
+			OutEntry = Entries[I];
 			return true;
 		}
 	}
@@ -55,76 +55,67 @@ FString SInventoryPanel::Describe(EInventoryResult Result)
 	switch (Result)
 	{
 	case EInventoryResult::Success: return TEXT("Posicion valida");
-	case EInventoryResult::Occupied: return TEXT("Colision: hay otra pieza");
-	case EInventoryResult::OutOfBounds: return TEXT("Fuera del bolsillo");
-	case EInventoryResult::InvalidRotation: return TEXT("Rotacion no permitida");
-	default: return TEXT("Operacion rechazada: revisa el objeto y su perfil");
+	case EInventoryResult::Occupied: return TEXT("Hay superposicion con otro objeto");
+	case EInventoryResult::OutOfBounds: return TEXT("Parte del objeto queda fuera del espacio");
+	case EInventoryResult::InvalidRotation: return TEXT("Este objeto no permite ese giro");
+	default: return TEXT("No se puede colocar este objeto");
 	}
 }
 
-EInventoryResult SInventoryPanel::Preview(FName& PocketId, FIntPoint& Position) const
+EInventoryResult SInventoryPanel::Preview(FName& PocketId, FVector2D& Center) const
 {
-	if (!Inventory.IsValid() || !Locate(Cursor, PocketId, Position)) return EInventoryResult::OutOfBounds;
-	Position -= GrabOffset;
-	return bAdding ? Inventory->CheckPlacement(Pending.ProfileId, PocketId, Position, PreviewRotation)
-		: Inventory->CheckMove(SelectedId, PocketId, Position, PreviewRotation);
+	Center = Cursor - PocketOrigin() - GrabOffset;
+	if (!Inventory.IsValid()) return EInventoryResult::InvalidPocket;
+	const auto Pockets = Inventory->GetPockets();
+	if (Pockets.IsEmpty()) return EInventoryResult::InvalidPocket;
+	PocketId = Pockets[0].Id;
+	return bAdding ? Inventory->CheckPlacement(Pending.ProfileId, PocketId, Center, PreviewAngle)
+		: Inventory->CheckMove(SelectedId, PocketId, Center, PreviewAngle);
 }
 
 void SInventoryPanel::CancelGesture()
 {
-	bDragging = false;
-	bAdding = false;
+	bDragging = bAdding = bTurnLeft = bTurnRight = false;
 	Pending = FInventoryEntry();
-	GrabOffset = FIntPoint::ZeroValue;
+	GrabOffset = FVector2D::ZeroVector;
 	Invalidate(EInvalidateWidgetReason::Paint);
 }
 
 void SInventoryPanel::CommitGesture()
 {
+	if (!Active()) return;
 	FName Pocket;
-	FIntPoint Position;
-	EInventoryResult Result = Preview(Pocket, Position);
+	FVector2D Center;
+	EInventoryResult Result = Preview(Pocket, Center);
 	if (Result == EInventoryResult::Success)
 	{
 		if (bAdding)
 		{
-			Result = Inventory->AddItem(Pending.Item, Pending.ProfileId, Pocket, Position, PreviewRotation);
+			Result = Inventory->AddItem(Pending.Item, Pending.ProfileId, Pocket, Center, PreviewAngle);
 			if (Result == EInventoryResult::Success) SelectedId = Pending.Item.InstanceId;
 		}
-		else Result = Inventory->MoveItem(SelectedId, Pocket, Position, PreviewRotation);
+		else Result = Inventory->MoveItem(SelectedId, Pocket, Center, PreviewAngle);
 	}
-	Status = Result == EInventoryResult::Success ? TEXT("Colocado. Identidad conservada al mover.") : Describe(Result) + TEXT(". Sin cambios.");
+	Status = Result == EInventoryResult::Success ? TEXT("Objeto colocado.") : Describe(Result) + TEXT(". Colocacion cancelada.");
 	CancelGesture();
 }
 
-void SInventoryPanel::Rotate()
+void SInventoryPanel::Turn(double Delta)
 {
-	if (!Inventory.IsValid()) return;
-	if (bDragging || bAdding)
-	{
-		PreviewRotation = (PreviewRotation + 1) % 4;
-		// Rotation reanchors the preview at the cursor's cell.
-		GrabOffset = FIntPoint::ZeroValue;
-	}
-	else
-	{
-		FInventoryEntry Entry;
-		if (Inventory->GetItem(SelectedId, Entry))
-			Status = Describe(Inventory->MoveItem(SelectedId, Entry.PocketId, Entry.Position, (Entry.QuarterTurns + 1) % 4));
-	}
+	if (!Active()) return;
+	PreviewAngle = InventoryGeometry::NormalizeAngle(PreviewAngle + Delta);
 	Invalidate(EInvalidateWidgetReason::Paint);
 }
 
 void SInventoryPanel::RemoveSelected()
 {
-	if (bDragging || bAdding || !Inventory.IsValid()) return;
+	if (Active() || !Inventory.IsValid()) return;
 	FItemInstance Removed;
 	if (Inventory->RemoveItem(SelectedId, Removed) == EInventoryResult::Success)
 	{
 		SelectedId.Invalidate();
 		Status = TEXT("Objeto retirado del inventario de prueba.");
 	}
-	Invalidate(EInvalidateWidgetReason::Paint);
 }
 
 void SInventoryPanel::BeginBandage()
@@ -135,79 +126,194 @@ void SInventoryPanel::BeginBandage()
 	Pending.Item = FItemInstance::Create(Profile.Definition);
 	Pending.ProfileId = Profile.Id;
 	bAdding = Pending.Item.IsValid();
-	PreviewRotation = 0;
-	Status = TEXT("Haz clic en una casilla para colocar la venda. Boton derecho cancela.");
+	PreviewAngle = 0;
+	Status = TEXT("Coloca la venda con tu control de agarrar / soltar.");
+}
+
+void SInventoryPanel::SavePreferences()
+{
+	if (bSaveControls && Controls.IsValid()) Controls->SaveConfig();
 	Invalidate(EInvalidateWidgetReason::Paint);
 }
 
-FReply SInventoryPanel::OnMouseButtonDown(const FGeometry& Geometry, const FPointerEvent& Event)
+void SInventoryPanel::AssignKey(FKey Key)
 {
-	Cursor = Geometry.AbsoluteToLocal(Event.GetScreenSpacePosition());
-	if (Event.GetEffectingButton() == EKeys::RightMouseButton)
+	if (!Controls.IsValid() || Rebinding == INDEX_NONE) return;
+	FString Error;
+	if (Controls->TrySetKey(static_cast<EInventoryControl>(Rebinding), Key, Error))
 	{
-		CancelGesture();
-		Status = TEXT("Cancelado. El objeto conserva su posicion.");
+		Rebinding = INDEX_NONE;
+		SavePreferences();
+		Status = TEXT("Control actualizado.");
+	}
+	else Status = Error;
+	Invalidate(EInvalidateWidgetReason::Paint);
+}
+
+bool SInventoryPanel::HandleButton()
+{
+	if (!Controls.IsValid()) return false;
+	if (Rebinding != INDEX_NONE)
+	{
+		if (InRect(Cursor, 630, 150, 330, 28))
+		{
+			Rebinding = INDEX_NONE;
+			Status = TEXT("Asignacion cancelada.");
+			return true;
+		}
+		return false;
+	}
+	for (int32 I = 0; I < static_cast<int32>(EInventoryControl::Count); ++I)
+		if (InRect(Cursor, 630, 190 + I * 42, 330, 36))
+		{
+			CancelGesture();
+			Rebinding = I;
+			Status = TEXT("Pulsa la nueva tecla o boton. Haz clic en 'Cancelar asignacion' para salir.");
+			return true;
+		}
+	if (InRect(Cursor, 630, 500, 330, 38))
+	{
+		Controls->bToggleGrab = !Controls->bToggleGrab;
+		SavePreferences();
+		return true;
+	}
+	if (InRect(Cursor, 630, 552, 44, 32) || InRect(Cursor, 916, 552, 44, 32))
+	{
+		Controls->TurnSpeed = FMath::Clamp(Controls->TurnSpeed + (Cursor.X < 700 ? -15.f : 15.f), 15.f, 360.f);
+		SavePreferences();
+		return true;
+	}
+	if (InRect(Cursor, 630, 598, 330, 34))
+	{
+		Controls->ResetDefaults();
+		SavePreferences();
+		Status = TEXT("Controles predeterminados restaurados.");
+		return true;
+	}
+	if (InRect(Cursor, 630, 650, 155, 40)) { BeginBandage(); return true; }
+	if (InRect(Cursor, 805, 650, 155, 40)) { RemoveSelected(); return true; }
+	return false;
+}
+
+FReply SInventoryPanel::Reply()
+{
+	FReply Result = FReply::Handled().SetUserFocus(SharedThis(this));
+	// Recapturing the same widget first sends OnMouseCaptureLost, cancelling the gesture.
+	// Keep the existing capture while rotating or releasing another held control.
+	if (Active() && !HasMouseCapture()) Result.CaptureMouse(SharedThis(this));
+	else if (!Active() && HasMouseCapture()) Result.ReleaseMouseCapture();
+	return Result;
+}
+
+FReply SInventoryPanel::Press(FKey Key)
+{
+	if (!Controls.IsValid()) return FReply::Handled();
+	if (Rebinding != INDEX_NONE) { AssignKey(Key); return Reply(); }
+	if (Key == Controls->GetKey(EInventoryControl::Toggle))
+	{
+		CancelGesture(); OnClose.ExecuteIfBound();
 		return FReply::Handled().ReleaseMouseCapture();
 	}
-	if (Event.GetEffectingButton() != EKeys::LeftMouseButton) return FReply::Handled();
-	if (Cursor.X >= 870 && Cursor.Y >= 25 && Cursor.Y <= 70)
+	if (Key == Controls->GetKey(EInventoryControl::Cancel))
 	{
-		CancelGesture(); OnClose.ExecuteIfBound(); return FReply::Handled().ReleaseMouseCapture();
+		CancelGesture();
+		Status = TEXT("Cancelado. Posicion y angulo originales conservados.");
+		return Reply();
 	}
-	if (Cursor.Y >= 565 && Cursor.Y <= 607)
+	if (Key == Controls->GetKey(EInventoryControl::Grab))
 	{
-		if (Cursor.X >= 40 && Cursor.X < 230) BeginBandage();
-		else if (Cursor.X >= 245 && Cursor.X < 420) Rotate();
-		else if (Cursor.X >= 435 && Cursor.X < 650) RemoveSelected();
-		return FReply::Handled().SetUserFocus(SharedThis(this));
+		if (bAdding || (bDragging && Controls->bToggleGrab)) CommitGesture();
+		else if (!bDragging)
+		{
+			FInventoryEntry Entry;
+			if (HitItem(Cursor, Entry))
+			{
+				SelectedId = Entry.Item.InstanceId;
+				Pending = Entry;
+				PreviewAngle = Entry.AngleDegrees;
+				GrabOffset = Cursor - PocketOrigin() - Entry.Position;
+				bDragging = true;
+			}
+			else SelectedId.Invalidate();
+		}
 	}
-	if (bAdding) { CommitGesture(); return FReply::Handled().SetUserFocus(SharedThis(this)); }
-	FInventoryEntry Entry;
-	FIntPoint Cell;
-	if (HitItem(Cursor, Entry, Cell))
+	if (Active())
 	{
-		SelectedId = Entry.Item.InstanceId;
-		Pending = Entry;
-		PreviewRotation = Entry.QuarterTurns;
-		GrabOffset = Cell - Entry.Position;
-		bDragging = true;
-		Invalidate(EInvalidateWidgetReason::Paint);
-		return FReply::Handled().CaptureMouse(SharedThis(this)).SetUserFocus(SharedThis(this));
+		if (Key == Controls->GetKey(EInventoryControl::TurnLeft)) bTurnLeft = true;
+		if (Key == Controls->GetKey(EInventoryControl::TurnRight)) bTurnRight = true;
 	}
-	SelectedId.Invalidate();
+	else
+	{
+		if (Key == Controls->GetKey(EInventoryControl::Remove)) RemoveSelected();
+		if (Key == Controls->GetKey(EInventoryControl::Add)) BeginBandage();
+	}
 	Invalidate(EInvalidateWidgetReason::Paint);
-	return FReply::Handled().SetUserFocus(SharedThis(this));
+	return Reply();
 }
 
-FReply SInventoryPanel::OnMouseButtonUp(const FGeometry& Geometry, const FPointerEvent& Event)
+FReply SInventoryPanel::Release(FKey Key)
 {
-	Cursor = Geometry.AbsoluteToLocal(Event.GetScreenSpacePosition());
-	if (Event.GetEffectingButton() == EKeys::LeftMouseButton && bDragging) CommitGesture();
-	return FReply::Handled().ReleaseMouseCapture();
+	if (!Controls.IsValid()) return FReply::Handled();
+	if (Key == Controls->GetKey(EInventoryControl::TurnLeft)) bTurnLeft = false;
+	if (Key == Controls->GetKey(EInventoryControl::TurnRight)) bTurnRight = false;
+	if (Key == Controls->GetKey(EInventoryControl::Grab) && bDragging && !Controls->bToggleGrab) CommitGesture();
+	return Reply();
 }
 
-FReply SInventoryPanel::OnMouseMove(const FGeometry& Geometry, const FPointerEvent& Event)
+FReply SInventoryPanel::OnMouseButtonDown(const FGeometry& G, const FPointerEvent& Event)
 {
-	Cursor = Geometry.AbsoluteToLocal(Event.GetScreenSpacePosition());
+	Cursor = G.AbsoluteToLocal(Event.GetScreenSpacePosition());
+	if (!Active() && Event.GetEffectingButton() == EKeys::LeftMouseButton && InRect(Cursor, 880, 25, 80, 42))
+	{
+		CancelGesture(); Rebinding = INDEX_NONE; OnClose.ExecuteIfBound();
+		return FReply::Handled().ReleaseMouseCapture();
+	}
+	if (!Active() && Event.GetEffectingButton() == EKeys::LeftMouseButton && HandleButton())
+	{
+		Invalidate(EInvalidateWidgetReason::Paint);
+		return Reply();
+	}
+	return Press(Event.GetEffectingButton());
+}
+
+FReply SInventoryPanel::OnMouseButtonDoubleClick(const FGeometry& G, const FPointerEvent& Event)
+{
+	return OnMouseButtonDown(G, Event);
+}
+
+FReply SInventoryPanel::OnMouseButtonUp(const FGeometry& G, const FPointerEvent& Event)
+{
+	Cursor = G.AbsoluteToLocal(Event.GetScreenSpacePosition());
+	return Release(Event.GetEffectingButton());
+}
+
+FReply SInventoryPanel::OnMouseMove(const FGeometry& G, const FPointerEvent& Event)
+{
+	Cursor = G.AbsoluteToLocal(Event.GetScreenSpacePosition());
 	Invalidate(EInvalidateWidgetReason::Paint);
 	return FReply::Handled();
+}
+
+FReply SInventoryPanel::OnMouseWheel(const FGeometry& G, const FPointerEvent& Event)
+{
+	Cursor = G.AbsoluteToLocal(Event.GetScreenSpacePosition());
+	const FKey Key = Event.GetWheelDelta() >= 0 ? EKeys::MouseScrollUp : EKeys::MouseScrollDown;
+	if (Rebinding != INDEX_NONE) { AssignKey(Key); return Reply(); }
+	if (Controls.IsValid() && Active())
+	{
+		if (Key == Controls->GetKey(EInventoryControl::TurnLeft)) Turn(-FMath::Abs(Event.GetWheelDelta()) * 2);
+		if (Key == Controls->GetKey(EInventoryControl::TurnRight)) Turn(FMath::Abs(Event.GetWheelDelta()) * 2);
+	}
+	return Reply();
 }
 
 FReply SInventoryPanel::OnKeyDown(const FGeometry&, const FKeyEvent& Event)
 {
-	if (Event.IsRepeat()) return FReply::Handled();
-	if (Event.GetKey() == EKeys::I)
-	{
-		CancelGesture(); OnClose.ExecuteIfBound(); return FReply::Handled().ReleaseMouseCapture();
-	}
-	if (Event.GetKey() == EKeys::Escape) { CancelGesture(); return FReply::Handled().ReleaseMouseCapture(); }
-	if (Event.GetKey() == EKeys::R) Rotate();
-	if (Event.GetKey() == EKeys::Delete) RemoveSelected();
-	return FReply::Handled();
+	return Event.IsRepeat() ? FReply::Handled() : Press(Event.GetKey());
 }
-
+FReply SInventoryPanel::OnKeyUp(const FGeometry&, const FKeyEvent& Event) { return Release(Event.GetKey()); }
 void SInventoryPanel::OnMouseCaptureLost(const FCaptureLostEvent&) { CancelGesture(); }
-void SInventoryPanel::OnFocusLost(const FFocusEvent&) { CancelGesture(); }
+void SInventoryPanel::OnFocusLost(const FFocusEvent&) { CancelGesture(); Rebinding = INDEX_NONE; }
 
 int32 SInventoryPanel::OnPaint(const FPaintArgs&, const FGeometry& G, const FSlateRect&, FSlateWindowElementList& Out, int32 Layer, const FWidgetStyle&, bool) const
 {
@@ -218,76 +324,94 @@ int32 SInventoryPanel::OnPaint(const FPaintArgs&, const FGeometry& G, const FSla
 	};
 	auto Text = [&](FVector2D Pos, const FString& Value, int32 Size, FLinearColor Color = FLinearColor::White)
 	{
-		FSlateDrawElement::MakeText(Out, Layer++, G.ToPaintGeometry(FVector2D(1, 1), FSlateLayoutTransform(Pos)), Value,
-			FCoreStyle::GetDefaultFontStyle(TEXT("Regular"), Size), ESlateDrawEffect::None, Color);
+		FSlateDrawElement::MakeText(Out, Layer++, G.ToPaintGeometry(FVector2D(1, 1), FSlateLayoutTransform(Pos)),
+			Value, FCoreStyle::GetDefaultFontStyle(TEXT("Regular"), Size), ESlateDrawEffect::None, Color);
 	};
-	Box(FVector2D::ZeroVector, FVector2D(1000, 650), FLinearColor(0.025f, 0.032f, 0.043f, 1));
-	Text(FVector2D(40, 27), TEXT("INVENTARIO / laboratorio"), 25);
-	Text(FVector2D(40, 75), TEXT("Formas provisionales. La venda 1 x 1 no tiene dimensiones finales."), 14, FLinearColor(0.7f, 0.76f, 0.82f));
-	Text(FVector2D(40, 103), TEXT("Arrastrar: mover   |   R: girar   |   Boton derecho: cancelar   |   I: cerrar"), 13);
-	Box(FVector2D(870, 25), FVector2D(95, 45), FLinearColor(0.16f, 0.19f, 0.24f));
-	Text(FVector2D(881, 35), TEXT("Cerrar I"), 14);
-	if (!Inventory.IsValid()) { Text(FVector2D(40, 170), TEXT("Inventario no disponible"), 18); return Layer; }
-	const auto Pockets = Inventory->GetPockets();
-	const auto Entries = Inventory->GetEntries();
-	for (int32 Index = 0; Index < Pockets.Num(); ++Index)
+	auto Shape = [&](const FInventoryItemProfile& Profile, FVector2D Center, double Angle, FLinearColor Color)
 	{
-		const auto& Pocket = Pockets[Index];
-		const FVector2D Origin = PocketOrigin(Index);
-		Text(Origin - FVector2D(0, 33), FString::Printf(TEXT("%s   /   %d x %d"), Index == 0 ? TEXT("BOLSILLO PRINCIPAL") : TEXT("BOLSILLO LATERAL"), Pocket.Size.X, Pocket.Size.Y), 15);
-		for (int32 Y = 0; Y < Pocket.Size.Y; ++Y)
-			for (int32 X = 0; X < Pocket.Size.X; ++X)
-				Box(Origin + FVector2D(X, Y) * CellSize, FVector2D(CellSize - 2), FLinearColor(0.085f, 0.10f, 0.13f));
-		for (const auto& Entry : Entries)
+		TArray<FSlateVertex> Vertices;
+		TArray<SlateIndex> Indices;
+		for (const auto& Part : Profile.GetTransformedParts(PocketOrigin() + Center, Angle))
 		{
-			if (Entry.PocketId != Pocket.Id) continue;
-			FInventoryItemProfile Profile;
-			if (!Inventory->GetProfile(Entry.ProfileId, Profile)) continue;
-			const auto Cells = Profile.GetRotatedCells(Entry.QuarterTurns);
-			const bool bSelected = Entry.Item.InstanceId == SelectedId;
-			for (FIntPoint Cell : Cells)
+			const int32 Base = Vertices.Num();
+			for (FVector2D P : Part.Vertices)
+				Vertices.Add(FSlateVertex::Make<ESlateVertexRounding::Disabled>(G.GetAccumulatedRenderTransform(), FVector2f(P), FVector2f::ZeroVector, Color.ToFColor(true)));
+			for (int32 I = 1; I + 1 < Part.Vertices.Num(); ++I)
 			{
-				const FVector2D Pos = Origin + FVector2D(Cell + Entry.Position) * CellSize;
-				Box(Pos + FVector2D(2), FVector2D(CellSize - 6), bSelected ? FLinearColor(0.49f, 0.59f, 0.67f) : FLinearColor(0.32f, 0.35f, 0.39f));
+				Indices.Add(static_cast<SlateIndex>(Base));
+				Indices.Add(static_cast<SlateIndex>(Base + I));
+				Indices.Add(static_cast<SlateIndex>(Base + I + 1));
 			}
-			if (Cells.Num()) Text(Origin + FVector2D(Cells[0] + Entry.Position) * CellSize + FVector2D(9, 12), Entry.ProfileId == TEXT("Bandage_TestOnly") ? TEXT("V") : TEXT("T"), 16);
 		}
-	}
-	FName HoverPocket;
-	FIntPoint HoverPosition;
-	if (bDragging || bAdding)
+		const auto Handle = FSlateApplication::Get().GetRenderer()->GetResourceHandle(*Brush);
+		FSlateDrawElement::MakeCustomVerts(Out, Layer++, Handle, Vertices, Indices, nullptr, 0, 0);
+	};
+	const FLinearColor Muted(0.65f, 0.72f, 0.78f), Button(0.12f, 0.16f, 0.21f);
+	Box(FVector2D::ZeroVector, FVector2D(1000, 800), FLinearColor(0.022f, 0.03f, 0.043f));
+	Text(FVector2D(40, 27), TEXT("INVENTARIO / espacio libre"), 25);
+	Text(FVector2D(40, 76), TEXT("Mueve y gira cada silueta. Los bordes pueden tocarse."), 15, Muted);
+	Box(FVector2D(880, 25), FVector2D(80, 42), Button);
+	Text(FVector2D(890, 36), TEXT("Cerrar"), 13);
+	Text(FVector2D(40, 118), TEXT("ESPACIO DE PRUEBA"), 14, Muted);
+	if (!Inventory.IsValid() || !Controls.IsValid()) return Layer;
+	const auto Pockets = Inventory->GetPockets();
+	if (Pockets.IsEmpty()) return Layer;
+	Box(PocketOrigin() - FVector2D(2), Pockets[0].Size + FVector2D(4), FLinearColor(0.22f, 0.3f, 0.36f));
+	Box(PocketOrigin(), Pockets[0].Size, FLinearColor(0.055f, 0.075f, 0.095f));
+	const auto Entries = Inventory->GetEntries();
+	for (const auto& Entry : Entries)
 	{
-		const EInventoryResult Result = Preview(HoverPocket, HoverPosition);
+		if (Entry.PocketId != Pockets[0].Id || (bDragging && Entry.Item.InstanceId == SelectedId)) continue;
+		FInventoryItemProfile Profile;
+		if (Inventory->GetProfile(Entry.ProfileId, Profile))
+			Shape(Profile, Entry.Position, Entry.AngleDegrees,
+				Entry.Item.InstanceId == SelectedId ? FLinearColor(0.43f, 0.62f, 0.73f) : FLinearColor(0.3f, 0.4f, 0.47f));
+	}
+	Text(FVector2D(630, 150), Rebinding == INDEX_NONE ? TEXT("CONTROLES / clic para cambiar") : TEXT("Cancelar asignacion"), 14, Muted);
+	for (int32 I = 0; I < static_cast<int32>(EInventoryControl::Count); ++I)
+	{
+		const auto Action = static_cast<EInventoryControl>(I);
+		const float Y = 190 + I * 42;
+		Box(FVector2D(630, Y), FVector2D(330, 36), Rebinding == I ? FLinearColor(0.22f, 0.36f, 0.4f) : Button);
+		Text(FVector2D(640, Y + 10), UInventoryInputSettings::Label(Action), 12);
+		FString KeyLabel = Controls->GetKey(Action).GetDisplayName().ToString();
+		if (Rebinding == I) KeyLabel = TEXT("Pulsa un control...");
+		Text(FVector2D(802, Y + 11), KeyLabel, 10, Muted);
+	}
+	Box(FVector2D(630, 500), FVector2D(330, 38), Button);
+	Text(FVector2D(640, 511), Controls->bToggleGrab ? TEXT("Agarre: un clic para tomar y otro para soltar") : TEXT("Agarre: mantener pulsado y soltar"), 11);
+	Box(FVector2D(630, 552), FVector2D(44, 32), Button);
+	Box(FVector2D(916, 552), FVector2D(44, 32), Button);
+	Text(FVector2D(646, 556), TEXT("-"), 18);
+	Text(FVector2D(931, 556), TEXT("+"), 18);
+	Text(FVector2D(693, 560), FString::Printf(TEXT("Giro: %.0f grados / s"), Controls->TurnSpeed), 12, Muted);
+	Box(FVector2D(630, 598), FVector2D(330, 34), Button);
+	Text(FVector2D(690, 607), TEXT("Restaurar controles"), 12);
+	Box(FVector2D(630, 650), FVector2D(155, 40), FLinearColor(0.12f, 0.28f, 0.25f));
+	Text(FVector2D(646, 663), TEXT("+ Anadir venda"), 12);
+	Box(FVector2D(805, 650), FVector2D(155, 40), Button);
+	Text(FVector2D(824, 663), TEXT("Retirar objeto"), 12);
+	FInventoryEntry Selected;
+	if (Inventory->GetItem(SelectedId, Selected))
+		Text(FVector2D(630, 704), Selected.Item.Definition->DisplayName.ToString() + FString::Printf(TEXT("  /  %.1f grados"), Active() ? PreviewAngle : Selected.AngleDegrees), 11, Muted);
+
+	if (Active())
+	{
+		FName Pocket;
+		FVector2D Center;
+		const auto Result = Preview(Pocket, Center);
 		FInventoryItemProfile Profile;
 		if (Inventory->GetProfile(Pending.ProfileId, Profile))
 		{
-			const int32 Index = Pockets.IndexOfByPredicate([&](const FInventoryPocket& P) { return P.Id == HoverPocket; });
-			if (Index != INDEX_NONE)
-				for (FIntPoint Cell : Profile.GetRotatedCells(PreviewRotation))
-				{
-					const FIntPoint Location = Cell + HoverPosition;
-					// Keep out-of-pocket previews away from labels and controls.
-					if (Location.X < 0 || Location.Y < 0 || Location.X >= Pockets[Index].Size.X || Location.Y >= Pockets[Index].Size.Y) continue;
-					Box(PocketOrigin(Index) + FVector2D(Location) * CellSize + FVector2D(5), FVector2D(CellSize - 12),
-						Result == EInventoryResult::Success ? FLinearColor(0.1f, 0.7f, 0.4f, 0.85f) : FLinearColor(0.9f, 0.18f, 0.14f, 0.85f));
-				}
+			// Show the actual rotated silhouette, including the portion outside the storage area.
+			Out.PushClip(FSlateClippingZone(G));
+			Shape(Profile, Center, PreviewAngle, Result == EInventoryResult::Success ? FLinearColor(0.09f, 0.68f, 0.35f) : FLinearColor(0.84f, 0.12f, 0.12f));
+			Out.PopClip();
 		}
-		Text(FVector2D(40, 527), Describe(Result), 15, Result == EInventoryResult::Success ? FLinearColor(0.3f, 1, 0.6f) : FLinearColor(1, 0.4f, 0.3f));
+		Text(FVector2D(40, 738), Describe(Result) + FString::Printf(TEXT("  |  %.1f grados"), PreviewAngle), 14,
+			Result == EInventoryResult::Success ? FLinearColor(0.3f, 1, 0.6f) : FLinearColor(1, 0.4f, 0.3f));
 	}
-	else Text(FVector2D(40, 527), Status, 14);
-	FInventoryEntry Selected;
-	if (Inventory->GetItem(SelectedId, Selected))
-	{
-		Text(FVector2D(580, 385), Selected.Item.Definition->DisplayName.ToString(), 16);
-		Text(FVector2D(580, 415), FString::Printf(TEXT("Cantidad: %d   Giro: %d grados"), Selected.Item.Quantity, Selected.QuarterTurns * 90), 13);
-		Text(FVector2D(580, 441), TEXT("ID: ") + SelectedId.ToString().Left(13), 12, FLinearColor(0.65f, 0.7f, 0.76f));
-	}
-	Box(FVector2D(40, 565), FVector2D(190, 42), FLinearColor(0.14f, 0.29f, 0.26f));
-	Text(FVector2D(54, 575), TEXT("+ Anadir venda"), 14);
-	Box(FVector2D(245, 565), FVector2D(175, 42), FLinearColor(0.16f, 0.19f, 0.24f));
-	Text(FVector2D(258, 575), TEXT("Girar / R"), 14);
-	Box(FVector2D(435, 565), FVector2D(215, 42), FLinearColor(0.16f, 0.19f, 0.24f));
-	Text(FVector2D(448, 575), TEXT("Retirar / Supr"), 14);
-	Text(FVector2D(40, 620), FString::Printf(TEXT("%d objetos   |   V = venda real; T = pieza de prueba   |   Datos temporales de esta sesion"), Entries.Num()), 12, FLinearColor(0.65f, 0.7f, 0.76f));
+	else Text(FVector2D(40, 738), Status, 13, Muted);
+	Text(FVector2D(40, 775), FString::Printf(TEXT("%d objetos  |  Formas provisionales  |  Los objetos se reinician al terminar Play"), Entries.Num()), 11, Muted);
 	return Layer;
 }

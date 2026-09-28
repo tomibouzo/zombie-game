@@ -16,7 +16,7 @@ TSharedRef<SWidget> UInventoryDemoWidget::RebuildWidget()
 {
 	return SNew(SScaleBox).Stretch(EStretch::ScaleToFit)
 	[
-		SNew(SBox).WidthOverride(1000).HeightOverride(650)
+		SNew(SBox).WidthOverride(1000).HeightOverride(800)
 		[
 			SAssignNew(Panel, SInventoryPanel).Inventory(Inventory)
 			.OnClose(FSimpleDelegate::CreateWeakLambda(this, [this]() { OnClose.ExecuteIfBound(); }))

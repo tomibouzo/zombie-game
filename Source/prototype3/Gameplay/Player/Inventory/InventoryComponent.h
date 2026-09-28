@@ -22,17 +22,17 @@ public:
 	EInventoryResult AddPocket(const FInventoryPocket& Pocket);
 	/** Caller hands over the instance after success. Duplicate IDs in this inventory are rejected. */
 	UFUNCTION(BlueprintCallable, Category="Inventory")
-	EInventoryResult AddItem(const FItemInstance& Item, FName ProfileId, FName PocketId, FIntPoint Position, int32 QuarterTurns);
+	EInventoryResult AddItem(const FItemInstance& Item, FName ProfileId, FName PocketId, FVector2D Position, double AngleDegrees);
 	UFUNCTION(BlueprintCallable, Category="Inventory")
-	EInventoryResult MoveItem(FGuid InstanceId, FName PocketId, FIntPoint Position, int32 QuarterTurns);
+	EInventoryResult MoveItem(FGuid InstanceId, FName PocketId, FVector2D Position, double AngleDegrees);
 	/** Removes the whole instance and returns it. Failed operations return an invalid output. */
 	UFUNCTION(BlueprintCallable, Category="Inventory")
 	EInventoryResult RemoveItem(FGuid InstanceId, FItemInstance& OutItem);
-	/** Preview for a new item. Existing items must use CheckMove so only their own cells are ignored. */
+	/** Preview for a new item. CheckMove ignores only the moving instance's silhouette. */
 	UFUNCTION(BlueprintPure, Category="Inventory")
-	EInventoryResult CheckPlacement(FName ProfileId, FName PocketId, FIntPoint Position, int32 QuarterTurns) const;
+	EInventoryResult CheckPlacement(FName ProfileId, FName PocketId, FVector2D Position, double AngleDegrees) const;
 	UFUNCTION(BlueprintPure, Category="Inventory")
-	EInventoryResult CheckMove(FGuid InstanceId, FName PocketId, FIntPoint Position, int32 QuarterTurns) const;
+	EInventoryResult CheckMove(FGuid InstanceId, FName PocketId, FVector2D Position, double AngleDegrees) const;
 	UFUNCTION(BlueprintPure, Category="Inventory")
 	bool GetItem(FGuid InstanceId, FInventoryEntry& OutEntry) const;
 	UFUNCTION(BlueprintPure, Category="Inventory")
@@ -49,5 +49,5 @@ private:
 	UPROPERTY(Transient)
 	TArray<FInventoryEntry> Entries;
 	int32 FindItem(FGuid Id) const;
-	EInventoryResult ValidatePlacement(FName ProfileId, FName PocketId, FIntPoint Position, int32 QuarterTurns, FGuid IgnoredId) const;
+	EInventoryResult ValidatePlacement(FName ProfileId, FName PocketId, FVector2D Position, double AngleDegrees, FGuid IgnoredId) const;
 };

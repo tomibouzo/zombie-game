@@ -15,6 +15,8 @@
 #include "Components/InputComponent.h"
 #include "GameFramework/PlayerInput.h"
 #include "Gameplay/Combat/Melee/PlayerMeleeComponent.h"
+#include "UI/Inventory/InventoryInputSettings.h"
+#include "InputKeyEventArgs.h"
 
 Aprototype3PlayerController::Aprototype3PlayerController()
 {
@@ -83,7 +85,6 @@ void Aprototype3PlayerController::BeginPlay()
 void Aprototype3PlayerController::SetupInputComponent()
 {
 	Super::SetupInputComponent();
-	InputComponent->BindKey(EKeys::I, IE_Pressed, this, &Aprototype3PlayerController::ToggleInventoryDemo);
 
 	// only add IMCs for local player controllers
 	if (IsLocalPlayerController())
@@ -151,6 +152,16 @@ bool Aprototype3PlayerController::ShouldUseTouchControls() const
 {
 	// are we on a mobile platform? Should we force touch?
 	return SVirtualJoystick::ShouldDisplayTouchInterface() || bForceTouchControls;
+}
+
+bool Aprototype3PlayerController::InputKey(const FInputKeyEventArgs& Params)
+{
+	if (IsLocalController() && Params.Key == GetDefault<UInventoryInputSettings>()->GetKey(EInventoryControl::Toggle))
+	{
+		if (Params.Event == IE_Pressed) ToggleInventoryDemo();
+		return true;
+	}
+	return Super::InputKey(Params);
 }
 
 void Aprototype3PlayerController::ToggleInventoryDemo()
