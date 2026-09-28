@@ -22,7 +22,11 @@ public class prototype3 : ModuleRules
 			"Slate"
 		});
 
-		PrivateDependencyModuleNames.AddRange(new string[] { });
+		PrivateDependencyModuleNames.AddRange(new string[] { "SlateCore" });
+		if (Target.bBuildEditor)
+		{
+			PrivateDependencyModuleNames.Add("UnrealEd"); // Opt-in PIE integration test only.
+		}
 
 		PublicIncludePaths.AddRange(new string[] { "prototype3" });
 

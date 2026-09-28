@@ -9,6 +9,7 @@
 class UInputMappingContext;
 class UInputAction;
 class UUserWidget;
+class UInventoryDemoWidget;
 
 /**
  *  Simple first person Player Controller
@@ -35,7 +36,16 @@ public:
 	UInputAction* GetPrimaryAction();
 	UInputAction* GetSecondaryAction();
 
+	/** Temporary local inventory laboratory; its items persist until this controller ends. */
+	void ToggleInventoryDemo();
+	void CloseInventoryDemo();
+
 protected:
+	UPROPERTY(Transient)
+	TObjectPtr<UInventoryDemoWidget> InventoryDemoWidget;
+	bool bInventoryDemoOpen = false;
+	bool bCursorBeforeInventory = false;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 	/** Input Mapping Contexts */
 	UPROPERTY(EditAnywhere, Category="Input|Input Mappings")
