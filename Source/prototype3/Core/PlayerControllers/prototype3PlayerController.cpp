@@ -11,6 +11,10 @@
 #include "Blueprint/UserWidget.h"
 #include "prototype3.h"
 #include "Widgets/Input/SVirtualJoystick.h"
+#include "UI/Inventory/InventoryDemoWidget.h"
+#include "Components/InputComponent.h"
+#include "GameFramework/PlayerInput.h"
+#include "Gameplay/Combat/Melee/PlayerMeleeComponent.h"
 
 Aprototype3PlayerController::Aprototype3PlayerController()
 {
@@ -79,6 +83,7 @@ void Aprototype3PlayerController::BeginPlay()
 void Aprototype3PlayerController::SetupInputComponent()
 {
 	Super::SetupInputComponent();
+	InputComponent->BindKey(EKeys::I, IE_Pressed, this, &Aprototype3PlayerController::ToggleInventoryDemo);
 
 	// only add IMCs for local player controllers
 	if (IsLocalPlayerController())
@@ -146,4 +151,48 @@ bool Aprototype3PlayerController::ShouldUseTouchControls() const
 {
 	// are we on a mobile platform? Should we force touch?
 	return SVirtualJoystick::ShouldDisplayTouchInterface() || bForceTouchControls;
+}
+
+void Aprototype3PlayerController::ToggleInventoryDemo()
+{
+	if (bInventoryDemoOpen) { CloseInventoryDemo(); return; }
+	if (!IsLocalController()) return;
+	if (!InventoryDemoWidget)
+	{
+		InventoryDemoWidget = CreateWidget<UInventoryDemoWidget>(this);
+		if (!InventoryDemoWidget) return;
+		InventoryDemoWidget->OnClose.BindUObject(this, &Aprototype3PlayerController::CloseInventoryDemo);
+	}
+	bCursorBeforeInventory = bShowMouseCursor;
+	bInventoryDemoOpen = true;
+	if (PlayerInput) PlayerInput->FlushPressedKeys();
+	// A held attack is driven by the pawn component's tick, independently of UI input.
+	if (APawn* ControlledPawn = GetPawn())
+		if (UPlayerMeleeComponent* Melee = ControlledPawn->FindComponentByClass<UPlayerMeleeComponent>()) Melee->StopAttacking();
+	SetIgnoreMoveInput(true);
+	SetIgnoreLookInput(true);
+	bShowMouseCursor = true;
+	InventoryDemoWidget->AddToViewport(100);
+	// Focus can be resolved only after the Slate panel has joined the viewport tree.
+	FInputModeUIOnly InventoryInputMode;
+	InventoryInputMode.SetWidgetToFocus(InventoryDemoWidget->GetInventoryFocusTarget());
+	SetInputMode(InventoryInputMode);
+}
+
+void Aprototype3PlayerController::CloseInventoryDemo()
+{
+	if (!bInventoryDemoOpen) return;
+	bInventoryDemoOpen = false;
+	if (InventoryDemoWidget) InventoryDemoWidget->RemoveFromParent();
+	SetIgnoreMoveInput(false);
+	SetIgnoreLookInput(false);
+	bShowMouseCursor = bCursorBeforeInventory;
+	SetInputMode(FInputModeGameOnly());
+	if (PlayerInput) PlayerInput->FlushPressedKeys();
+}
+
+void Aprototype3PlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	CloseInventoryDemo();
+	Super::EndPlay(EndPlayReason);
 }
