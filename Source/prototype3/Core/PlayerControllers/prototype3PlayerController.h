@@ -39,6 +39,7 @@ public:
 	/** Temporary local inventory laboratory; its items persist until this controller ends. */
 	void ToggleInventoryDemo();
 	void CloseInventoryDemo();
+	virtual bool InputKey(const FInputKeyEventArgs& Params) override;
 
 protected:
 	UPROPERTY(Transient)
