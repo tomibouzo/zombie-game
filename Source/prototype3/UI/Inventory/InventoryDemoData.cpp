@@ -33,7 +33,7 @@ bool InventoryDemo::Populate(UInventoryComponent* Inventory)
 	{
 		UItemDefinition* Fixture = NewObject<UItemDefinition>(Inventory, NAME_None, RF_Transient);
 		Fixture->ItemId = Index == 0 ? TEXT("Demo_L") : Index == 1 ? TEXT("Demo_Bar") : TEXT("Demo_Frame");
-		Fixture->DisplayName = FText::FromString(Index == 0 ? TEXT("Pieza L") : Index == 1 ? TEXT("Barra") : TEXT("Marco"));
+		Fixture->DisplayName = FText::FromString(Index == 0 ? TEXT("L piece") : Index == 1 ? TEXT("Bar") : TEXT("Frame"));
 		Fixture->Category = Bandage->Category;
 		Fixture->MassKg = 1;
 		FInventoryItemProfile Profile;

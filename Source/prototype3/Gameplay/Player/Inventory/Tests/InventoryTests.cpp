@@ -250,7 +250,7 @@ bool FInventoryPanelInteractionTest::RunTest(const FString&)
 	TestEqual(TEXT("Invalid collision restores angle"), Entry.AngleDegrees,15.);
 	Down(Pointer); Up(FVector2D(45,155));
 	I->GetItem(Id,Entry); TestEqual(TEXT("Partial outside rejected"),Entry.Position,Placed);
-	Down(Pointer); Move(FVector2D(300,600)); Down(FVector2D(300,600),EKeys::RightMouseButton); Up(FVector2D(300,600));
+	Down(Pointer); Move(FVector2D(300,600)); Down(FVector2D(300,600),EKeys::MiddleMouseButton); Up(FVector2D(300,600));
 	I->GetItem(Id,Entry); TestEqual(TEXT("Cancel restores original"),Entry.Position,Placed);
 	Down(Pointer); Key(EKeys::Q); Panel->OnFocusLost(FFocusEvent()); Panel->Tick(G,0,1); Up(FVector2D(300,600));
 	I->GetItem(Id,Entry); TestEqual(TEXT("Focus loss cancels gesture"),Entry.Position,Placed);
@@ -293,7 +293,11 @@ bool FInventoryInputTest::RunTest(const FString&)
 	TestTrue(TEXT("Original survives conflict"),Settings->GetKey(EInventoryControl::Grab)==EKeys::LeftMouseButton);
 	TestFalse(TEXT("Analog axis rejected"),Settings->TrySetKey(EInventoryControl::Grab,EKeys::MouseX,Error));
 	TestFalse(TEXT("Wheel cannot be held for grab"),Settings->TrySetKey(EInventoryControl::Grab,EKeys::MouseScrollDown,Error));
-	TestTrue(TEXT("Mouse rotation supported"),Settings->TrySetKey(EInventoryControl::TurnLeft,EKeys::MiddleMouseButton,Error));
+	TestTrue(TEXT("Right mouse rotates by default"),Settings->GetKey(EInventoryControl::RotateWithMouse)==EKeys::RightMouseButton);
+	TestTrue(TEXT("Middle mouse cancels by default"),Settings->GetKey(EInventoryControl::Cancel)==EKeys::MiddleMouseButton);
+	TestFalse(TEXT("Wheel cannot hold mouse rotation"),Settings->TrySetKey(EInventoryControl::RotateWithMouse,EKeys::MouseScrollDown,Error));
+	TestTrue(TEXT("Mouse rotation supported"),Settings->TrySetKey(EInventoryControl::TurnLeft,EKeys::ThumbMouseButton,Error));
+	TestTrue(TEXT("Mouse rotation modifier configurable"),Settings->TrySetKey(EInventoryControl::RotateWithMouse,EKeys::R,Error));
 	TestTrue(TEXT("Open control configurable"),Settings->TrySetKey(EInventoryControl::Toggle,EKeys::K,Error));
 	Settings->bToggleGrab = true;
 	Settings->TurnSpeed = 75;
@@ -304,11 +308,95 @@ bool FInventoryInputTest::RunTest(const FString&)
 	Reloaded->ResetDefaults();
 	Reloaded->LoadConfig(nullptr,*Path);
 	TestTrue(TEXT("Binding survives reload"),Reloaded->GetKey(EInventoryControl::Toggle)==EKeys::K);
-	TestTrue(TEXT("Mouse binding survives reload"),Reloaded->GetKey(EInventoryControl::TurnLeft)==EKeys::MiddleMouseButton);
+	TestTrue(TEXT("Mouse binding survives reload"),Reloaded->GetKey(EInventoryControl::TurnLeft)==EKeys::ThumbMouseButton);
+	TestTrue(TEXT("Rotation modifier survives reload"),Reloaded->GetKey(EInventoryControl::RotateWithMouse)==EKeys::R);
 	TestTrue(TEXT("Grab mode survives reload"),Reloaded->bToggleGrab);
 	TestEqual(TEXT("Speed survives reload"),Reloaded->TurnSpeed,75.f);
+	const TCHAR* Section = TEXT("/Script/prototype3.InventoryInputSettings");
+	TArray<FString> LegacyKeys { TEXT("K"), TEXT("LeftMouseButton"), TEXT("Q"), TEXT("E"), TEXT("RightMouseButton"), TEXT("Delete"), TEXT("B") };
+	GConfig->SetArray(Section, TEXT("Keys"), LegacyKeys, Path);
+	Reloaded->ReloadConfig(nullptr, *Path);
+	TestTrue(TEXT("Legacy toggle preserved"),Reloaded->GetKey(EInventoryControl::Toggle)==EKeys::K);
+	TestTrue(TEXT("Legacy cancel moves to middle mouse"),Reloaded->GetKey(EInventoryControl::Cancel)==EKeys::MiddleMouseButton);
+	TestTrue(TEXT("Legacy settings gain right-mouse rotation"),Reloaded->GetKey(EInventoryControl::RotateWithMouse)==EKeys::RightMouseButton);
+	TestTrue(TEXT("Legacy grab mode preserved"),Reloaded->bToggleGrab);
+	TestEqual(TEXT("Legacy speed preserved"),Reloaded->TurnSpeed,75.f);
+	// An existing custom middle-button binding must survive migration without duplicates.
+	LegacyKeys[2] = TEXT("MiddleMouseButton");
+	GConfig->SetArray(Section, TEXT("Keys"), LegacyKeys, Path);
+	Reloaded->ReloadConfig(nullptr, *Path);
+	TestTrue(TEXT("Custom middle binding preserved"),Reloaded->GetKey(EInventoryControl::TurnLeft)==EKeys::MiddleMouseButton);
+	TestTrue(TEXT("Cancel uses a free fallback"),Reloaded->GetKey(EInventoryControl::Cancel)==EKeys::Escape);
+	TestTrue(TEXT("Right mouse still available for rotation"),Reloaded->GetKey(EInventoryControl::RotateWithMouse)==EKeys::RightMouseButton);
 	GConfig->UnloadFile(Path);
 	IFileManager::Get().Delete(*Path);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FInventoryMouseRotationTest, "Prototype.Inventory.MouseRotation",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FInventoryMouseRotationTest::RunTest(const FString&)
+{
+	TStrongObjectPtr<UInventoryComponent> Inventory(NewObject<UInventoryComponent>());
+	TStrongObjectPtr<UInventoryInputSettings> Settings(NewObject<UInventoryInputSettings>());
+	Settings->ResetDefaults();
+	if (!TestTrue(TEXT("Demo fixture"), InventoryDemo::Populate(Inventory.Get()))) return false;
+	const auto Panel = SNew(SInventoryPanel).Inventory(Inventory.Get()).Controls(Settings.Get()).SaveControls(false);
+	const FGeometry G = FGeometry::MakeRoot(FVector2D(1000,800), FSlateLayoutTransform(1.5f));
+	auto Mouse = [&](FVector2D P, FKey B) { const FVector2D A = G.LocalToAbsolute(P); return FPointerEvent(0,A,A,TSet<FKey>(),B,0,FModifierKeysState()); };
+	auto Down = [&](FVector2D P, FKey B) { Panel->OnMouseButtonDown(G,Mouse(P,B)); };
+	auto Up = [&](FVector2D P, FKey B) { Panel->OnMouseButtonUp(G,Mouse(P,B)); };
+	auto Move = [&](FVector2D P) { Panel->OnMouseMove(G,Mouse(P,EKeys::Invalid)); };
+	const FGuid Id = Inventory->GetEntries()[0].Item.InstanceId;
+	const FVector2D Origin(40,150), Center(330,480), Pivot = Origin + Center;
+	FInventoryEntry Entry;
+	auto Begin = [&](FVector2D Offset, double Angle = 37.0)
+	{
+		TestTrue(TEXT("Reset placement"),Inventory->MoveItem(Id,TEXT("Main"),Center,Angle)==EInventoryResult::Success);
+		Down(Pivot + Offset,EKeys::LeftMouseButton);
+		Down(Pivot + Offset,EKeys::RightMouseButton);
+	};
+	auto Check = [&](const TCHAR* Label, FVector2D ExpectedCenter, double ExpectedAngle)
+	{
+		Inventory->GetItem(Id,Entry);
+		TestTrue(FString(Label)+TEXT(" position"),Entry.Position.Equals(ExpectedCenter,0.001));
+		TestTrue(FString(Label)+TEXT(" angle"),FMath::IsNearlyEqual(Entry.AngleDegrees,ExpectedAngle,0.001));
+	};
+	Begin(FVector2D(10,0));
+	Panel->Tick(G,0,1);
+	Up(Pivot+FVector2D(10,0),EKeys::LeftMouseButton);
+	Up(Pivot+FVector2D(10,0),EKeys::RightMouseButton);
+	Check(TEXT("No snap or timed rotation"),Center,37);
+	Begin(FVector2D(10,0)); Move(Pivot+FVector2D(0,70));
+	Check(TEXT("Preview is atomic"),Center,37);
+	Up(Pivot+FVector2D(0,70),EKeys::RightMouseButton);
+	Move(Pivot+FVector2D(-20,50)); Up(Pivot+FVector2D(-20,50),EKeys::LeftMouseButton);
+	Check(TEXT("Resume moving without a jump"),Center+FVector2D(-20,-20),127);
+	Begin(FVector2D(10,0)); Move(Pivot+FVector2D(0,-70));
+	Up(Pivot+FVector2D(0,-70),EKeys::LeftMouseButton);
+	Up(Pivot+FVector2D(0,-70),EKeys::RightMouseButton);
+	Check(TEXT("Left released first commits fixed center"),Center,307);
+	Begin(FVector2D::ZeroVector); Move(Pivot+FVector2D(70,0)); Move(Pivot+FVector2D(0,70));
+	Move(Pivot); Move(Pivot+FVector2D(0,-70));
+	Up(Pivot+FVector2D(0,-70),EKeys::LeftMouseButton); Up(Pivot,EKeys::RightMouseButton);
+	Check(TEXT("Starting and crossing at the pivot does not snap"),Center,127);
+	Begin(FVector2D(10,0)); Move(Pivot+FVector2D(-70,0));
+	Up(Pivot+FVector2D(-70,0),EKeys::LeftMouseButton); Up(Pivot,EKeys::RightMouseButton);
+	Check(TEXT("Crossing pivot between events does not flip"),Center,37);
+	Begin(FVector2D(10,0),350);
+	for (FVector2D D : { FVector2D(0,70), FVector2D(-70,1), FVector2D(-70,-1), FVector2D(0,-70), FVector2D(70,0) }) Move(Pivot+D);
+	Up(Pivot+FVector2D(70,0),EKeys::LeftMouseButton); Up(Pivot,EKeys::RightMouseButton);
+	Check(TEXT("Full turn across angle boundary"),Center,350);
+	Begin(FVector2D(10,0)); Move(Pivot+FVector2D(0,70));
+	Up(Pivot+FVector2D(0,70),EKeys::RightMouseButton);
+	Down(Pivot+FVector2D(0,70),EKeys::RightMouseButton); Move(Pivot+FVector2D(-70,0));
+	Down(Pivot+FVector2D(-70,0),EKeys::MiddleMouseButton);
+	Up(Pivot,EKeys::LeftMouseButton); Up(Pivot,EKeys::RightMouseButton);
+	Check(TEXT("Middle click cancels repeated rotation"),Center,37);
+	Begin(FVector2D(10,0)); Move(Pivot+FVector2D(0,70));
+	Up(Pivot+FVector2D(0,70),EKeys::RightMouseButton);
+	Move(FVector2D(0,0)); Up(FVector2D(0,0),EKeys::LeftMouseButton);
+	Check(TEXT("Invalid drop restores position and angle"),Center,37);
 	return true;
 }
 #endif

@@ -1,116 +1,127 @@
-# Inventario de prueba: colocación libre
+# Inventory test: free placement
 
-Actualizado: 2026-09-28. Sustituye la cuadrícula del primer prototipo.
-Continúa siendo un laboratorio; la integración con el inventario del personaje se hará después.
+Updated: 2026-09-28. This is a temporary inventory laboratory; integration with
+character inventory is a later stage.
 
-## Probar en Unreal
+## Try it in Unreal
 
-1. Abrir `C:\Users\valen\Documents\Codex\inventory-work\prototype3.uproject`.
-2. Abrir `Content/FirstPerson/Lvl_FirstPerson` y pulsar Play.
-3. Pulsar **I** (o el control de apertura que hayas configurado).
-4. Tomar una silueta y moverla libremente. Por defecto se mantiene pulsado el botón izquierdo.
-5. Mantener **Q/E** para girar en ambos sentidos alrededor del centro.
-6. Soltar: verde confirma; rojo cancela y conserva posición y ángulo originales.
-7. Probar una venda en el hueco de la L o dentro del marco. Los bordes pueden tocarse.
-8. Cambiar controles en el panel derecho haciendo clic en la acción y pulsando la nueva tecla o botón.
+1. Open this checkout's `prototype3.uproject`, open `Content/FirstPerson/Lvl_FirstPerson`, and press Play.
+2. Press **I** to open the inventory.
+3. Hold **left mouse** on a silhouette to pick it up and move it.
+4. While holding the item, hold **right mouse**. The item's center stays still;
+   move the mouse around that center to rotate it. Rotation starts from the current
+   angle without snapping. Moving straight toward/away from the center does not turn it.
+5. Release right mouse to resume movement at the retained angle, without a position jump.
+   You can switch between movement and rotation repeatedly during a drag.
+6. Release left mouse to place, including while right mouse remains held.
+   Green confirms; red cancels and restores the original position and angle.
+7. Press the **mouse wheel (middle button)** to cancel placement. **Q/E** remain
+   alternative continuous rotation controls.
+8. Try fitting a bandage in the L's opening or inside the frame. Edges may touch.
 
-Hay un único espacio cuadrado de 560 × 560 unidades lógicas. La interfaz completa se adapta
-al tamaño de pantalla; ni la posición ni el giro se ajustan a una cuadrícula.
-Incluye dos instancias de la venda real y tres siluetas de prueba: L, barra y marco.
+The single pocket is 560 x 560 logical units. The interface scales to the screen.
+Positions and angles are continuous, with no grid or angle snapping. There are two
+instances of the bandage item and three test silhouettes: L piece, bar and frame.
+The interface instructions, control labels and status messages are in English.
 
-## Controles y preferencias
+## Controls and preferences
 
-Todas las acciones del laboratorio se pueden reasignar a teclas o botones del ratón:
-abrir/cerrar, agarrar/soltar, girar a izquierda/derecha, cancelar, retirar y añadir venda.
-La rueda también se admite para girar (2 grados por paso). Las teclas o botones mantenidos
-giran continuamente, con velocidad ajustable de 15 a 360 grados por segundo.
+| Action | Default |
+| --- | --- |
+| Open / close | I |
+| Grab / place | Left mouse button |
+| Hold to rotate with mouse movement | Right mouse button |
+| Turn left / right | Q / E |
+| Cancel placement | Mouse wheel press (middle button) |
+| Remove selected item | Delete |
+| Add bandage | B |
 
-Valores iniciales:
+Click a control row, then press the replacement key or mouse button. Duplicate
+bindings are rejected. Wheel scrolling can be assigned to turn left/right (2 degrees
+per step); it cannot act as a held grab or mouse-rotation modifier. The mouse wheel
+press is a separate button from scrolling. Use **Cancel rebinding** to leave without
+changing a binding, or **Reset controls** to restore defaults.
 
-| Acción | Control |
-|---|---|
-| Abrir/cerrar | I |
-| Agarrar/soltar | Botón izquierdo |
-| Girar izquierda/derecha | Q / E |
-| Cancelar colocación | Botón derecho |
-| Retirar selección | Supr |
-| Añadir venda | B |
+Grab supports hold/release or click-to-pick-up/click-to-place. Mouse rotation also
+works with click grab and while placing a newly added bandage. Its modifier can be
+rebound to a keyboard key. Q/E-style held turning retains its adjustable speed of
+15-360 degrees per second; mouse rotation follows angular movement directly.
+Instructions show the current bindings.
 
-El modo de agarre se elige entre mantener pulsado o pulsar una vez para tomar y otra para
-soltar. Para reasignar a un botón del ratón, hacer clic en la fila y después pulsar ese botón.
-Las asignaciones duplicadas se rechazan con una explicación. Durante la asignación, el
-enlace «Cancelar asignación» permite salir sin cambiarla. «Restaurar controles» recupera
-los valores iniciales. Los botones del panel se activan con el clic habitual de la interfaz.
+Preferences live in local GameUserSettings under
+`/Script/prototype3.InventoryInputSettings`. Older seven-action preferences gain
+the mouse-rotation action. The old default right-click cancel moves to middle click;
+other bindings, grab mode and turn speed are preserved. If a custom binding already
+uses a desired button, migration selects a free fallback shown in the controls panel.
+Tests use isolated preferences and restore any temporarily changed runtime settings.
 
-Las preferencias se guardan en la configuración local GameUserSettings, sección
-`/Script/prototype3.InventoryInputSettings`, y sobreviven al reinicio.
-Las pruebas usan preferencias aisladas y no sobrescriben las del jugador.
-Esta versión admite teclado y ratón, con una entrada por acción; no incluye mando ni combinaciones de teclas.
+## Placement and rotation
 
-## Colocación y siluetas
+- Rotation is around the center of the rectangle enclosing the whole silhouette.
+- Mouse rotation preserves the angle on entry and follows subsequent angular changes.
+  Near the exact center (within 3 logical units), direction is undefined: moving away
+  establishes a new direction without snapping. Crossing through that region between
+  mouse events also re-establishes direction instead of flipping the item.
+- Releasing mouse rotation re-anchors the grab offset to resume movement smoothly.
+- Rendering, selection and collision use the same silhouette. Concavities and holes
+  remain available for other items. Edge/vertex contact is valid; area overlap is not.
+- The complete rotated silhouette must fit inside the pocket.
+- Preview does not mutate stored items. Invalid drops, cancel, close, loss of focus
+  or loss of mouse capture preserve the original placement and angle.
+- Shapes are placeholders. Icons do not automatically define collision geometry.
 
-- Posición continua del centro y ángulo en grados, normalizado a [0, 360).
-- Giro alrededor del centro del rectángulo que encierra la silueta completa.
-- La silueta usada para dibujar, seleccionar y detectar colisiones es la misma.
-- Las partes vacías, las concavidades y los agujeros permanecen utilizables.
-- Contacto de bordes o vértices válido; cualquier superposición de superficie se rechaza.
-- La figura completa debe quedar dentro del espacio, también después de rotarla.
-- La previsualización no cambia el inventario. Al soltar en rojo, cancelar, cerrar o perder
-  el foco/captura se mantiene la colocación original, incluido el ángulo.
-- El centro no salta al agarrar desde un extremo. El desplazamiento entre cursor y centro
-  se mantiene durante el movimiento y el giro.
+## Technical contract
 
-Las formas y tamaños son provisionales. El icono del ítem no determina automáticamente su
-colisión: cada perfil contiene la geometría explícita. Aquí se dibuja esa geometría directamente.
-Para futuros gráficos habrá que definir siluetas que correspondan a su contorno.
+`UItemDefinition` and `FItemInstance` remain the shared item contract. Inventory
+entries hold the instance, pocket, profile, continuous `FVector2D Position` and
+`double AngleDegrees`, normalized to [0, 360).
 
-## Contrato técnico
+`FInventoryItemProfile.ShapeParts` is a union of filled convex polygons centered
+around the item. Decomposition supports concavities and holes. Profiles permit up
+to 64 parts with 256 vertices each, with coordinates within +/-4096. Contact tolerance
+is 0.0000001 logical units. Registration rejects empty, non-finite, degenerate,
+non-centered, concave or self-intersecting parts. Registered profiles and pockets
+cannot be replaced; queries return copies.
 
-`UItemDefinition` y `FItemInstance` permanecen como contrato compartido.
-La entrada conserva la instancia, el bolsillo, el perfil, `FVector2D Position` y
-`double AngleDegrees`; ya no usa casillas enteras ni cuartos de vuelta.
+`AddItem`, `MoveItem`, `CheckPlacement` and `CheckMove` receive center and angle.
+Moves preserve identity and quantity and are atomic within one component, including
+between its pockets. The demo displays its first and only pocket.
 
-`FInventoryItemProfile.ShapeParts` representa la unión de polígonos convexos rellenos,
-con coordenadas locales alrededor del centro. La descomposición permite formas cóncavas
-y agujeros sin llenar su rectángulo exterior. No hay una resolución de casillas escondida.
-Los perfiles aceptan hasta 64 partes de 256 vértices, con coordenadas locales hasta ±4096.
-La tolerancia numérica de contacto es 0,0000001 unidades lógicas.
+## Files and verification
 
-Los perfiles se validan al registrar. Se rechazan geometrías vacías, no finitas, degeneradas,
-no centradas y partes cóncavas o autointersectadas. Cada parte debe ser convexa y ordenada;
-una figura cóncava se describe con varias partes. Los perfiles y bolsillos registrados no
-pueden reemplazarse. Las consultas devuelven copias.
+- `Source/prototype3/Gameplay/Player/Inventory/`: geometry, component and tests.
+- `Source/prototype3/UI/Inventory/`: interface, fixtures and saved controls.
+- `Source/prototype3/Core/PlayerControllers/prototype3PlayerController`: open/close and gameplay focus.
+- `Scripts/VerifyInventory.ps1`: build, automated checks and optional captures/Play tests.
 
-`AddItem`, `MoveItem`, `CheckPlacement` y `CheckMove` reciben centro y ángulo.
-Los movimientos conservan identidad y cantidad y son atómicos, también entre bolsillos
-del mismo componente. La UI de esta entrega solo muestra el primer y único bolsillo de
-la demostración. Los fallos no modifican entradas ni retiran el original.
+On this PC, run `Scripts/VerifyInventory.ps1 -EngineRoot 'C:\UE_5.8' -Capture -PlayTest`.
+Use `-SkipBuild` only with a current build. Tests use a separate verification editor;
+do not run them inside a manual Play session. Reports and screenshots are saved in
+`Saved/InventoryVerification`.
 
-## Archivos y verificación
+Historical verification before this change: the previous developer reported a
+successful Unreal 5.8.1 Development Editor build and 12 passing tests, including
+Slate-routed rotation checks during actual Play frames. One known
+`r.MotionVectorSimulation` warning was reported. That is separate from verification
+of this mouse-rotation change.
 
-- `Gameplay/Player/Inventory/`: geometría, componente y pruebas.
-- `UI/Inventory/`: pantalla, datos de prueba y preferencias.
-- `Core/PlayerControllers/prototype3PlayerController`: apertura con la asignación vigente y restauración de controles.
-- `Scripts/VerifyInventory.ps1`: compilación, pruebas y capturas.
+Fresh verification of this change on 2026-09-28: Unreal 5.8.1 Development Editor
+compilation succeeded (32.21 seconds). All 13 automated tests passed: 12 clean and
+one with the same known rendering warning. `MouseRotation` checks scaled geometry,
+no initial snap or idle turning, both directions, release order, smooth resumed
+movement, pivot crossings, a full turn, middle-click cancel and invalid drops.
+`RotationPlayIntegration` exercises 18 scenarios through Slate during actual Play
+frames, including Q/E, mouse/keyboard rebindings, click grab, both release orders,
+cancel and focus/capture loss. `InputPreferences` verifies persistence and legacy
+migration, including a custom binding conflict. The four captures were inspected
+for the English interface, control layout and valid/invalid placement previews.
+Build log: `Saved/InventoryVerification/Build.log`.
+Test report: `Saved/InventoryVerification/Tests/index.json`.
+The user's manual assessment of rotation feel remains pending.
 
-Ejecutar desde la ruta corta `Scripts/VerifyInventory.ps1 -Capture -PlayTest`.
-`-SkipBuild` reutiliza una compilación actual. Las pruebas se ejecutan en un editor de
-verificación independiente. No se deben ejecutar dentro de una sesión Play con trabajo manual.
-El informe y las imágenes quedan en `Saved/InventoryVerification`.
+## Remaining scope
 
-Verificación del 2026-09-28: compilación Development Editor correcta en Unreal 5.8.1; las 12 pruebas pasaron (11 sin avisos y una con el aviso ya conocido de r.MotionVectorSimulation). Se revisaron las cuatro capturas: inicial, colisión, colocación válida dentro del marco y resultado confirmado. La prueba en Play comprobó apertura/cierre/reapertura con una tecla reasignada, foco y restauración de controles.
-
-Corregido el giro que cancelaba el agarre al volver a capturar el ratón. La nueva prueba
-`RotationPlayIntegration` reproduce entradas a través de Slate y espera fotogramas reales
-de Play: Q/E, botón de ratón reasignado, rueda, agarre mantenido o por clic, soltar el
-control de giro sin soltar el objeto, cancelar, perder captura/foco y soltar fuera del espacio.
-Fallaba antes de la corrección y ahora pasa. Las preferencias guardadas del jugador se
-conservaron. El usuario ya aprobó el movimiento libre y las colisiones; falta su prueba
-manual del giro corregido.
-
-## Alcance pendiente
-
-El laboratorio conserva objetos al cerrar y reabrir durante Play, y los descarta al terminarlo.
-Todavía no implementa equipo, recogida del mundo, pilas/divisiones, transferencias entre
-componentes, partidas guardadas, red, peso sobre movimiento ni acciones de curación.
-Las preferencias de controles sí se guardan. Los assets de ítems y del mapa no se modifican.
+Demo items survive closing/reopening inventory during Play and reset when Play ends.
+This stage does not implement equipment, world pickups, stack splitting, transfers
+between components, saved inventories, networking, carried-weight movement effects
+or healing execution. Control preferences do persist. Item and map assets are unchanged.

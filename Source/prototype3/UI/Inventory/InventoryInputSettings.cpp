@@ -4,7 +4,7 @@ UInventoryInputSettings::UInventoryInputSettings() { ResetDefaults(); }
 
 void UInventoryInputSettings::ResetDefaults()
 {
-	Keys = { EKeys::I, EKeys::LeftMouseButton, EKeys::Q, EKeys::E, EKeys::RightMouseButton, EKeys::Delete, EKeys::B };
+	Keys = { EKeys::I, EKeys::LeftMouseButton, EKeys::Q, EKeys::E, EKeys::MiddleMouseButton, EKeys::Delete, EKeys::B, EKeys::RightMouseButton };
 	bToggleGrab = false;
 	TurnSpeed = 120;
 }
@@ -12,6 +12,32 @@ void UInventoryInputSettings::ResetDefaults()
 void UInventoryInputSettings::PostInitProperties()
 {
 	Super::PostInitProperties();
+	ValidateSettings();
+}
+
+void UInventoryInputSettings::PostReloadConfig(FProperty* PropertyThatWasLoaded)
+{
+	Super::PostReloadConfig(PropertyThatWasLoaded);
+	ValidateSettings();
+}
+
+void UInventoryInputSettings::ValidateSettings()
+{
+	// Append the new action to legacy arrays, preserving unrelated preferences.
+	if (Keys.Num() == static_cast<int32>(EInventoryControl::RotateWithMouse))
+	{
+		FKey& Cancel = Keys[static_cast<int32>(EInventoryControl::Cancel)];
+		if (Cancel == EKeys::RightMouseButton)
+		{
+			for (FKey Candidate : { EKeys::MiddleMouseButton, EKeys::Escape, EKeys::BackSpace,
+				EKeys::F8, EKeys::F9, EKeys::F10, EKeys::F11, EKeys::F12 })
+				if (!Keys.Contains(Candidate)) { Cancel = Candidate; break; }
+		}
+		// Keep custom bindings that already use right mouse; use an available fallback.
+		for (FKey Candidate : { EKeys::RightMouseButton, EKeys::MiddleMouseButton, EKeys::R,
+			EKeys::F8, EKeys::F9, EKeys::F10, EKeys::F11, EKeys::F12 })
+			if (!Keys.Contains(Candidate)) { Keys.Add(Candidate); break; }
+	}
 	bool bValid = Keys.Num() == static_cast<int32>(EInventoryControl::Count);
 	TSet<FKey> Unique;
 	for (int32 I = 0; bValid && I < Keys.Num(); ++I)
@@ -41,13 +67,13 @@ bool UInventoryInputSettings::TrySetKey(EInventoryControl Action, FKey Key, FStr
 {
 	if (!Supports(Action, Key))
 	{
-		Error = TEXT("Usa una tecla o boton. La rueda se admite para girar.");
+		Error = TEXT("Use a key or mouse button. Wheel scrolling is supported for turn left/right only.");
 		return false;
 	}
 	for (int32 I = 0; I < Keys.Num(); ++I)
 		if (I != static_cast<int32>(Action) && Keys[I] == Key)
 		{
-			Error = TEXT("Ya asignado a: ") + Label(static_cast<EInventoryControl>(I));
+			Error = TEXT("Already assigned to: ") + Label(static_cast<EInventoryControl>(I));
 			return false;
 		}
 	Keys[static_cast<int32>(Action)] = Key;
@@ -59,13 +85,14 @@ FString UInventoryInputSettings::Label(EInventoryControl Action)
 {
 	switch (Action)
 	{
-	case EInventoryControl::Toggle: return TEXT("Abrir / cerrar");
-	case EInventoryControl::Grab: return TEXT("Agarrar / soltar");
-	case EInventoryControl::TurnLeft: return TEXT("Girar izquierda");
-	case EInventoryControl::TurnRight: return TEXT("Girar derecha");
-	case EInventoryControl::Cancel: return TEXT("Cancelar");
-	case EInventoryControl::Remove: return TEXT("Retirar objeto");
-	case EInventoryControl::Add: return TEXT("Anadir venda");
+	case EInventoryControl::Toggle: return TEXT("Open / close");
+	case EInventoryControl::Grab: return TEXT("Grab / place");
+	case EInventoryControl::TurnLeft: return TEXT("Turn left");
+	case EInventoryControl::TurnRight: return TEXT("Turn right");
+	case EInventoryControl::Cancel: return TEXT("Cancel placement");
+	case EInventoryControl::Remove: return TEXT("Remove item");
+	case EInventoryControl::Add: return TEXT("Add bandage");
+	case EInventoryControl::RotateWithMouse: return TEXT("Hold to rotate");
 	default: return FString();
 	}
 }
