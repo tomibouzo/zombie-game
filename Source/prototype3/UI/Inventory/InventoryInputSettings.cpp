@@ -38,6 +38,16 @@ void UInventoryInputSettings::ValidateSettings()
 			EKeys::F8, EKeys::F9, EKeys::F10, EKeys::F11, EKeys::F12 })
 			if (!Keys.Contains(Candidate)) { Keys.Add(Candidate); break; }
 	}
+	// Scrolling now adjusts rotation speed. Move older scroll turn bindings to free keys.
+	if (Keys.Num() == static_cast<int32>(EInventoryControl::Count))
+		for (EInventoryControl Action : { EInventoryControl::TurnLeft, EInventoryControl::TurnRight })
+		{
+			FKey& Key = Keys[static_cast<int32>(Action)];
+			if (Key != EKeys::MouseScrollUp && Key != EKeys::MouseScrollDown) continue;
+			for (FKey Candidate : { EKeys::Q, EKeys::E, EKeys::Left, EKeys::Right,
+				EKeys::R, EKeys::F8, EKeys::F9, EKeys::F10, EKeys::F11, EKeys::F12 })
+				if (!Keys.Contains(Candidate)) { Key = Candidate; break; }
+		}
 	bool bValid = Keys.Num() == static_cast<int32>(EInventoryControl::Count);
 	TSet<FKey> Unique;
 	for (int32 I = 0; bValid && I < Keys.Num(); ++I)
@@ -58,8 +68,7 @@ FKey UInventoryInputSettings::GetKey(EInventoryControl Action) const
 bool UInventoryInputSettings::Supports(EInventoryControl Action, FKey Key)
 {
 	if (Action >= EInventoryControl::Count || !Key.IsValid() || Key == EKeys::AnyKey || !Key.IsDigital() || Key.IsGamepadKey() || Key.IsTouch()) return false;
-	if (Key == EKeys::MouseScrollUp || Key == EKeys::MouseScrollDown)
-		return Action == EInventoryControl::TurnLeft || Action == EInventoryControl::TurnRight;
+	if (Key == EKeys::MouseScrollUp || Key == EKeys::MouseScrollDown) return false;
 	return true;
 }
 
@@ -67,7 +76,7 @@ bool UInventoryInputSettings::TrySetKey(EInventoryControl Action, FKey Key, FStr
 {
 	if (!Supports(Action, Key))
 	{
-		Error = TEXT("Use a key or mouse button. Wheel scrolling is supported for turn left/right only.");
+		Error = TEXT("Use a key or mouse button. Wheel scrolling adjusts rotation speed.");
 		return false;
 	}
 	for (int32 I = 0; I < Keys.Num(); ++I)

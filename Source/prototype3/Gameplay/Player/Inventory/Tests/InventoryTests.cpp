@@ -198,7 +198,7 @@ bool FInventoryBandageTest::RunTest(const FString&)
 	TestEqual(TEXT("Single larger space"), I->GetPockets().Num(), 1);
 	TestEqual(TEXT("Square space"), I->GetPockets()[0].Size, FVector2D(560));
 	const auto Entries = I->GetEntries();
-	TestEqual(TEXT("Two bandages and three fixtures"), Entries.Num(), 5);
+	TestEqual(TEXT("Two bandages, eight samples and three geometry fixtures"), Entries.Num(), 13);
 	FInventoryItemProfile Profile;
 	I->GetProfile(TEXT("Bandage_TestOnly"), Profile);
 	TestTrue(TEXT("Geometry explicitly provisional"), Profile.bProvisional);
@@ -210,6 +210,36 @@ bool FInventoryBandageTest::RunTest(const FString&)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FInventorySampleIntegrationTest, "Prototype.Inventory.SampleIntegration",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FInventorySampleIntegrationTest::RunTest(const FString&)
+{
+	TStrongObjectPtr<UInventoryComponent> Inventory(NewObject<UInventoryComponent>());
+	if (!TestTrue(TEXT("All saved sample assets populate"), InventoryDemo::Populate(Inventory.Get()))) return false;
+	const auto Entries = Inventory->GetEntries();
+	const TCHAR* SampleIds[] = { TEXT("CannedBeans"), TEXT("WaterBottle"), TEXT("Knife"), TEXT("Pistol"),
+		TEXT("Flashlight"), TEXT("Jacket"), TEXT("SmallBackpack"), TEXT("ScrapMetal") };
+	for (const TCHAR* Id : SampleIds)
+	{
+		const FInventoryEntry* Entry = Entries.FindByPredicate([&](const FInventoryEntry& E) { return E.Item.Definition->ItemId == FName(Id); });
+		if (!TestNotNull(FString(Id) + TEXT(" is present"), Entry)) continue;
+		FInventoryItemProfile Profile;
+		TestTrue(TEXT("Profile is registered"), Inventory->GetProfile(Entry->ProfileId, Profile));
+		TestTrue(TEXT("Profile explicitly provisional"), Profile.bProvisional && Profile.IsValid());
+		TestTrue(TEXT("Own placement remains valid"), Inventory->CheckMove(Entry->Item.InstanceId, Entry->PocketId, Entry->Position, Entry->AngleDegrees) == EInventoryResult::Success);
+		TestTrue(TEXT("Cannot overlap bandage"), Inventory->CheckMove(Entry->Item.InstanceId, Entry->PocketId, FVector2D(70,70), 0) == EInventoryResult::Occupied);
+		TestTrue(TEXT("Cannot protrude from pocket"), Inventory->CheckMove(Entry->Item.InstanceId, Entry->PocketId, FVector2D(0,0), 17) == EInventoryResult::OutOfBounds);
+		TestTrue(FString(Id) + TEXT(" moves and rotates"), Inventory->MoveItem(Entry->Item.InstanceId, Entry->PocketId, FVector2D(300,490), 37) == EInventoryResult::Success);
+		FInventoryEntry Moved;
+		TestTrue(TEXT("Identity survives move"), Inventory->GetItem(Entry->Item.InstanceId, Moved));
+		TestTrue(TEXT("Shared definition survives move"), Moved.Item.Definition == Entry->Item.Definition);
+		TestEqual(TEXT("Quantity remains one"), Moved.Item.Quantity, 1);
+		TestTrue(TEXT("Original placement restored"), Inventory->MoveItem(Entry->Item.InstanceId, Entry->PocketId, Entry->Position, Entry->AngleDegrees) == EInventoryResult::Success);
+	}
+	TestEqual(TEXT("Moves neither duplicate nor lose items"), Inventory->GetEntries().Num(), Entries.Num());
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FInventoryPanelInteractionTest, "Prototype.Inventory.PanelInteraction",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 bool FInventoryPanelInteractionTest::RunTest(const FString&)
@@ -218,6 +248,7 @@ bool FInventoryPanelInteractionTest::RunTest(const FString&)
 	TStrongObjectPtr<UInventoryInputSettings> Settings(NewObject<UInventoryInputSettings>());
 	Settings->ResetDefaults();
 	if (!TestTrue(TEXT("Demo fixture"), InventoryDemo::Populate(I.Get()))) return false;
+	const int32 InitialCount = I->GetEntries().Num();
 	bool bClosed = false;
 	const auto Panel = SNew(SInventoryPanel).Inventory(I.Get()).Controls(Settings.Get()).SaveControls(false)
 		.OnClose(FSimpleDelegate::CreateLambda([&]() { bClosed = true; }));
@@ -270,14 +301,21 @@ bool FInventoryPanelInteractionTest::RunTest(const FString&)
 	Key(EKeys::F); KeyUp(EKeys::F);
 	I->GetItem(Id,Entry); TestEqual(TEXT("Second press commits"),Entry.Position,FVector2D(300,480));
 	FString Error;
-	Settings->TrySetKey(EInventoryControl::TurnRight,EKeys::MouseScrollUp,Error);
 	Move(FVector2D(340,630)); Key(EKeys::F); KeyUp(EKeys::F);
 	Panel->OnMouseWheel(G,FPointerEvent(0,FVector2D(340,630),FVector2D(340,630),TSet<FKey>(),EKeys::Invalid,1,FModifierKeysState()));
+	TestEqual(TEXT("Wheel up increases shared rotation speed"),Settings->TurnSpeed,135.f);
+	Key(EKeys::E); Panel->Tick(G,0,0.1f); KeyUp(EKeys::E);
+	Panel->OnMouseWheel(G,FPointerEvent(0,FVector2D(340,630),FVector2D(340,630),TSet<FKey>(),EKeys::Invalid,-1,FModifierKeysState()));
+	TestEqual(TEXT("Wheel down decreases shared rotation speed"),Settings->TurnSpeed,120.f);
 	Key(EKeys::F); KeyUp(EKeys::F);
-	I->GetItem(Id,Entry); TestEqual(TEXT("Rebound wheel rotates"),Entry.AngleDegrees,17.);
-	Key(EKeys::Delete); TestEqual(TEXT("Remove selection"),I->GetEntries().Num(),4);
+	I->GetItem(Id,Entry); TestTrue(TEXT("Faster Q/E turning uses wheel speed"),FMath::IsNearlyEqual(Entry.AngleDegrees,28.5,0.001));
+	Panel->OnMouseWheel(G,FPointerEvent(0,FVector2D(340,630),FVector2D(340,630),TSet<FKey>(),EKeys::Invalid,100,FModifierKeysState()));
+	TestEqual(TEXT("Wheel speed maximum"),Settings->TurnSpeed,360.f);
+	Panel->OnMouseWheel(G,FPointerEvent(0,FVector2D(340,630),FVector2D(340,630),TSet<FKey>(),EKeys::Invalid,-100,FModifierKeysState()));
+	TestEqual(TEXT("Wheel speed minimum"),Settings->TurnSpeed,15.f);
+	Key(EKeys::Delete); TestEqual(TEXT("Remove selection"),I->GetEntries().Num(),InitialCount - 1);
 	Key(EKeys::B); Move(FVector2D(110,220)); Key(EKeys::F); KeyUp(EKeys::F);
-	TestEqual(TEXT("Add through configured controls"),I->GetEntries().Num(),5);
+	TestEqual(TEXT("Add through configured controls"),I->GetEntries().Num(),InitialCount);
 	Key(EKeys::I); TestTrue(TEXT("Close shortcut"),bClosed);
 	return true;
 }
@@ -296,6 +334,7 @@ bool FInventoryInputTest::RunTest(const FString&)
 	TestTrue(TEXT("Right mouse rotates by default"),Settings->GetKey(EInventoryControl::RotateWithMouse)==EKeys::RightMouseButton);
 	TestTrue(TEXT("Middle mouse cancels by default"),Settings->GetKey(EInventoryControl::Cancel)==EKeys::MiddleMouseButton);
 	TestFalse(TEXT("Wheel cannot hold mouse rotation"),Settings->TrySetKey(EInventoryControl::RotateWithMouse,EKeys::MouseScrollDown,Error));
+	TestFalse(TEXT("Wheel reserved from turn bindings"),Settings->TrySetKey(EInventoryControl::TurnRight,EKeys::MouseScrollUp,Error));
 	TestTrue(TEXT("Mouse rotation supported"),Settings->TrySetKey(EInventoryControl::TurnLeft,EKeys::ThumbMouseButton,Error));
 	TestTrue(TEXT("Mouse rotation modifier configurable"),Settings->TrySetKey(EInventoryControl::RotateWithMouse,EKeys::R,Error));
 	TestTrue(TEXT("Open control configurable"),Settings->TrySetKey(EInventoryControl::Toggle,EKeys::K,Error));
@@ -328,6 +367,13 @@ bool FInventoryInputTest::RunTest(const FString&)
 	TestTrue(TEXT("Custom middle binding preserved"),Reloaded->GetKey(EInventoryControl::TurnLeft)==EKeys::MiddleMouseButton);
 	TestTrue(TEXT("Cancel uses a free fallback"),Reloaded->GetKey(EInventoryControl::Cancel)==EKeys::Escape);
 	TestTrue(TEXT("Right mouse still available for rotation"),Reloaded->GetKey(EInventoryControl::RotateWithMouse)==EKeys::RightMouseButton);
+	// Existing wheel turn bindings migrate individually without resetting other preferences.
+	TArray<FString> WheelKeys { TEXT("K"), TEXT("LeftMouseButton"), TEXT("MouseScrollDown"), TEXT("MouseScrollUp"), TEXT("Escape"), TEXT("Delete"), TEXT("B"), TEXT("R") };
+	GConfig->SetArray(Section, TEXT("Keys"), WheelKeys, Path);
+	Reloaded->ReloadConfig(nullptr, *Path);
+	TestTrue(TEXT("Old wheel-left binding moves to Q"),Reloaded->GetKey(EInventoryControl::TurnLeft)==EKeys::Q);
+	TestTrue(TEXT("Old wheel-right binding moves to E"),Reloaded->GetKey(EInventoryControl::TurnRight)==EKeys::E);
+	TestTrue(TEXT("Unrelated custom bindings survive wheel migration"),Reloaded->GetKey(EInventoryControl::Toggle)==EKeys::K && Reloaded->GetKey(EInventoryControl::RotateWithMouse)==EKeys::R);
 	GConfig->UnloadFile(Path);
 	IFileManager::Get().Delete(*Path);
 	return true;
@@ -397,6 +443,18 @@ bool FInventoryMouseRotationTest::RunTest(const FString&)
 	Up(Pivot+FVector2D(0,70),EKeys::RightMouseButton);
 	Move(FVector2D(0,0)); Up(FVector2D(0,0),EKeys::LeftMouseButton);
 	Check(TEXT("Invalid drop restores position and angle"),Center,37);
+	Begin(FVector2D(10,0));
+	const FVector2D WheelPoint = Pivot + FVector2D(10,0);
+	const FVector2D AbsoluteWheelPoint = G.LocalToAbsolute(WheelPoint);
+	Panel->OnMouseWheel(G,FPointerEvent(0,AbsoluteWheelPoint,AbsoluteWheelPoint,TSet<FKey>(),EKeys::Invalid,1,FModifierKeysState()));
+	TestEqual(TEXT("Wheel raises mouse rotation speed while held"),Settings->TurnSpeed,135.f);
+	Move(Pivot+FVector2D(0,70));
+	Up(Pivot+FVector2D(0,70),EKeys::LeftMouseButton); Up(Pivot,EKeys::RightMouseButton);
+	Check(TEXT("Faster mouse rotation"),Center,138.25);
+	Settings->TurnSpeed = 60.f;
+	Begin(FVector2D(10,0)); Move(Pivot+FVector2D(0,70));
+	Up(Pivot+FVector2D(0,70),EKeys::LeftMouseButton); Up(Pivot,EKeys::RightMouseButton);
+	Check(TEXT("Slower mouse rotation"),Center,82);
 	return true;
 }
 #endif

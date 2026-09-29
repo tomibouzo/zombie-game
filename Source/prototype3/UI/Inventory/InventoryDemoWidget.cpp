@@ -9,7 +9,7 @@ void UInventoryDemoWidget::NativeOnInitialized()
 {
 	Super::NativeOnInitialized();
 	Inventory = NewObject<UInventoryComponent>(this, NAME_None, RF_Transient);
-	if (!InventoryDemo::Populate(Inventory)) UE_LOG(LogTemp, Error, TEXT("Inventory demo could not load its bandage fixture."));
+	if (!InventoryDemo::Populate(Inventory)) UE_LOG(LogTemp, Error, TEXT("Inventory demo could not load or place its sample items."));
 }
 
 TSharedRef<SWidget> UInventoryDemoWidget::RebuildWidget()

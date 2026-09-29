@@ -17,6 +17,7 @@ public:
 		SLATE_EVENT(FSimpleDelegate, OnClose)
 	SLATE_END_ARGS()
 	void Construct(const FArguments& Args);
+	void SetSaveControls(bool bSave) { bSaveControls = bSave; }
 	virtual FVector2D ComputeDesiredSize(float) const override { return FVector2D(1000, 800); }
 	virtual bool SupportsKeyboardFocus() const override { return true; }
 	virtual void Tick(const FGeometry&, double, float) override;
