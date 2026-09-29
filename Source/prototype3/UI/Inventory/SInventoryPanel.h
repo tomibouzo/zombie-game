@@ -40,12 +40,16 @@ private:
 	bool bAdding = false;
 	bool bTurnLeft = false;
 	bool bTurnRight = false;
+	bool bMouseRotating = false;
+	bool bHasRotationDirection = false;
+	FVector2D RotationCenter = FVector2D::ZeroVector;
+	FVector2D RotationDirection = FVector2D::ZeroVector;
 	FInventoryEntry Pending;
 	FVector2D Cursor = FVector2D::ZeroVector;
 	FVector2D GrabOffset = FVector2D::ZeroVector;
 	double PreviewAngle = 0;
 	int32 Rebinding = INDEX_NONE;
-	FString Status = TEXT("Elige un objeto y acomoda su silueta.");
+	FString Status = TEXT("Grab an item to move it. Green fits; red cannot be placed.");
 	static FVector2D PocketOrigin() { return FVector2D(40, 150); }
 	bool Active() const { return bDragging || bAdding; }
 	bool HitItem(FVector2D Point, FInventoryEntry& Entry) const;
@@ -58,6 +62,9 @@ private:
 	void SavePreferences();
 	void CancelGesture();
 	void Turn(double Delta);
+	void UpdateCursor(FVector2D Position);
+	void BeginMouseRotation();
+	void EndMouseRotation();
 	void RemoveSelected();
 	void BeginBandage();
 	void CommitGesture();

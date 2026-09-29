@@ -79,18 +79,19 @@ public:
 			ItemId = Inventory->GetEntries()[0].Item.InstanceId;
 			Phase = 2;
 		}
+		if (Case >= 18)
+		{
+			Controller->CloseInventoryDemo();
+			return true;
+		}
+		if (Case >= 9) return UpdateMouseRotation();
 		if (Phase == 2)
 		{
-			if (Case >= 9)
-			{
-				Controller->CloseInventoryDemo();
-				return true;
-			}
 			Settings->ResetDefaults();
 			Settings->TurnSpeed = 90;
 			Settings->bToggleGrab = Case == 4;
 			FString Error;
-			if (Case == 2) Settings->TrySetKey(EInventoryControl::TurnRight, EKeys::MiddleMouseButton, Error);
+			if (Case == 2) Settings->TrySetKey(EInventoryControl::TurnRight, EKeys::ThumbMouseButton, Error);
 			if (Case == 3) Settings->TrySetKey(EInventoryControl::TurnRight, EKeys::MouseScrollUp, Error);
 			Inventory->GetItem(ItemId, Before);
 			Pointer = Before.Position + FVector2D(40,150);
@@ -103,7 +104,7 @@ public:
 			}
 			Pointer = FVector2D(370.25,630.75);
 			RouteMove();
-			if (Case == 2) MouseButton(EKeys::MiddleMouseButton, true);
+			if (Case == 2) MouseButton(EKeys::ThumbMouseButton, true);
 			else if (Case == 3) RouteWheel();
 			else App.ProcessKeyDownEvent(FKeyEvent(Case == 1 ? EKeys::Q : EKeys::E, FModifierKeysState(), 0, false, 0, 0));
 			WaitUntil = FPlatformTime::Seconds() + 0.25;
@@ -113,7 +114,7 @@ public:
 		if (Phase == 3)
 		{
 			if (FPlatformTime::Seconds() < WaitUntil) return false;
-			if (Case == 2) MouseButton(EKeys::MiddleMouseButton, false);
+			if (Case == 2) MouseButton(EKeys::ThumbMouseButton, false);
 			else if (Case != 3) App.ProcessKeyUpEvent(FKeyEvent(Case == 1 ? EKeys::Q : EKeys::E, FModifierKeysState(), 0, false, 0, 0));
 			Test->TestTrue(Label(TEXT("rotation release preserves capture")), Panel->HasMouseCapture());
 			// Wait again: releasing rotation must not drop the still-held object.
@@ -122,7 +123,7 @@ public:
 			return false;
 		}
 		if (FPlatformTime::Seconds() < WaitUntil) return false;
-		if (Case == 5) { MouseButton(EKeys::RightMouseButton, true); MouseButton(EKeys::RightMouseButton, false); }
+		if (Case == 5) { MouseButton(EKeys::MiddleMouseButton, true); MouseButton(EKeys::MiddleMouseButton, false); }
 		if (Case == 6) App.ReleaseAllPointerCapture();
 		if (Case == 7) { Pointer = FVector2D(45,155); RouteMove(); }
 		if (Case == 8) App.ClearKeyboardFocus();
@@ -149,6 +150,72 @@ public:
 		return false;
 	}
 private:
+	bool UpdateMouseRotation()
+	{
+		auto& App = FSlateApplication::Get();
+		auto* Settings = GetMutableDefault<UInventoryInputSettings>();
+		const FVector2D Center(330,480), Pivot = Center + FVector2D(40,150);
+		auto RotationButton = [&](bool Down)
+		{
+			if (Case != 13) MouseButton(EKeys::RightMouseButton, Down);
+			else if (Down) App.ProcessKeyDownEvent(FKeyEvent(EKeys::R,FModifierKeysState(),0,false,0,0));
+			else App.ProcessKeyUpEvent(FKeyEvent(EKeys::R,FModifierKeysState(),0,false,0,0));
+		};
+		if (Phase == 2)
+		{
+			Settings->ResetDefaults();
+			Settings->bToggleGrab = Case == 14;
+			FString Error;
+			if (Case == 13) Test->TestTrue(Label(TEXT("rebind mouse rotation")),Settings->TrySetKey(EInventoryControl::RotateWithMouse,EKeys::R,Error));
+			Test->TestTrue(Label(TEXT("reset placement")),Inventory->MoveItem(ItemId,TEXT("Main"),Center,350)==EInventoryResult::Success);
+			Inventory->GetItem(ItemId, Before);
+			Pointer = Pivot + (Case == 11 ? FVector2D::ZeroVector : FVector2D(10,0));
+			MouseButton(EKeys::LeftMouseButton,true);
+			if (Case == 14) MouseButton(EKeys::LeftMouseButton,false);
+			RotationButton(true);
+			Pointer = Pivot + FVector2D(70,0); RouteMove();
+			Pointer = Pivot + FVector2D(0,70); RouteMove();
+			Test->TestTrue(Label(TEXT("both buttons preserve capture")),Panel->HasMouseCapture());
+			WaitUntil = FPlatformTime::Seconds() + 0.15;
+			Phase = 3;
+			return false;
+		}
+		if (FPlatformTime::Seconds() < WaitUntil) return false;
+		if (Phase == 3)
+		{
+			FInventoryEntry Preview;
+			Inventory->GetItem(ItemId,Preview);
+			Test->TestEqual(Label(TEXT("rotation preview preserves stored angle")),Preview.AngleDegrees,Before.AngleDegrees);
+			if (Case == 12) { MouseButton(EKeys::MiddleMouseButton,true); MouseButton(EKeys::MiddleMouseButton,false); }
+			else if (Case == 15) App.ClearKeyboardFocus();
+			else if (Case == 16) App.ReleaseAllPointerCapture();
+			else if (Case != 10)
+			{
+				RotationButton(false);
+				Test->TestTrue(Label(TEXT("release rotation keeps item held")),Panel->HasMouseCapture());
+				if (Case == 9 || Case == 13 || Case == 14) { Pointer += FVector2D(-20,-20); RouteMove(); }
+				if (Case == 17) { Pointer = FVector2D(0,0); RouteMove(); }
+			}
+			WaitUntil = FPlatformTime::Seconds() + 0.1;
+			Phase = 4;
+			return false;
+		}
+		if (Case == 14) MouseButton(EKeys::LeftMouseButton,true);
+		MouseButton(EKeys::LeftMouseButton,false);
+		if (Case == 10 || Case == 12 || Case == 15 || Case == 16) RotationButton(false);
+		FInventoryEntry After;
+		Inventory->GetItem(ItemId,After);
+		const bool Cancelled = Case == 12 || Case >= 15;
+		const FVector2D ExpectedCenter = Case == 9 || Case == 13 || Case == 14 ? Center + FVector2D(-20,-20) : Center;
+		Test->TestTrue(Label(TEXT("mouse rotation position")),After.Position.Equals(Cancelled ? Before.Position : ExpectedCenter,0.001));
+		Test->TestTrue(Label(TEXT("mouse rotation angle")),FMath::IsNearlyEqual(After.AngleDegrees,Cancelled ? Before.AngleDegrees : 80.0,0.001));
+		Test->TestFalse(Label(TEXT("gesture releases capture")),Panel->HasMouseCapture());
+		Test->TestEqual(Label(TEXT("no objects lost")),Inventory->GetEntries().Num(),5);
+		++Case;
+		Phase = 2;
+		return false;
+	}
+
 	FString Label(const TCHAR* Message) const { return FString::Printf(TEXT("Rotation case %d: %s"), Case, Message); }
 	FWidgetPath Path() const
 	{

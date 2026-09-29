@@ -4,7 +4,7 @@
 #include "UObject/Object.h"
 #include "InventoryInputSettings.generated.h"
 
-enum class EInventoryControl : uint8 { Toggle, Grab, TurnLeft, TurnRight, Cancel, Remove, Add, Count };
+enum class EInventoryControl : uint8 { Toggle, Grab, TurnLeft, TurnRight, Cancel, Remove, Add, RotateWithMouse, Count };
 
 /** Local player preferences for the laboratory, stored separately from its temporary items. */
 UCLASS(Config=GameUserSettings)
@@ -14,6 +14,7 @@ class PROTOTYPE3_API UInventoryInputSettings : public UObject
 public:
 	UInventoryInputSettings();
 	virtual void PostInitProperties() override;
+	virtual void PostReloadConfig(FProperty* PropertyThatWasLoaded) override;
 	UPROPERTY(Config)
 	bool bToggleGrab = false;
 	UPROPERTY(Config)
@@ -24,6 +25,7 @@ public:
 	static FString Label(EInventoryControl Action);
 	static bool Supports(EInventoryControl Action, FKey Key);
 private:
+	void ValidateSettings();
 	UPROPERTY(Config)
 	TArray<FKey> Keys;
 };
