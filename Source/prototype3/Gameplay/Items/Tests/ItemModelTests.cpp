@@ -68,4 +68,77 @@ bool FBandageAssetTest::RunTest(const FString& Parameters)
 	}
 	return true;
 }
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FItemIntentValidationTest, "Prototype.Items.IntentValidation",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FItemIntentValidationTest::RunTest(const FString& Parameters)
+{
+	UIntentItemActionData* Intent = NewObject<UIntentItemActionData>();
+	TestFalse(TEXT("Missing intent is invalid"), Intent->IsValidActionData());
+	Intent->ActionTag = FGameplayTag::RequestGameplayTag(TEXT("Item.Category.Weapon.Firearm"));
+	TestFalse(TEXT("An item category is not an action"), Intent->IsValidActionData());
+	Intent->ActionTag = FGameplayTag::RequestGameplayTag(TEXT("Item.Action"));
+	TestFalse(TEXT("The root does not identify an action"), Intent->IsValidActionData());
+	Intent->ActionTag = FGameplayTag::RequestGameplayTag(TEXT("Item.Action.Fire"));
+	TestTrue(TEXT("A concrete intent is valid"), Intent->IsValidActionData());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FItemSampleAssetsTest, "Prototype.Items.SampleAssets",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FItemSampleAssetsTest::RunTest(const FString& Parameters)
+{
+	struct FExpected
+	{
+		const TCHAR* Id;
+		const TCHAR* Category;
+		double MassKg;
+		const TCHAR* Trait;
+		const TCHAR* Primary;
+		const TCHAR* Secondary;
+	};
+	const FExpected Expected[] = {
+		{ TEXT("CannedBeans"), TEXT("Consumable.Food"), 0.45, TEXT("Handheld"), nullptr, TEXT("Eat") },
+		{ TEXT("WaterBottle"), TEXT("Consumable.Drink"), 0.55, TEXT("Handheld"), nullptr, TEXT("Drink") },
+		{ TEXT("Knife"), TEXT("Weapon.Melee"), 0.20, TEXT("Handheld"), TEXT("MeleeAttack"), nullptr },
+		{ TEXT("Pistol"), TEXT("Weapon.Firearm"), 0.90, TEXT("Handheld"), TEXT("Fire"), TEXT("Aim") },
+		{ TEXT("Flashlight"), TEXT("Tool.Lighting"), 0.15, TEXT("Handheld"), nullptr, TEXT("ToggleLight") },
+		{ TEXT("Jacket"), TEXT("Equipment.Clothing"), 0.80, TEXT("Equippable"), nullptr, TEXT("Equip") },
+		{ TEXT("SmallBackpack"), TEXT("Equipment.Backpack"), 0.70, TEXT("Equippable"), TEXT("OpenStorage"), TEXT("Equip") },
+		{ TEXT("ScrapMetal"), TEXT("Material.Salvage"), 0.25, nullptr, nullptr, nullptr },
+	};
+	TSet<FName> Ids;
+	for (const FExpected& Sample : Expected)
+	{
+		const FString Path = FString::Printf(TEXT("/Game/Items/DA_Item_%s.DA_Item_%s"), Sample.Id, Sample.Id);
+		UItemDefinition* Item = LoadObject<UItemDefinition>(nullptr, *Path);
+		if (!TestNotNull(Path, Item)) continue;
+		const FString Label = FString(Sample.Id) + TEXT(": ");
+		TestTrue(Label + TEXT("definition validates"), Item->IsValidDefinition());
+		TestEqual(Label + TEXT("stable ID"), Item->ItemId, FName(Sample.Id));
+		TestFalse(Label + TEXT("ID is unique in catalog"), Ids.Contains(Item->ItemId));
+		Ids.Add(Item->ItemId);
+		TestEqual(Label + TEXT("category"), Item->Category.ToString(), FString(TEXT("Item.Category.")) + Sample.Category);
+		TestEqual(Label + TEXT("provisional mass per unit"), Item->MassKg, Sample.MassKg);
+		TestEqual(Label + TEXT("unstackable"), Item->MaxStackSize, 1);
+		TestEqual(Label + TEXT("trait count"), Item->Traits.Num(), Sample.Trait ? 1 : 0);
+		if (Sample.Trait)
+			TestTrue(Label + TEXT("handling trait"), Item->Traits.HasTagExact(FGameplayTag::RequestGameplayTag(FName(FString(TEXT("Item.Trait.")) + Sample.Trait))));
+		auto CheckAction = [&](const UItemActionData* Action, const TCHAR* IntentName, const TCHAR* Slot)
+		{
+			if (!IntentName) { TestNull(Label + Slot + TEXT(" unassigned"), Action); return; }
+			const UIntentItemActionData* Intent = Cast<UIntentItemActionData>(Action);
+			if (!TestNotNull(Label + Slot + TEXT(" intent survives reload"), Intent)) return;
+			TestTrue(Label + Slot + TEXT(" owned by definition"), Intent->GetOuter() == Item);
+			TestEqual(Label + Slot + TEXT(" action"), Intent->ActionTag.ToString(), FString(TEXT("Item.Action.")) + IntentName);
+		};
+		CheckAction(Item->PrimaryAction, Sample.Primary, TEXT("primary"));
+		CheckAction(Item->SecondaryAction, Sample.Secondary, TEXT("secondary"));
+		TestTrue(Label + TEXT("instance can be created"), FItemInstance::Create(Item).IsValid());
+		TestFalse(Label + TEXT("stack of two rejected"), FItemInstance::Create(Item, 2).IsValid());
+	}
+	return true;
+}
 #endif

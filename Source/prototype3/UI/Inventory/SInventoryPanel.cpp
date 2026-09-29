@@ -145,7 +145,8 @@ void SInventoryPanel::UpdateCursor(FVector2D Position)
 				{
 					const double Previous = FMath::Atan2(RotationDirection.Y, RotationDirection.X);
 					const double Current = FMath::Atan2(Direction.Y, Direction.X);
-					Turn(FMath::RadiansToDegrees(FMath::FindDeltaAngleRadians(Previous, Current)));
+					// The default speed preserves the original 1:1 cursor angle response.
+					Turn(FMath::RadiansToDegrees(FMath::FindDeltaAngleRadians(Previous, Current)) * Controls->TurnSpeed / 120.0);
 				}
 			}
 			RotationDirection = Direction;
@@ -346,12 +347,16 @@ FReply SInventoryPanel::OnMouseMove(const FGeometry& G, const FPointerEvent& Eve
 FReply SInventoryPanel::OnMouseWheel(const FGeometry& G, const FPointerEvent& Event)
 {
 	UpdateCursor(G.AbsoluteToLocal(Event.GetScreenSpacePosition()));
-	const FKey Key = Event.GetWheelDelta() >= 0 ? EKeys::MouseScrollUp : EKeys::MouseScrollDown;
-	if (Rebinding != INDEX_NONE) { AssignKey(Key); return Reply(); }
-	if (Controls.IsValid() && Active())
+	if (Rebinding != INDEX_NONE)
 	{
-		if (Key == Controls->GetKey(EInventoryControl::TurnLeft)) Turn(-FMath::Abs(Event.GetWheelDelta()) * 2);
-		if (Key == Controls->GetKey(EInventoryControl::TurnRight)) Turn(FMath::Abs(Event.GetWheelDelta()) * 2);
+		Status = TEXT("Wheel scrolling adjusts rotation speed. Press a key or mouse button to rebind.");
+		Invalidate(EInvalidateWidgetReason::Paint);
+		return Reply();
+	}
+	if (Controls.IsValid() && !FMath::IsNearlyZero(Event.GetWheelDelta()))
+	{
+		Controls->TurnSpeed = FMath::Clamp(Controls->TurnSpeed + Event.GetWheelDelta() * 15.f, 15.f, 360.f);
+		SavePreferences();
 	}
 	return Reply();
 }
@@ -403,7 +408,7 @@ int32 SInventoryPanel::OnPaint(const FPaintArgs&, const FGeometry& G, const FSla
 		auto KeyName = [&](EInventoryControl Action) { return Controls->GetKey(Action).GetDisplayName().ToString(); };
 		Text(FVector2D(40, 76), FString::Printf(TEXT("%s %s to grab. Hold %s and move around the item's center to rotate."),
 			Controls->bToggleGrab ? TEXT("Click") : TEXT("Hold"), *KeyName(EInventoryControl::Grab), *KeyName(EInventoryControl::RotateWithMouse)), 12, Muted);
-		Text(FVector2D(40, 98), FString::Printf(TEXT("Release rotation to move. %s / %s: turn. %s: cancel. Green fits; red cancels on drop."),
+		Text(FVector2D(40, 98), FString::Printf(TEXT("Release rotation to move. %s / %s: turn. Scroll: speed. %s: cancel. Green fits; red cancels on drop."),
 			*KeyName(EInventoryControl::TurnLeft), *KeyName(EInventoryControl::TurnRight), *KeyName(EInventoryControl::Cancel)), 11, Muted);
 	}
 	Box(FVector2D(880, 25), FVector2D(80, 42), Button);
@@ -440,7 +445,7 @@ int32 SInventoryPanel::OnPaint(const FPaintArgs&, const FGeometry& G, const FSla
 	Box(FVector2D(916, 552), FVector2D(44, 32), Button);
 	Text(FVector2D(646, 556), TEXT("-"), 18);
 	Text(FVector2D(931, 556), TEXT("+"), 18);
-	Text(FVector2D(688, 560), FString::Printf(TEXT("Key turn: %.0f degrees / s"), Controls->TurnSpeed), 11, Muted);
+	Text(FVector2D(682, 560), FString::Printf(TEXT("Speed %.0f deg/s | mouse %.2fx"), Controls->TurnSpeed, Controls->TurnSpeed / 120.f), 10, Muted);
 	Box(FVector2D(630, 598), FVector2D(330, 34), Button);
 	Text(FVector2D(690, 607), TEXT("Reset controls"), 12);
 	Box(FVector2D(630, 650), FVector2D(155, 40), FLinearColor(0.12f, 0.28f, 0.25f));

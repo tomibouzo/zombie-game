@@ -76,7 +76,9 @@ public:
 				Controller->CloseInventoryDemo();
 				return true;
 			}
+			Panel->SetSaveControls(false);
 			ItemId = Inventory->GetEntries()[0].Item.InstanceId;
+			InitialItemCount = Inventory->GetEntries().Num();
 			Phase = 2;
 		}
 		if (Case >= 18)
@@ -92,7 +94,6 @@ public:
 			Settings->bToggleGrab = Case == 4;
 			FString Error;
 			if (Case == 2) Settings->TrySetKey(EInventoryControl::TurnRight, EKeys::ThumbMouseButton, Error);
-			if (Case == 3) Settings->TrySetKey(EInventoryControl::TurnRight, EKeys::MouseScrollUp, Error);
 			Inventory->GetItem(ItemId, Before);
 			Pointer = Before.Position + FVector2D(40,150);
 			MouseButton(EKeys::LeftMouseButton, true);
@@ -105,8 +106,15 @@ public:
 			Pointer = FVector2D(370.25,630.75);
 			RouteMove();
 			if (Case == 2) MouseButton(EKeys::ThumbMouseButton, true);
-			else if (Case == 3) RouteWheel();
-			else App.ProcessKeyDownEvent(FKeyEvent(Case == 1 ? EKeys::Q : EKeys::E, FModifierKeysState(), 0, false, 0, 0));
+			else
+			{
+				if (Case == 3)
+				{
+					RouteWheel();
+					Test->TestEqual(Label(TEXT("wheel raises speed during drag")), Settings->TurnSpeed, 105.f);
+				}
+				App.ProcessKeyDownEvent(FKeyEvent(Case == 1 ? EKeys::Q : EKeys::E, FModifierKeysState(), 0, false, 0, 0));
+			}
 			WaitUntil = FPlatformTime::Seconds() + 0.25;
 			Phase = 3;
 			return false;
@@ -115,7 +123,7 @@ public:
 		{
 			if (FPlatformTime::Seconds() < WaitUntil) return false;
 			if (Case == 2) MouseButton(EKeys::ThumbMouseButton, false);
-			else if (Case != 3) App.ProcessKeyUpEvent(FKeyEvent(Case == 1 ? EKeys::Q : EKeys::E, FModifierKeysState(), 0, false, 0, 0));
+			else App.ProcessKeyUpEvent(FKeyEvent(Case == 1 ? EKeys::Q : EKeys::E, FModifierKeysState(), 0, false, 0, 0));
 			Test->TestTrue(Label(TEXT("rotation release preserves capture")), Panel->HasMouseCapture());
 			// Wait again: releasing rotation must not drop the still-held object.
 			WaitUntil = FPlatformTime::Seconds() + 0.1;
@@ -140,11 +148,10 @@ public:
 		{
 			Test->TestTrue(Label(TEXT("drag commits after rotation")), After.Position.Equals(FVector2D(330.25,480.75), 0.01));
 			const double Change = FMath::FindDeltaAngleDegrees(Before.AngleDegrees, After.AngleDegrees);
-			if (Case == 3) Test->TestTrue(Label(TEXT("wheel rotates two degrees")), FMath::IsNearlyEqual(Change, 2.0, 0.01));
-			else Test->TestTrue(Label(TEXT("held input rotates over real frames in expected direction")), Case == 1 ? Change < -1 : Change > 1);
+			Test->TestTrue(Label(TEXT("held input rotates over real frames in expected direction")), Case == 1 ? Change < -1 : Change > 1);
 		}
 		Test->TestFalse(Label(TEXT("gesture end releases capture")), Panel->HasMouseCapture());
-		Test->TestEqual(Label(TEXT("no objects lost")), Inventory->GetEntries().Num(), 5);
+		Test->TestEqual(Label(TEXT("no objects lost")), Inventory->GetEntries().Num(), InitialItemCount);
 		++Case;
 		Phase = 2;
 		return false;
@@ -210,7 +217,7 @@ private:
 		Test->TestTrue(Label(TEXT("mouse rotation position")),After.Position.Equals(Cancelled ? Before.Position : ExpectedCenter,0.001));
 		Test->TestTrue(Label(TEXT("mouse rotation angle")),FMath::IsNearlyEqual(After.AngleDegrees,Cancelled ? Before.AngleDegrees : 80.0,0.001));
 		Test->TestFalse(Label(TEXT("gesture releases capture")),Panel->HasMouseCapture());
-		Test->TestEqual(Label(TEXT("no objects lost")),Inventory->GetEntries().Num(),5);
+		Test->TestEqual(Label(TEXT("no objects lost")),Inventory->GetEntries().Num(),InitialItemCount);
 		++Case;
 		Phase = 2;
 		return false;
@@ -252,6 +259,7 @@ private:
 	double WaitUntil = 0;
 	int32 Phase = 0;
 	int32 Case = 0;
+	int32 InitialItemCount = 0;
 	bool bPreviousBackgroundInput = false;
 };
 

@@ -1,6 +1,6 @@
 # Inventory test: free placement
 
-Updated: 2026-09-28. This is a temporary inventory laboratory; integration with
+Updated: 2026-09-29. This is a temporary inventory laboratory; integration with
 character inventory is a later stage.
 
 ## Try it in Unreal
@@ -16,13 +16,22 @@ character inventory is a later stage.
 6. Release left mouse to place, including while right mouse remains held.
    Green confirms; red cancels and restores the original position and angle.
 7. Press the **mouse wheel (middle button)** to cancel placement. **Q/E** remain
-   alternative continuous rotation controls.
+   alternative continuous rotation controls. Scroll up to increase rotation speed,
+   or down to decrease it, including while holding an item.
 8. Try fitting a bandage in the L's opening or inside the frame. Edges may touch.
 
 The single pocket is 560 x 560 logical units. The interface scales to the screen.
 Positions and angles are continuous, with no grid or angle snapping. There are two
-instances of the bandage item and three test silhouettes: L piece, bar and frame.
+instances of the bandage item, eight additional saved items (canned beans, water
+bottle, knife, pistol, flashlight, jacket, small backpack and scrap metal), and
+three test silhouettes: L piece, bar and frame. There are 13 entries initially.
+Select an item to see its name in the panel. All sample silhouettes and their
+dimensions are provisional; the bottle/knife/pistol/jacket shapes are test outlines.
 The interface instructions, control labels and status messages are in English.
+Item actions are data only: mouse buttons in this interface manipulate placement.
+They do not eat, drink, fire, equip or open the backpack item. The test pocket is
+independent of that backpack. Restart Play to restore removed samples; B still adds
+only bandages. See `Source/prototype3/Gameplay/Items/README.md` for the item catalog.
 
 ## Controls and preferences
 
@@ -32,27 +41,31 @@ The interface instructions, control labels and status messages are in English.
 | Grab / place | Left mouse button |
 | Hold to rotate with mouse movement | Right mouse button |
 | Turn left / right | Q / E |
+| Increase / decrease rotation speed | Scroll up / down |
 | Cancel placement | Mouse wheel press (middle button) |
 | Remove selected item | Delete |
 | Add bandage | B |
 
 Click a control row, then press the replacement key or mouse button. Duplicate
-bindings are rejected. Wheel scrolling can be assigned to turn left/right (2 degrees
-per step); it cannot act as a held grab or mouse-rotation modifier. The mouse wheel
-press is a separate button from scrolling. Use **Cancel rebinding** to leave without
-changing a binding, or **Reset controls** to restore defaults.
+bindings are rejected. Wheel scrolling is reserved for rotation speed, while
+pressing the wheel remains a separate, rebindable cancel button. Use **Cancel
+rebinding** to leave without changing a binding, or **Reset controls** to restore
+defaults.
 
 Grab supports hold/release or click-to-pick-up/click-to-place. Mouse rotation also
 works with click grab and while placing a newly added bandage. Its modifier can be
-rebound to a keyboard key. Q/E-style held turning retains its adjustable speed of
-15-360 degrees per second; mouse rotation follows angular movement directly.
-Instructions show the current bindings.
+rebound to a keyboard key. The wheel and on-screen +/- buttons adjust one saved
+setting in 15-degree-per-second steps, from 15 to 360 degrees per second for Q/E.
+The same setting scales mouse rotation from 0.125x to 3x; its default of 120 gives
+the original 1:1 mouse feel. Scrolling changes sensitivity, not the held item's
+current angle. Instructions show the current bindings and speed.
 
 Preferences live in local GameUserSettings under
 `/Script/prototype3.InventoryInputSettings`. Older seven-action preferences gain
 the mouse-rotation action. The old default right-click cancel moves to middle click;
 other bindings, grab mode and turn speed are preserved. If a custom binding already
 uses a desired button, migration selects a free fallback shown in the controls panel.
+Older bindings that used wheel scrolling to turn migrate individually to free keys.
 Tests use isolated preferences and restore any temporarily changed runtime settings.
 
 ## Placement and rotation
@@ -105,7 +118,7 @@ Slate-routed rotation checks during actual Play frames. One known
 `r.MotionVectorSimulation` warning was reported. That is separate from verification
 of this mouse-rotation change.
 
-Fresh verification of this change on 2026-09-28: Unreal 5.8.1 Development Editor
+Historical verification of the rotation change on 2026-09-28: Unreal 5.8.1 Development Editor
 compilation succeeded (32.21 seconds). All 13 automated tests passed: 12 clean and
 one with the same known rendering warning. `MouseRotation` checks scaled geometry,
 no initial snap or idle turning, both directions, release order, smooth resumed
@@ -119,9 +132,28 @@ Build log: `Saved/InventoryVerification/Build.log`.
 Test report: `Saved/InventoryVerification/Tests/index.json`.
 The user's manual assessment of rotation feel remains pending.
 
+Item expansion verified on 2026-09-29: Development Editor build succeeded, and all
+16 tests passed (15 clean, one with the previously recorded rendering warning).
+The added `IntentValidation`, `SampleAssets` and `SampleIntegration` checks cover
+action namespaces, all eight saved definitions with embedded action data, quantity
+limits, and each sample's placement, overlap rejection, rotation and identity.
+The existing Play input scenarios passed with the expanded 13-item layout.
+All four captures were reviewed: samples are visible, invalid overlap is red,
+valid placement is green, and the bandage can still fit inside the frame.
+Build log: `Saved/ItemVerification/BuildFinal.log`.
+Asset creation log: `Saved/ItemVerification/CreateAssets.log`.
+The test report above now contains this 16-test run.
+
+Rotation-speed update verified on 2026-09-29: Development Editor build succeeded;
+all 16 inventory/item checks passed (15 clean, one with the same engine rendering
+warning). Panel and Play tests cover wheel speed adjustment during a drag, Q/E
+turning with the new speed, mouse sensitivity, limits and old wheel-binding
+migration. No manual feel test was conducted.
+
 ## Remaining scope
 
 Demo items survive closing/reopening inventory during Play and reset when Play ends.
 This stage does not implement equipment, world pickups, stack splitting, transfers
 between components, saved inventories, networking, carried-weight movement effects
-or healing execution. Control preferences do persist. Item and map assets are unchanged.
+or item action execution. Control preferences do persist. This item expansion adds
+eight data assets and action intents; the existing bandage and map assets are unchanged.
