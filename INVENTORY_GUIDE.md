@@ -1,159 +1,119 @@
-# Inventory test: free placement
+# Player inventory prototype — hands and bandage use
 
-Updated: 2026-09-29. This is a temporary inventory laboratory; integration with
-character inventory is a later stage.
+Updated: 2026-10-01. Based on the mouse-rotation and item samples from PR #11/#12.
 
-## Try it in Unreal
+## Run this version
 
-1. Open this checkout's `prototype3.uproject`, open `Content/FirstPerson/Lvl_FirstPerson`, and press Play.
-2. Press **I** to open the inventory.
-3. Hold **left mouse** on a silhouette to pick it up and move it.
-4. While holding the item, hold **right mouse**. The item's center stays still;
-   move the mouse around that center to rotate it. Rotation starts from the current
-   angle without snapping. Moving straight toward/away from the center does not turn it.
-5. Release right mouse to resume movement at the retained angle, without a position jump.
-   You can switch between movement and rotation repeatedly during a drag.
-6. Release left mouse to place, including while right mouse remains held.
-   Green confirms; red cancels and restores the original position and angle.
-7. Press the **mouse wheel (middle button)** to cancel placement. **Q/E** remain
-   alternative continuous rotation controls. Scroll up to increase rotation speed,
-   or down to decrease it, including while holding an item.
-8. Try fitting a bandage in the L's opening or inside the frame. Edges may touch.
+Open `C:\Users\valen\Documents\Codex\inventory-work\prototype3.uproject`, load
+`/Game/FirstPerson/Lvl_FirstPerson`, and press Play. This checkout is separate from
+the Desktop copy. The prototype is enabled by the character's ItemUse component.
 
-The single pocket is 560 x 560 logical units. The interface scales to the screen.
-Positions and angles are continuous, with no grid or angle snapping. There are two
-instances of the bandage item, eight additional saved items (canned beans, water
-bottle, knife, pistol, flashlight, jacket, small backpack and scrap metal), and
-three test silhouettes: L piece, bar and frame. There are 13 entries initially.
-Select an item to see its name in the panel. All sample silhouettes and their
-dimensions are provisional; the bottle/knife/pistol/jacket shapes are test outlines.
-The interface instructions, control labels and status messages are in English.
-Item actions are data only: mouse buttons in this interface manipulate placement.
-They do not eat, drink, fire, equip or open the backpack item. The test pocket is
-independent of that backpack. Restart Play to restore removed samples; B still adds
-only bandages. See `Source/prototype3/Gameplay/Items/README.md` for the item catalog.
+- **E once** puts the configured quick item in hands. It never consumes it.
+- **Double E** cycles the shortcut's item type among available quick items and
+  puts that type in hands. Holding the key does not repeat the action.
+- **Left click** starts the held bandage's use. Releasing the button does not cancel.
+- **Right click** cancels and stows the held item in its reserved place.
+- **I** opens inventory by default; an existing customized open key is preserved.
+  The controls column shows the current key.
+- **F** initially selects canned beans; the third shortcut (**G**) starts unassigned.
+  Other sample action effects are not implemented in this first bandage slice.
 
-## Controls and preferences
+The bandage takes **3 seconds** and restores **25 health**, capped at maximum health.
+You may walk while using it; running, sprinting, jumping and melee are blocked.
+Actual damage cancels healing and its animation. The bandage stays in hands,
+unspent; another left click is required to begin a fresh 3-second use.
+Canceling, opening inventory or death stops use without spending the bandage.
+Full health prevents use. The effect and consumption happen only at completion.
 
-| Action | Default |
+A white roll is shown in first person with simple movement while using it.
+It is positioned by the camera until a holding pose is authored. Other sample objects currently
+share this placeholder. These are not finished models or hand animations.
+The held object's place stays reserved (shown dimmed) so stowing it cannot fail
+or create a duplicate. A reserved item cannot be moved or removed in the panel.
+
+## Quick storage and backpack
+
+The same free-placement menu now has two storage views:
+
+| Setting | Prototype default |
 | --- | --- |
-| Open / close | I |
-| Grab / place | Left mouse button |
-| Hold to rotate with mouse movement | Right mouse button |
-| Turn left / right | Q / E |
-| Increase / decrease rotation speed | Scroll up / down |
-| Cancel placement | Mouse wheel press (middle button) |
-| Remove selected item | Delete |
-| Add bandage | B |
+| Quick space | 220 x 220 logical units |
+| Maximum mass per quick object | 0.60 kg |
+| Quick total-weight limit | None |
+| Quick firearm rule | Firearms excluded even if small and light |
+| Backpack space | 360 x 360 logical units |
+| Backpack opening delay | 2 seconds |
 
-Click a control row, then press the replacement key or mouse button. Duplicate
-bindings are rejected. Wheel scrolling is reserved for rotation speed, while
-pressing the wheel remains a separate, rebindable cancel button. Use **Cancel
-rebinding** to leave without changing a binding, or **Reset controls** to restore
-defaults.
+All values are provisional. Quick items must pass both the per-object mass rule
+and silhouette placement. A light oversized object still fails. Non-firearm
+throwables are not excluded by the firearm rule; no grenade action is supplied.
 
-Grab supports hold/release or click-to-pick-up/click-to-place. Mouse rotation also
-works with click grab and while placing a newly added bandage. Its modifier can be
-rebound to a keyboard key. The wheel and on-screen +/- buttons adjust one saved
-setting in 15-degree-per-second steps, from 15 to 360 degrees per second for Q/E.
-The same setting scales mouse rotation from 0.125x to 3x; its default of 120 gives
-the original 1:1 mouse feel. Scrolling changes sensitivity, not the held item's
-current angle. Instructions show the current bindings and speed.
+One sample backpack starts equipped in the prototype equipment slot. Click
+**Open backpack** and wait for opening to finish before accessing its contents.
+Select an item using the existing grab/place controls, finish placing it, then
+click **To hands**. This closes the menu; use still takes the same 3 seconds.
+Closing inventory closes the backpack, so reopening it requires its access delay.
 
-Preferences live in local GameUserSettings under
-`/Script/prototype3.InventoryInputSettings`. Older seven-action preferences gain
-the mouse-rotation action. The old default right-click cancel moves to middle click;
-other bindings, grab mode and turn speed are preserved. If a custom binding already
-uses a desired button, migration selects a free fallback shown in the controls panel.
-Older bindings that used wheel scrolling to turn migrate individually to free keys.
-Tests use isolated preferences and restore any temporarily changed runtime settings.
+**Unequip backpack** hides its contents and keeps their identities/placements.
+Equip it again to regain access. This prototype models one backpack; it does not
+yet implement dropping backpacks into the world, multiple bags or nested bags.
 
-## Placement and rotation
+**To quick / To backpack** transfers the selected item to an available position.
+These buttons sample candidate positions; ordinary manual placement remains
+continuous. Failed transfers preserve the original. The backpack opens first
+when transferring into it. **Stow** frees the reserved held item.
 
-- Rotation is around the center of the rectangle enclosing the whole silhouette.
-- Mouse rotation preserves the angle on entry and follows subsequent angular changes.
-  Near the exact center (within 3 logical units), direction is undefined: moving away
-  establishes a new direction without snapping. Crossing through that region between
-  mouse events also re-establishes direction instead of flipping the item.
-- Releasing mouse rotation re-anchors the grab offset to resume movement smoothly.
-- Rendering, selection and collision use the same silhouette. Concavities and holes
-  remain available for other items. Edge/vertex contact is valid; area overlap is not.
-- The complete rotated silhouette must fit inside the pocket.
-- Preview does not mutate stored items. Invalid drops, cancel, close, loss of focus
-  or loss of mouse capture preserve the original placement and angle.
-- Shapes are placeholders. Icons do not automatically define collision geometry.
+Quick shortcuts are assigned by item type, not to a particular copy. Select an
+item in quick storage and choose **Assign selected** on a shortcut row. Click its
+key to rebind; Escape cancels. Duplicate shortcut keys, movement keys, mouse
+buttons and the current inventory-open key are rejected. Missing assigned items
+do nothing and never silently use an item from the backpack. Settings persist in
+GameUserSettings; inventory contents reset at the end of Play.
 
-## Technical contract
+## Safe damage test
 
-`UItemDefinition` and `FItemInstance` remain the shared item contract. Inventory
-entries hold the instance, pocket, profile, continuous `FVector2D Position` and
-`double AngleDegrees`, normalized to [0, 360).
+A patch of cones labeled **TEST SPIKES** spawns in front/right of the local player
+on the floor. Touch it to take 10 damage per second. It stops at 1 health and
+cannot kill. Leave the patch, equip a bandage and click to heal. Reenter while
+using a bandage to test interruption and manual retry. The ItemUse component can disable the
+prototype hazard with `bSpawnTestSpikes`.
 
-`FInventoryItemProfile.ShapeParts` is a union of filled convex polygons centered
-around the item. Decomposition supports concavities and holes. Profiles permit up
-to 64 parts with 256 vertices each, with coordinates within +/-4096. Contact tolerance
-is 0.0000001 logical units. Registration rejects empty, non-finite, degenerate,
-non-centered, concave or self-intersecting parts. Registered profiles and pockets
-cannot be replaced; queries return copies.
+## Preserved manipulation controls
 
-`AddItem`, `MoveItem`, `CheckPlacement` and `CheckMove` receive center and angle.
-Moves preserve identity and quantity and are atomic within one component, including
-between its pockets. The demo displays its first and only pocket.
+Hold left mouse to drag (or use your saved click-toggle mode). Hold right mouse
+while moving the cursor around the item to rotate, then release right mouse to
+resume dragging smoothly. Q/E also turn. The wheel and +/- controls change the
+shared rotation speed in steps of 15, from 15 to 360 degrees/s. At the default
+120, mouse rotation is 1:1. Pressing the wheel cancels placement. Controls are
+rebindable in the right-hand column. Gameplay shortcuts only apply with this
+menu closed, so E can also remain a panel rotation binding.
 
-## Files and verification
+Green placements commit; red placements restore the original angle and position.
+Rendering, hit testing and collision share the same polygon silhouettes. Holes
+remain usable, edges may touch, and every part must fit inside its destination.
 
-- `Source/prototype3/Gameplay/Player/Inventory/`: geometry, component and tests.
-- `Source/prototype3/UI/Inventory/`: interface, fixtures and saved controls.
-- `Source/prototype3/Core/PlayerControllers/prototype3PlayerController`: open/close and gameplay focus.
-- `Scripts/VerifyInventory.ps1`: build, automated checks and optional captures/Play tests.
+## Implementation and verification
 
-On this PC, run `Scripts/VerifyInventory.ps1 -EngineRoot 'C:\UE_5.8' -Capture -PlayTest`.
-Use `-SkipBuild` only with a current build. Tests use a separate verification editor;
-do not run them inside a manual Play session. Reports and screenshots are saved in
-`Saved/InventoryVerification`.
+- `Gameplay/Player/Inventory/InventoryComponent`: placement, pocket admission,
+  reservation, consumption and identity-preserving movement.
+- `Gameplay/Player/Inventory/PlayerItemUseComponent`: prototype population,
+  hands, quick shortcuts, backpack access, use timer and damage interruption.
+- `Gameplay/Player/Inventory/ItemUseSettings`: saved shortcut types and keys.
+- `Gameplay/Player/Inventory/InventoryTestSpikes`: nonlethal test hazard.
+- `UHealingItemActionData`: existing healing amount plus configurable UseSeconds.
+- `Core/Characters/prototype3Character`: assembly, held-item input routing and
+  movement restriction. Primary input uses healing data from either action slot;
+  the saved bandage definition retains the secondary-slot data supplied earlier.
+- `UI/Inventory`: existing menu adapted to player-owned storage. The old 560x560
+  laboratory is retained for independent geometry/rotation regression tests.
 
-Historical verification before this change: the previous developer reported a
-successful Unreal 5.8.1 Development Editor build and 12 passing tests, including
-Slate-routed rotation checks during actual Play frames. One known
-`r.MotionVectorSimulation` warning was reported. That is separate from verification
-of this mouse-rotation change.
+Run `Scripts/VerifyInventory.ps1 -Capture -PlayTest` in this checkout. It builds
+Unreal 5.8.1 and runs the item/inventory suite, including real Play input and UI
+routing. The new checks cover quick admission, reservations, timing, damage,
+consumption, bag access, equipment identity, shortcuts and nonlethal damage.
+Reports and images are under `Saved/InventoryVerification`. Automated Play checks
+are separate from the user's manual assessment of appearance and feel.
 
-Historical verification of the rotation change on 2026-09-28: Unreal 5.8.1 Development Editor
-compilation succeeded (32.21 seconds). All 13 automated tests passed: 12 clean and
-one with the same known rendering warning. `MouseRotation` checks scaled geometry,
-no initial snap or idle turning, both directions, release order, smooth resumed
-movement, pivot crossings, a full turn, middle-click cancel and invalid drops.
-`RotationPlayIntegration` exercises 18 scenarios through Slate during actual Play
-frames, including Q/E, mouse/keyboard rebindings, click grab, both release orders,
-cancel and focus/capture loss. `InputPreferences` verifies persistence and legacy
-migration, including a custom binding conflict. The four captures were inspected
-for the English interface, control layout and valid/invalid placement previews.
-Build log: `Saved/InventoryVerification/Build.log`.
-Test report: `Saved/InventoryVerification/Tests/index.json`.
-The user's manual assessment of rotation feel remains pending.
-
-Item expansion verified on 2026-09-29: Development Editor build succeeded, and all
-16 tests passed (15 clean, one with the previously recorded rendering warning).
-The added `IntentValidation`, `SampleAssets` and `SampleIntegration` checks cover
-action namespaces, all eight saved definitions with embedded action data, quantity
-limits, and each sample's placement, overlap rejection, rotation and identity.
-The existing Play input scenarios passed with the expanded 13-item layout.
-All four captures were reviewed: samples are visible, invalid overlap is red,
-valid placement is green, and the bandage can still fit inside the frame.
-Build log: `Saved/ItemVerification/BuildFinal.log`.
-Asset creation log: `Saved/ItemVerification/CreateAssets.log`.
-The test report above now contains this 16-test run.
-
-Rotation-speed update verified on 2026-09-29: Development Editor build succeeded;
-all 16 inventory/item checks passed (15 clean, one with the same engine rendering
-warning). Panel and Play tests cover wheel speed adjustment during a drag, Q/E
-turning with the new speed, mouse sensitivity, limits and old wheel-binding
-migration. No manual feel test was conducted.
-
-## Remaining scope
-
-Demo items survive closing/reopening inventory during Play and reset when Play ends.
-This stage does not implement equipment, world pickups, stack splitting, transfers
-between components, saved inventories, networking, carried-weight movement effects
-or item action execution. Control preferences do persist. This item expansion adds
-eight data assets and action intents; the existing bandage and map assets are unchanged.
+Food, water, radiation treatment, firearms, grenade throwing, durable equipment,
+world pickups, saved games and networking remain later slices. Their sample tags
+are configuration only. Existing sample masses and polygon sizes are provisional.

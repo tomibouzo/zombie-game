@@ -22,6 +22,8 @@ class PROTOTYPE3_API UHealingItemActionData : public UItemActionData
 	GENERATED_BODY()
 
 public:
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Item|Healing", meta=(ClampMin="0.01", Units="s"))
+	float UseSeconds = 3.0f;
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Item|Healing", meta=(ClampMin="0.001"))
 	double HealAmount = 0.0;
 

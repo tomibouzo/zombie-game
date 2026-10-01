@@ -1,4 +1,5 @@
 #include "Gameplay/Player/Inventory/InventoryComponent.h"
+#include "Gameplay/Items/ItemDefinition.h"
 
 UInventoryComponent::UInventoryComponent()
 {
@@ -21,6 +22,7 @@ EInventoryResult UInventoryComponent::RegisterProfile(const FInventoryItemProfil
 
 EInventoryResult UInventoryComponent::AddPocket(const FInventoryPocket& Pocket)
 {
+	if (!FMath::IsFinite(Pocket.MaxItemMassKg) || Pocket.MaxItemMassKg < 0) return EInventoryResult::InvalidPocket;
 	if (Pocket.Id.IsNone() || !InventoryGeometry::IsFinite(Pocket.Size) || Pocket.Size.X < 1 || Pocket.Size.Y < 1 || Pocket.Size.X > 1000000 || Pocket.Size.Y > 1000000) return EInventoryResult::InvalidPocket;
 	if (Pockets.ContainsByPredicate([&](const FInventoryPocket& P) { return P.Id == Pocket.Id; })) return EInventoryResult::DuplicateId;
 	Pockets.Add(Pocket);
@@ -49,6 +51,12 @@ EInventoryResult UInventoryComponent::ValidatePlacement(FName ProfileId, FName P
 	if (!FMath::IsFinite(AngleDegrees) || (!Profile.bAllowRotation && InventoryGeometry::NormalizeAngle(AngleDegrees) != 0)) return EInventoryResult::InvalidRotation;
 	const FInventoryPocket* Pocket = Pockets.FindByPredicate([&](const FInventoryPocket& P) { return P.Id == PocketId; });
 	if (!Pocket) return EInventoryResult::InvalidPocket;
+	if (Profile.Definition)
+	{
+		if (Pocket->MaxItemMassKg > 0 && Profile.Definition->MassKg > Pocket->MaxItemMassKg) return EInventoryResult::TooHeavy;
+		const auto Firearm = FGameplayTag::RequestGameplayTag(TEXT("Item.Category.Weapon.Firearm"), false);
+		if (!Pocket->bAllowFirearms && Firearm.IsValid() && Profile.Definition->Category.MatchesTag(Firearm)) return EInventoryResult::Incompatible;
+	}
 	if (!InventoryGeometry::IsFinite(Position) || Position.X < 0 || Position.Y < 0 || Position.X > Pocket->Size.X || Position.Y > Pocket->Size.Y) return EInventoryResult::OutOfBounds;
 	const auto Candidate = Profile.GetTransformedParts(Position, AngleDegrees);
 	for (const auto& Part : Candidate)
@@ -74,6 +82,7 @@ EInventoryResult UInventoryComponent::CheckPlacement(FName ProfileId, FName Pock
 
 EInventoryResult UInventoryComponent::CheckMove(FGuid InstanceId, FName PocketId, FVector2D Position, double AngleDegrees) const
 {
+	if (IsReserved(InstanceId)) return EInventoryResult::InUse;
 	const int32 Index = FindItem(InstanceId);
 	if (Index == INDEX_NONE) return EInventoryResult::NotFound;
 	if (!Entries[Index].Item.IsValid()) return EInventoryResult::InvalidItem;
@@ -116,10 +125,44 @@ EInventoryResult UInventoryComponent::MoveItem(FGuid InstanceId, FName PocketId,
 EInventoryResult UInventoryComponent::RemoveItem(FGuid InstanceId, FItemInstance& OutItem)
 {
 	OutItem = FItemInstance();
+	if (IsReserved(InstanceId)) return EInventoryResult::InUse;
 	const int32 Index = FindItem(InstanceId);
 	if (Index == INDEX_NONE) return EInventoryResult::NotFound;
 	OutItem = Entries[Index].Item;
 	Entries.RemoveAt(Index);
 	OnInventoryChanged.Broadcast();
 	return EInventoryResult::Success;
+}
+
+bool UInventoryComponent::ReserveItem(FGuid Id)
+{
+	if (FindItem(Id) == INDEX_NONE || IsReserved(Id)) return false;
+	ReservedItems.Add(Id);
+	return true;
+}
+
+bool UInventoryComponent::ConsumeReservedItem(FGuid Id)
+{
+	const int32 Index = FindItem(Id);
+	if (Index == INDEX_NONE || !IsReserved(Id) || !Entries[Index].Item.IsValid()) return false;
+	if (--Entries[Index].Item.Quantity == 0) Entries.RemoveAt(Index);
+	ReservedItems.Remove(Id);
+	OnInventoryChanged.Broadcast();
+	return true;
+}
+
+bool UInventoryComponent::FindSpace(FGuid Id, FName PocketId, FVector2D& OutPosition) const
+{
+	const auto* Pocket = Pockets.FindByPredicate([&](const auto& P) { return P.Id == PocketId; });
+	FInventoryEntry Entry;
+	if (!Pocket || !GetItem(Id, Entry)) return false;
+	// Prototype auto-transfer samples positions; ordinary dragging remains continuous.
+	for (double Y = 0; Y <= Pocket->Size.Y; Y += 4)
+		for (double X = 0; X <= Pocket->Size.X; X += 4)
+			if (CheckMove(Id, PocketId, FVector2D(X, Y), Entry.AngleDegrees) == EInventoryResult::Success)
+			{
+				OutPosition = FVector2D(X, Y);
+				return true;
+			}
+	return false;
 }

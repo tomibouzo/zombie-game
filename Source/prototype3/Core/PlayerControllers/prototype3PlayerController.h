@@ -37,11 +37,12 @@ public:
 	UInputAction* GetSecondaryAction();
 
 	/** Temporary local inventory laboratory; its items persist until this controller ends. */
-	void ToggleInventoryDemo();
+	void ToggleInventoryDemo(bool bLegacyLab = false);
 	void CloseInventoryDemo();
 	virtual bool InputKey(const FInputKeyEventArgs& Params) override;
 
 protected:
+	TSharedPtr<class SWidget> ItemUseOverlay;
 	UPROPERTY(Transient)
 	TObjectPtr<UInventoryDemoWidget> InventoryDemoWidget;
 	bool bInventoryDemoOpen = false;
