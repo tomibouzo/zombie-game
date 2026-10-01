@@ -250,8 +250,15 @@ bool FInventoryPanelInteractionTest::RunTest(const FString&)
 	if (!TestTrue(TEXT("Demo fixture"), InventoryDemo::Populate(I.Get()))) return false;
 	const int32 InitialCount = I->GetEntries().Num();
 	bool bClosed = false;
+	FGuid RequestedDrop;
 	const auto Panel = SNew(SInventoryPanel).Inventory(I.Get()).Controls(Settings.Get()).SaveControls(false)
-		.OnClose(FSimpleDelegate::CreateLambda([&]() { bClosed = true; }));
+		.OnClose(FSimpleDelegate::CreateLambda([&]() { bClosed = true; }))
+		.OnDropItem(SInventoryPanel::FOnDropItem::CreateLambda([&](FGuid Selected, FString& Error)
+		{
+			RequestedDrop = Selected;
+			Error = TEXT("World drop unavailable in this isolated panel test.");
+			return false;
+		}));
 	const FGeometry G = FGeometry::MakeRoot(FVector2D(1000,800), FSlateLayoutTransform());
 	auto Mouse = [](FVector2D P, FKey B) { return FPointerEvent(0, P, P, TSet<FKey>(), B, 0, FModifierKeysState()); };
 	auto Down = [&](FVector2D P, FKey B = EKeys::LeftMouseButton) { Panel->OnMouseButtonDown(G, Mouse(P,B)); };
@@ -313,9 +320,17 @@ bool FInventoryPanelInteractionTest::RunTest(const FString&)
 	TestEqual(TEXT("Wheel speed maximum"),Settings->TurnSpeed,360.f);
 	Panel->OnMouseWheel(G,FPointerEvent(0,FVector2D(340,630),FVector2D(340,630),TSet<FKey>(),EKeys::Invalid,-100,FModifierKeysState()));
 	TestEqual(TEXT("Wheel speed minimum"),Settings->TurnSpeed,15.f);
-	Key(EKeys::Delete); TestEqual(TEXT("Remove selection"),I->GetEntries().Num(),InitialCount - 1);
+	Key(EKeys::Delete);
+	TestEqual(TEXT("Drop requests the selected item without holding"),RequestedDrop,Id);
+	TestEqual(TEXT("Failed selected drop preserves inventory"),I->GetEntries().Num(),InitialCount);
+	Move(FVector2D(340,630)); Key(EKeys::F); KeyUp(EKeys::F); Key(EKeys::Delete);
+	TestEqual(TEXT("An unavailable world drop does not delete the held item"),I->GetEntries().Num(),InitialCount);
+	I->GetItem(Id,Entry);
+	TestEqual(TEXT("Failed drop restores the stored placement"),Entry.Position,FVector2D(300,480));
+	Down(FVector2D(850,665)); Up(FVector2D(850,665));
+	TestEqual(TEXT("Former Remove button has no deletion action"),I->GetEntries().Num(),InitialCount);
 	Key(EKeys::B); Move(FVector2D(110,220)); Key(EKeys::F); KeyUp(EKeys::F);
-	TestEqual(TEXT("Add through configured controls"),I->GetEntries().Num(),InitialCount);
+	TestEqual(TEXT("Add through configured controls"),I->GetEntries().Num(),InitialCount + 1);
 	Key(EKeys::I); TestTrue(TEXT("Close shortcut"),bClosed);
 	return true;
 }
@@ -333,6 +348,8 @@ bool FInventoryInputTest::RunTest(const FString&)
 	TestFalse(TEXT("Wheel cannot be held for grab"),Settings->TrySetKey(EInventoryControl::Grab,EKeys::MouseScrollDown,Error));
 	TestTrue(TEXT("Right mouse rotates by default"),Settings->GetKey(EInventoryControl::RotateWithMouse)==EKeys::RightMouseButton);
 	TestTrue(TEXT("Middle mouse cancels by default"),Settings->GetKey(EInventoryControl::Cancel)==EKeys::MiddleMouseButton);
+	TestTrue(TEXT("Delete is the default drop key"),Settings->GetKey(EInventoryControl::Drop)==EKeys::Delete);
+	TestEqual(TEXT("Drop replaces the old removal control"),UInventoryInputSettings::Label(EInventoryControl::Drop),FString(TEXT("Drop selected item")));
 	TestFalse(TEXT("Wheel cannot hold mouse rotation"),Settings->TrySetKey(EInventoryControl::RotateWithMouse,EKeys::MouseScrollDown,Error));
 	TestFalse(TEXT("Wheel reserved from turn bindings"),Settings->TrySetKey(EInventoryControl::TurnRight,EKeys::MouseScrollUp,Error));
 	TestTrue(TEXT("Mouse rotation supported"),Settings->TrySetKey(EInventoryControl::TurnLeft,EKeys::ThumbMouseButton,Error));
@@ -360,6 +377,10 @@ bool FInventoryInputTest::RunTest(const FString&)
 	TestTrue(TEXT("Legacy settings gain right-mouse rotation"),Reloaded->GetKey(EInventoryControl::RotateWithMouse)==EKeys::RightMouseButton);
 	TestTrue(TEXT("Legacy grab mode preserved"),Reloaded->bToggleGrab);
 	TestEqual(TEXT("Legacy speed preserved"),Reloaded->TurnSpeed,75.f);
+	LegacyKeys[5] = TEXT("X");
+	GConfig->SetArray(Section, TEXT("Keys"), LegacyKeys, Path);
+	Reloaded->ReloadConfig(nullptr, *Path);
+	TestTrue(TEXT("Legacy custom removal binding becomes Drop"),Reloaded->GetKey(EInventoryControl::Drop)==EKeys::X);
 	// An existing custom middle-button binding must survive migration without duplicates.
 	LegacyKeys[2] = TEXT("MiddleMouseButton");
 	GConfig->SetArray(Section, TEXT("Keys"), LegacyKeys, Path);

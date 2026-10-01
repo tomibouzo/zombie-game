@@ -10,11 +10,13 @@ class UInventoryComponent;
 class SInventoryPanel : public SLeafWidget
 {
 public:
+	DECLARE_DELEGATE_RetVal_TwoParams(bool, FOnDropItem, FGuid, FString&);
 	SLATE_BEGIN_ARGS(SInventoryPanel) : _Controls(nullptr), _SaveControls(true) {}
 		SLATE_ARGUMENT(UInventoryComponent*, Inventory)
 		SLATE_ARGUMENT(UInventoryInputSettings*, Controls)
 		SLATE_ARGUMENT(bool, SaveControls)
 		SLATE_EVENT(FSimpleDelegate, OnClose)
+		SLATE_EVENT(FOnDropItem, OnDropItem)
 	SLATE_END_ARGS()
 	void Construct(const FArguments& Args);
 	void SetSaveControls(bool bSave) { bSaveControls = bSave; }
@@ -36,6 +38,7 @@ private:
 	TWeakObjectPtr<UInventoryInputSettings> Controls;
 	bool bSaveControls = true;
 	FSimpleDelegate OnClose;
+	FOnDropItem OnDropItem;
 	FGuid SelectedId;
 	bool bDragging = false;
 	bool bAdding = false;
@@ -66,7 +69,7 @@ private:
 	void UpdateCursor(FVector2D Position);
 	void BeginMouseRotation();
 	void EndMouseRotation();
-	void RemoveSelected();
+	void DropSelected();
 	void BeginBandage();
 	void CommitGesture();
 	static FString Describe(EInventoryResult Result);

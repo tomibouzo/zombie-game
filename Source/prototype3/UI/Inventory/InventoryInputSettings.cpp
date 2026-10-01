@@ -99,7 +99,7 @@ FString UInventoryInputSettings::Label(EInventoryControl Action)
 	case EInventoryControl::TurnLeft: return TEXT("Turn left");
 	case EInventoryControl::TurnRight: return TEXT("Turn right");
 	case EInventoryControl::Cancel: return TEXT("Cancel placement");
-	case EInventoryControl::Remove: return TEXT("Remove item");
+	case EInventoryControl::Drop: return TEXT("Drop selected item");
 	case EInventoryControl::Add: return TEXT("Add bandage");
 	case EInventoryControl::RotateWithMouse: return TEXT("Hold to rotate");
 	default: return FString();

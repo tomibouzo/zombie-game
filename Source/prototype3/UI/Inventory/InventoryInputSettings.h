@@ -4,7 +4,8 @@
 #include "UObject/Object.h"
 #include "InventoryInputSettings.generated.h"
 
-enum class EInventoryControl : uint8 { Toggle, Grab, TurnLeft, TurnRight, Cancel, Remove, Add, RotateWithMouse, Count };
+// Drop keeps the old Remove slot so saved custom bindings remain valid.
+enum class EInventoryControl : uint8 { Toggle, Grab, TurnLeft, TurnRight, Cancel, Drop, Add, RotateWithMouse, Count };
 
 /** Local player preferences for the laboratory, stored separately from its temporary items. */
 UCLASS(Config=GameUserSettings)
