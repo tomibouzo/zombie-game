@@ -1,7 +1,7 @@
 # Inventory test: free placement
 
-Updated: 2026-09-29. This is a temporary inventory laboratory; integration with
-character inventory is a later stage.
+Updated: 2026-10-01. This is a temporary inventory laboratory with world dropping;
+inventory ownership still lives in the demo widget during Play.
 
 ## Try it in Unreal
 
@@ -19,6 +19,9 @@ character inventory is a later stage.
    alternative continuous rotation controls. Scroll up to increase rotation speed,
    or down to decrease it, including while holding an item.
 8. Try fitting a bandage in the L's opening or inside the frame. Edges may touch.
+9. Click a real item to select it, then press **Delete** to drop it at the player's feet.
+   You can also press Drop while holding the item.
+   Close inventory with **I** and look down to see the named placeholder on the floor.
 
 The single pocket is 560 x 560 logical units. The interface scales to the screen.
 Positions and angles are continuous, with no grid or angle snapping. There are two
@@ -30,7 +33,7 @@ dimensions are provisional; the bottle/knife/pistol/jacket shapes are test outli
 The interface instructions, control labels and status messages are in English.
 Item actions are data only: mouse buttons in this interface manipulate placement.
 They do not eat, drink, fire, equip or open the backpack item. The test pocket is
-independent of that backpack. Restart Play to restore removed samples; B still adds
+independent of that backpack. Restart Play to restore dropped samples; B still adds
 only bandages. See `Source/prototype3/Gameplay/Items/README.md` for the item catalog.
 
 ## Controls and preferences
@@ -43,7 +46,7 @@ only bandages. See `Source/prototype3/Gameplay/Items/README.md` for the item cat
 | Turn left / right | Q / E |
 | Increase / decrease rotation speed | Scroll up / down |
 | Cancel placement | Mouse wheel press (middle button) |
-| Remove selected item | Delete |
+| Drop selected item into the world | Delete |
 | Add bandage | B |
 
 Click a control row, then press the replacement key or mouse button. Duplicate
@@ -66,7 +69,37 @@ the mouse-rotation action. The old default right-click cancel moves to middle cl
 other bindings, grab mode and turn speed are preserved. If a custom binding already
 uses a desired button, migration selects a free fallback shown in the controls panel.
 Older bindings that used wheel scrolling to turn migrate individually to free keys.
+The former Remove binding is now Drop, preserving its saved custom key. There is no
+item deletion binding or button. Drop acts on the selected item, including while
+holding it. With no selection, it does nothing. This also works in click-to-grab mode and with a rebound key or mouse button.
 Tests use isolated preferences and restore any temporarily changed runtime settings.
+
+## Dropped items
+
+The bandage and eight saved sample types have provisional 3D shapes built from
+engine primitives, with names above them. The pistol and flashlight lie on their
+sides using the same rotated parts and matching collision bounds. These centimetre dimensions are test
+representations, independent of the inventory silhouettes. The L, bar and frame
+fixtures stay in inventory. A newly created B-bandage must first be placed in the
+inventory before it can be dropped.
+
+Dropping spawns at the player's horizontal position, just above their feet. Gravity
+brings the item to rest; dropping in mid-air works without finding a floor first.
+For this stage the collision body blocks `WorldStatic` level geometry and ignores
+players, other dropped items and movable props. Multiple drops can overlap.
+Pickup and dropping by dragging outside the storage area are not implemented.
+Releasing outside still cancels placement.
+
+World drops retain the same instance ID, definition, quantity and inventory profile
+ID. The source entry is removed only after its world representation and physics body
+exist. A technical failure keeps the item in the inventory. The world actor survives
+closing the inventory and is transient for the Play session.
+
+Items below world Z **-10,000 cm** (-100 m) are destroyed, including while the inventory
+is open. Landed items have no expiration timer. This lower boundary is configurable
+in `DefaultGame.ini` under `[/Script/prototype3.DroppedItem]` with `CleanupZ`; lower it
+before using maps with playable areas below -100 m. Existing engine world bounds
+and Kill Z still apply.
 
 ## Placement and rotation
 
@@ -104,6 +137,7 @@ between its pockets. The demo displays its first and only pocket.
 
 - `Source/prototype3/Gameplay/Player/Inventory/`: geometry, component and tests.
 - `Source/prototype3/UI/Inventory/`: interface, fixtures and saved controls.
+- `Source/prototype3/Gameplay/Items/World/DroppedItem`: world placeholder, transfer and cleanup.
 - `Source/prototype3/Core/PlayerControllers/prototype3PlayerController`: open/close and gameplay focus.
 - `Scripts/VerifyInventory.ps1`: build, automated checks and optional captures/Play tests.
 
@@ -150,10 +184,30 @@ warning). Panel and Play tests cover wheel speed adjustment during a drag, Q/E
 turning with the new speed, mouse sensitivity, limits and old wheel-binding
 migration. No manual feel test was conducted.
 
+World-drop verification on 2026-10-01: Development Editor built successfully. The
+full item/inventory suite passed all 17 checks (16 clean, one collecting the known
+render-thread warning and an engine connectivity-check timeout). After the final
+placeholder color adjustment, the focused DropPlayIntegration test passed again
+with only the known `r.MotionVectorSimulation` warning. It exercises hold/click
+grab, a rebound Drop key, all nine types, preserved identity/quantity, no duplicate
+transfers, failed requests, airborne falling, floor contact, overlap and cleanup.
+The updated UI and colored world capture were reviewed. Final build log:
+`Saved/InventoryVerification/DropBuildFinal.log`; focused report:
+`Saved/InventoryVerification/DropTests/index.json`; world screenshot:
+`Saved/InventoryVerification/dropped-items.png`. Manual user assessment is pending.
+
+Follow-up (2026-10-01): Drop now works on the selected item without holding it;
+pistol and flashlight parts are rotated to lie flat. Code and test expectations
+were updated. The preceding Play results and images predate this follow-up;
+no new Play or visual tests were requested.
+Development Editor build succeeded after closing Unreal to release the module DLL.
+See `Saved/InventoryVerification/DropFollowupBuild.log`.
+
 ## Remaining scope
 
 Demo items survive closing/reopening inventory during Play and reset when Play ends.
 This stage does not implement equipment, world pickups, stack splitting, transfers
 between components, saved inventories, networking, carried-weight movement effects
 or item action execution. Control preferences do persist. This item expansion adds
-eight data assets and action intents; the existing bandage and map assets are unchanged.
+eight data assets and action intents. Dropping adds runtime placeholders without
+changing saved item or map assets.

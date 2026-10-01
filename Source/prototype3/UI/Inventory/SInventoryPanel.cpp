@@ -20,6 +20,7 @@ void SInventoryPanel::Construct(const FArguments& Args)
 	Controls = Args._Controls ? Args._Controls : GetMutableDefault<UInventoryInputSettings>();
 	bSaveControls = Args._SaveControls;
 	OnClose = Args._OnClose;
+	OnDropItem = Args._OnDropItem;
 	SetCanTick(true);
 }
 
@@ -156,15 +157,17 @@ void SInventoryPanel::UpdateCursor(FVector2D Position)
 	Invalidate(EInvalidateWidgetReason::Paint);
 }
 
-void SInventoryPanel::RemoveSelected()
+void SInventoryPanel::DropSelected()
 {
-	if (Active() || !Inventory.IsValid()) return;
-	FItemInstance Removed;
-	if (Inventory->RemoveItem(SelectedId, Removed) == EInventoryResult::Success)
+	if (bAdding || !SelectedId.IsValid() || !Inventory.IsValid()) return;
+	FString Error;
+	if (OnDropItem.IsBound() && OnDropItem.Execute(SelectedId, Error))
 	{
 		SelectedId.Invalidate();
-		Status = TEXT("Item removed from the test inventory.");
+		Status = TEXT("Item dropped at your feet.");
 	}
+	else Status = Error.IsEmpty() ? TEXT("Dropping is unavailable here. Item kept in inventory.") : Error;
+	CancelGesture();
 }
 
 void SInventoryPanel::BeginBandage()
@@ -240,7 +243,6 @@ bool SInventoryPanel::HandleButton()
 		return true;
 	}
 	if (InRect(Cursor, 630, 650, 155, 40)) { BeginBandage(); return true; }
-	if (InRect(Cursor, 805, 650, 155, 40)) { RemoveSelected(); return true; }
 	return false;
 }
 
@@ -286,6 +288,7 @@ FReply SInventoryPanel::Press(FKey Key)
 			else SelectedId.Invalidate();
 		}
 	}
+	if (Key == Controls->GetKey(EInventoryControl::Drop)) { DropSelected(); return Reply(); }
 	if (Active())
 	{
 		if (Key == Controls->GetKey(EInventoryControl::RotateWithMouse)) BeginMouseRotation();
@@ -294,7 +297,6 @@ FReply SInventoryPanel::Press(FKey Key)
 	}
 	else
 	{
-		if (Key == Controls->GetKey(EInventoryControl::Remove)) RemoveSelected();
 		if (Key == Controls->GetKey(EInventoryControl::Add)) BeginBandage();
 	}
 	Invalidate(EInvalidateWidgetReason::Paint);
@@ -408,8 +410,8 @@ int32 SInventoryPanel::OnPaint(const FPaintArgs&, const FGeometry& G, const FSla
 		auto KeyName = [&](EInventoryControl Action) { return Controls->GetKey(Action).GetDisplayName().ToString(); };
 		Text(FVector2D(40, 76), FString::Printf(TEXT("%s %s to grab. Hold %s and move around the item's center to rotate."),
 			Controls->bToggleGrab ? TEXT("Click") : TEXT("Hold"), *KeyName(EInventoryControl::Grab), *KeyName(EInventoryControl::RotateWithMouse)), 12, Muted);
-		Text(FVector2D(40, 98), FString::Printf(TEXT("Release rotation to move. %s / %s: turn. Scroll: speed. %s: cancel. Green fits; red cancels on drop."),
-			*KeyName(EInventoryControl::TurnLeft), *KeyName(EInventoryControl::TurnRight), *KeyName(EInventoryControl::Cancel)), 11, Muted);
+		Text(FVector2D(40, 98), FString::Printf(TEXT("%s / %s: turn. Scroll: speed. %s: cancel. %s: drop selected item. Green fits; red cancels placement."),
+			*KeyName(EInventoryControl::TurnLeft), *KeyName(EInventoryControl::TurnRight), *KeyName(EInventoryControl::Cancel), *KeyName(EInventoryControl::Drop)), 11, Muted);
 	}
 	Box(FVector2D(880, 25), FVector2D(80, 42), Button);
 	Text(FVector2D(890, 36), TEXT("Close"), 13);
@@ -450,8 +452,6 @@ int32 SInventoryPanel::OnPaint(const FPaintArgs&, const FGeometry& G, const FSla
 	Text(FVector2D(690, 607), TEXT("Reset controls"), 12);
 	Box(FVector2D(630, 650), FVector2D(155, 40), FLinearColor(0.12f, 0.28f, 0.25f));
 	Text(FVector2D(646, 663), TEXT("+ Add bandage"), 12);
-	Box(FVector2D(805, 650), FVector2D(155, 40), Button);
-	Text(FVector2D(824, 663), TEXT("Remove item"), 12);
 	FInventoryEntry Selected;
 	if (Inventory->GetItem(SelectedId, Selected))
 		Text(FVector2D(630, 704), Selected.Item.Definition->DisplayName.ToString() + FString::Printf(TEXT("  /  %.1f degrees"), Active() ? PreviewAngle : Selected.AngleDegrees), 11, Muted);

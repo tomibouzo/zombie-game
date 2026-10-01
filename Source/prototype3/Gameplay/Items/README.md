@@ -48,7 +48,7 @@ establish a contents simulation or authoritative real-world specifications.
 
 The existing bandage remains 0.05 kg, medical/handheld, with secondary healing data
 for 25 health and no primary action. Neither that healing action nor any new intent
-executes yet. All icons and 3D representations remain unset.
+executes yet. Saved definitions still have no assigned icons or world meshes.
 
 ### Action data implemented now
 
@@ -95,3 +95,20 @@ and quantity limits. Inventory tests exercise each sample's fit, overlap rejecti
 rotation and identity preservation, plus the existing real-frame input scenarios.
 The tests document today's provisional values; update expectations deliberately
 when those values change.
+
+## Temporary world drops (2026-10-01)
+
+`World/DroppedItem` provides named, primitive 3D stand-ins for the nine saved item
+types. Pistol and flashlight parts are rotated to lie on their sides. These are provisional centimetre dimensions, separate from inventory shape
+profiles and final art. The inventory's three geometry fixtures have no world form.
+The mapped Drop control (default Delete) transfers the selected inventory item (also while held) to a
+physics actor at the player's feet, preserving its instance, quantity and profile
+ID. The world actor must be ready before the inventory removes the source entry.
+
+Drops fall under gravity, block static level geometry, and ignore pawns, other
+dropped items and movable props. Below-world cleanup defaults to Z=-10,000 cm;
+`CleanupZ` is configurable in the `prototype3.DroppedItem` Game config section.
+There is no expiration timer on landed items. World actors last for the Play
+session; pickup, drag-out dropping and item use are separate future stages.
+`Prototype.Inventory.DropPlayIntegration` verifies actual input, transfer, falling,
+landing, overlap and cleanup in Play. See `INVENTORY_GUIDE.md` for running it.
