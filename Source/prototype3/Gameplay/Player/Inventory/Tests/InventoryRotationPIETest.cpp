@@ -53,7 +53,7 @@ public:
 			bPreviousBackgroundInput = App.GetHandleDeviceInputWhenApplicationNotActive();
 			// Offscreen verification must still apply input replies, including pointer capture.
 			App.SetHandleDeviceInputWhenApplicationNotActive(true);
-			Controller->ToggleInventoryDemo();
+			Controller->ToggleInventoryDemo(true); // Keep the established 560x560 rotation regression fixture.
 			Phase = 1;
 			return false;
 		}

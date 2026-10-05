@@ -4,6 +4,8 @@
 #include "Core/PlayerControllers/prototype3PlayerController.h"
 #include "Gameplay/Combat/Melee/PlayerMeleeComponent.h"
 #include "Gameplay/Player/Vitals/PlayerVitalsComponent.h"
+#include "Gameplay/Player/Inventory/InventoryComponent.h"
+#include "Gameplay/Player/Inventory/PlayerItemUseComponent.h"
 #include "Animation/AnimInstance.h"
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
@@ -20,6 +22,8 @@
 Aprototype3Character::Aprototype3Character()
 {
 	VitalsComponent = CreateDefaultSubobject<UPlayerVitalsComponent>(TEXT("Vitals"));
+	InventoryComponent = CreateDefaultSubobject<UInventoryComponent>(TEXT("Inventory"));
+	ItemUseComponent = CreateDefaultSubobject<UPlayerItemUseComponent>(TEXT("ItemUse"));
 	MeleeComponent = CreateDefaultSubobject<UPlayerMeleeComponent>(TEXT("Melee"));
 	// Set size for collision capsule
 	GetCapsuleComponent()->InitCapsuleSize(55.f, 96.0f);
@@ -198,6 +202,7 @@ void Aprototype3Character::DoMove(float Right, float Forward)
 
 void Aprototype3Character::DoJumpStart()
 {
+	if (ItemUseComponent->IsUsing() || ItemUseComponent->IsOpeningBackpack()) return;
 	// pass Jump to the character
 	Jump();
 }
@@ -253,6 +258,7 @@ void Aprototype3Character::DoStartCrouch()
 
 void Aprototype3Character::DoPrimaryActionStart_Implementation()
 {
+	if (ItemUseComponent->HandlePrimaryAction()) return;
 	RequestStandingForAction();
 	MeleeComponent->StartAttacking();
 }
@@ -264,7 +270,7 @@ void Aprototype3Character::DoPrimaryActionEnd_Implementation()
 
 void Aprototype3Character::DoSecondaryActionStart_Implementation()
 {
-	// Reserved for future use, aim, block, or interaction behavior.
+	ItemUseComponent->Stow();
 }
 
 void Aprototype3Character::DoSecondaryActionEnd_Implementation()
@@ -472,7 +478,7 @@ void Aprototype3Character::ResolveLocomotionState()
 		: EPlayerLocomotionStance::Standing;
 
 	const bool bIsMoving = GetVelocity().SizeSquared2D() > FMath::Square(1.0f);
-	if (IsCrouchActive() || !bIsMoving || !CanUseStaminaMovement())
+	if (ItemUseComponent->IsUsing() || ItemUseComponent->IsOpeningBackpack() || IsCrouchActive() || !bIsMoving || !CanUseStaminaMovement())
 	{
 		SetActiveGait(EPlayerLocomotionGait::Walking);
 		return;

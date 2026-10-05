@@ -9,7 +9,7 @@ UENUM(BlueprintType)
 enum class EInventoryResult : uint8
 {
 	Success, InvalidItem, InvalidProfile, InvalidPocket, InvalidRotation,
-	DuplicateId, NotFound, OutOfBounds, Occupied
+	DuplicateId, NotFound, OutOfBounds, Occupied, TooHeavy, Incompatible, InUse
 };
 
 /** Filled convex polygon. A union of parts represents concave silhouettes and holes. */
@@ -53,6 +53,11 @@ struct PROTOTYPE3_API FInventoryPocket
 	FName Id;
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Inventory")
 	FVector2D Size = FVector2D(560, 560);
+	/** Zero means unlimited. This limits one object, not the combined pocket mass. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Inventory")
+	double MaxItemMassKg = 0;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Inventory")
+	bool bAllowFirearms = true;
 };
 
 /** Position is the center; positive angles turn clockwise in the UI's downward Y axis. */

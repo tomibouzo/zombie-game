@@ -13,6 +13,8 @@ class UCameraComponent;
 class UInputAction;
 class UPlayerMeleeComponent;
 class UPlayerVitalsComponent;
+class UInventoryComponent;
+class UPlayerItemUseComponent;
 struct FInputActionValue;
 
 DECLARE_LOG_CATEGORY_EXTERN(LogTemplateCharacter, Log, All);
@@ -76,6 +78,10 @@ class Aprototype3Character : public ACharacter
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta=(AllowPrivateAccess="true"))
 	TObjectPtr<UPlayerVitalsComponent> VitalsComponent;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta=(AllowPrivateAccess="true"))
+	TObjectPtr<UInventoryComponent> InventoryComponent;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta=(AllowPrivateAccess="true"))
+	TObjectPtr<UPlayerItemUseComponent> ItemUseComponent;
 
 protected:
 	/** Maximum health available to this character. */

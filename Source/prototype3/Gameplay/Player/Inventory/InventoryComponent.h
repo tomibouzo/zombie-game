@@ -41,7 +41,14 @@ public:
 	TArray<FInventoryEntry> GetEntries() const { return Entries; }
 	UFUNCTION(BlueprintPure, Category="Inventory")
 	TArray<FInventoryPocket> GetPockets() const { return Pockets; }
+	/** Held items keep their storage space reserved until stowed or consumed. */
+	bool ReserveItem(FGuid Id);
+	void ReleaseItem(FGuid Id) { ReservedItems.Remove(Id); }
+	bool IsReserved(FGuid Id) const { return ReservedItems.Contains(Id); }
+	bool ConsumeReservedItem(FGuid Id);
+	bool FindSpace(FGuid Id, FName Pocket, FVector2D& OutPosition) const;
 private:
+	TSet<FGuid> ReservedItems;
 	UPROPERTY(Transient)
 	TArray<FInventoryItemProfile> Profiles;
 	UPROPERTY(Transient)
