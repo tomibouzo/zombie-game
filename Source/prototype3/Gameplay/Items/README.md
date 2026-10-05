@@ -14,13 +14,15 @@ one. Pocket location and rotation belong to the inventory, not this struct.
 `MassKg` is the mass of one unit. The bandage currently uses 0.05 kg (50 g), a
 provisional balance value. `Category` identifies the item family, while `Traits`
 hold independent facts such as `Item.Trait.Handheld`. Neither field determines
-mouse-button behavior. `PrimaryAction` and `SecondaryAction` describe left and
-right click respectively. The bandage has only a secondary healing action with
-`HealAmount = 25`. Targeting and action execution are not implemented here.
+mouse-button behavior. `PrimaryAction` and `SecondaryAction` record the original
+left/right intentions. The bandage retains secondary healing data with
+`HealAmount = 25` and `UseSeconds = 3`. The player prototype resolves healing data
+from either slot and starts it with left click; right click stows. Action execution
+lives in PlayerItemUseComponent; this data layer does not execute actions.
 
 The bandage has no final icon, 2D storage shape, or 3D world representation.
 The inventory demo supplies a separate provisional polygon profile for it.
-Storage fit is contextual: future inventory code will check item shape against a
+Storage fit is contextual: inventory code checks item shape against a
 particular pocket and its compatibility rules. Do not infer the final footprint
 from the missing icon or assume every item fits every container.
 
@@ -47,8 +49,10 @@ establish a contents simulation or authoritative real-world specifications.
 | ScrapMetal / Scrap metal | Material.Salvage | 0.25 | — | — | — |
 
 The existing bandage remains 0.05 kg, medical/handheld, with secondary healing data
-for 25 health and no primary action. Neither that healing action nor any new intent
-executes yet. Saved definitions still have no assigned icons or world meshes.
+for 25 health and no primary action. The player item-use prototype executes healing
+after its use timer. New intent tags still have no gameplay effect. Shared
+definitions have no assigned icons or world meshes; temporary world-drop shapes
+are generated separately.
 
 ### Action data implemented now
 
@@ -65,7 +69,7 @@ rules. Later systems can add appropriate action-specific configuration types und
 Changing state such as remaining water or charge belongs to future per-instance
 state, not these shared definitions. Runtime execution requires a separate design.
 
-### Inventory integration implemented now
+### Isolated inventory laboratory
 
 `UI/Inventory/InventoryDemoData.cpp` loads the saved assets and registers their
 `FInventoryItemProfile` shapes with `bProvisional = true`. Each sample gets its
@@ -75,11 +79,18 @@ Drawing, hit testing and overlap checks use the same existing polygon geometry.
 The demo retains two bandages and three geometry fixtures, for 13 entries total.
 Selecting a silhouette shows its item name in the existing panel.
 
-The backpack sample is an item placed in the test pocket. It does not create or
-own that pocket, and its OpenStorage intent is inert. Equipment, quick-access
-pockets, destination compatibility, functional backpacks/holsters/belts, item
-execution, crafting, persistence and networking are future work. A handheld trait
-does not create a hand model, and an equippable trait does not implement equipping.
+In this isolated laboratory the backpack sample is an item in the test pocket.
+Its OpenStorage tag is inert; a handheld or equippable trait alone adds no behavior.
+
+### Player prototype (2026-09-30)
+
+PlayerItemUseComponent reuses this catalog with separate quick/backpack pockets,
+one equipped backpack instance, reserved hands, configurable shortcuts and bandage
+consumption. Quick storage checks silhouette, per-object mass and firearm exclusion.
+The backpack requires an opening delay before access; its contents survive
+unequipping/re-equipping. This is one prototype bag, not a generic nested-container
+system. See the root INVENTORY_GUIDE.md for current controls and limitations.
+Crafting, persistent inventories, other item effects and networking remain future work.
 
 ### Authoring and verification
 

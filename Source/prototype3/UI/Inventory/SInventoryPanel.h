@@ -5,21 +5,24 @@
 #include "UI/Inventory/InventoryInputSettings.h"
 
 class UInventoryComponent;
+class UPlayerItemUseComponent;
 
 /** Continuous logical canvas, scaled by its host. Mutations go through the component. */
 class SInventoryPanel : public SLeafWidget
 {
 public:
 	DECLARE_DELEGATE_RetVal_TwoParams(bool, FOnDropItem, FGuid, FString&);
-	SLATE_BEGIN_ARGS(SInventoryPanel) : _Controls(nullptr), _SaveControls(true) {}
+	SLATE_BEGIN_ARGS(SInventoryPanel) : _Controls(nullptr), _SaveControls(true), _ItemUse(nullptr) {}
 		SLATE_ARGUMENT(UInventoryComponent*, Inventory)
 		SLATE_ARGUMENT(UInventoryInputSettings*, Controls)
 		SLATE_ARGUMENT(bool, SaveControls)
+		SLATE_ARGUMENT(UPlayerItemUseComponent*, ItemUse)
 		SLATE_EVENT(FSimpleDelegate, OnClose)
 		SLATE_EVENT(FOnDropItem, OnDropItem)
 	SLATE_END_ARGS()
 	void Construct(const FArguments& Args);
 	void SetSaveControls(bool bSave) { bSaveControls = bSave; }
+	void SetDisplayedPocket(FName Pocket) { DisplayPocket = Pocket; }
 	virtual FVector2D ComputeDesiredSize(float) const override { return FVector2D(1000, 800); }
 	virtual bool SupportsKeyboardFocus() const override { return true; }
 	virtual void Tick(const FGeometry&, double, float) override;
@@ -34,6 +37,14 @@ public:
 	virtual void OnMouseCaptureLost(const FCaptureLostEvent&) override;
 	virtual void OnFocusLost(const FFocusEvent&) override;
 private:
+	TWeakObjectPtr<UPlayerItemUseComponent> ItemUse;
+	FName DisplayPocket = TEXT("Quick");
+	bool bRequestedBackpack = false;
+	bool bCloseRequested = false;
+	FGuid PendingTransfer;
+	int32 QuickRebinding = INDEX_NONE;
+	TArray<FInventoryPocket> DisplayPockets() const;
+	bool HandlePlayerButton();
 	TWeakObjectPtr<UInventoryComponent> Inventory;
 	TWeakObjectPtr<UInventoryInputSettings> Controls;
 	bool bSaveControls = true;

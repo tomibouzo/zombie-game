@@ -148,6 +148,11 @@ ADroppedItem* ADroppedItem::DropFromInventory(UInventoryComponent* Inventory, FG
 		Error = TEXT("Cannot drop this item right now.");
 		return nullptr;
 	}
+	if (Inventory->IsReserved(InstanceId))
+	{
+		Error = TEXT("Stow this item before dropping it.");
+		return nullptr;
+	}
 	const FPlaceholder* Spec = FindPlaceholder(Entry.Item.Definition->ItemId);
 	if (!Spec)
 	{

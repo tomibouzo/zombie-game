@@ -1,6 +1,8 @@
 #include "UI/Inventory/SInventoryPanel.h"
 #include "Gameplay/Player/Inventory/InventoryComponent.h"
 #include "Gameplay/Items/ItemDefinition.h"
+#include "Gameplay/Player/Inventory/PlayerItemUseComponent.h"
+#include "Gameplay/Player/Inventory/ItemUseSettings.h"
 #include "Rendering/DrawElements.h"
 #include "Rendering/SlateRenderer.h"
 #include "Framework/Application/SlateApplication.h"
@@ -17,6 +19,7 @@ bool InRect(FVector2D P, double X, double Y, double W, double H)
 void SInventoryPanel::Construct(const FArguments& Args)
 {
 	Inventory = Args._Inventory;
+	ItemUse = Args._ItemUse;
 	Controls = Args._Controls ? Args._Controls : GetMutableDefault<UInventoryInputSettings>();
 	bSaveControls = Args._SaveControls;
 	OnClose = Args._OnClose;
@@ -27,6 +30,15 @@ void SInventoryPanel::Construct(const FArguments& Args)
 void SInventoryPanel::Tick(const FGeometry& Geometry, double Time, float Delta)
 {
 	SLeafWidget::Tick(Geometry, Time, Delta);
+	if (ItemUse.IsValid())
+	{
+		if (bRequestedBackpack && ItemUse->IsBackpackOpen())
+		{
+			if (PendingTransfer.IsValid()) Status = ItemUse->Transfer(PendingTransfer, TEXT("Backpack")) ? TEXT("Transferred to backpack.") : ItemUse->Status;
+			PendingTransfer.Invalidate(); bRequestedBackpack = false; DisplayPocket = TEXT("Backpack"); SelectedId.Invalidate();
+		}
+		if (DisplayPocket == TEXT("Backpack") && !ItemUse->IsBackpackOpen()) DisplayPocket = TEXT("Quick");
+	}
 	if (Controls.IsValid() && Active() && (bTurnLeft || bTurnRight))
 		Turn((static_cast<int32>(bTurnRight) - static_cast<int32>(bTurnLeft)) * Controls->TurnSpeed * Delta);
 }
@@ -35,7 +47,7 @@ bool SInventoryPanel::HitItem(FVector2D Point, FInventoryEntry& OutEntry) const
 {
 	if (!Inventory.IsValid()) return false;
 	const FVector2D Local = Point - PocketOrigin();
-	const auto Pockets = Inventory->GetPockets();
+	const auto Pockets = DisplayPockets();
 	if (Pockets.IsEmpty() || !InRect(Local, 0, 0, Pockets[0].Size.X, Pockets[0].Size.Y)) return false;
 	const auto Entries = Inventory->GetEntries();
 	for (int32 I = Entries.Num() - 1; I >= 0; --I)
@@ -58,6 +70,9 @@ FString SInventoryPanel::Describe(EInventoryResult Result)
 	case EInventoryResult::Success: return TEXT("Valid placement");
 	case EInventoryResult::Occupied: return TEXT("Overlaps another item");
 	case EInventoryResult::OutOfBounds: return TEXT("Part of the item is outside the storage area");
+	case EInventoryResult::TooHeavy: return TEXT("Above this pocket's per-item weight limit");
+	case EInventoryResult::Incompatible: return TEXT("Firearms cannot enter quick storage");
+	case EInventoryResult::InUse: return TEXT("Item in hands: stow it first");
 	case EInventoryResult::InvalidRotation: return TEXT("This item does not allow that rotation");
 	default: return TEXT("Cannot place this item");
 	}
@@ -67,7 +82,7 @@ EInventoryResult SInventoryPanel::Preview(FName& PocketId, FVector2D& Center) co
 {
 	Center = bMouseRotating ? RotationCenter : Cursor - PocketOrigin() - GrabOffset;
 	if (!Inventory.IsValid()) return EInventoryResult::InvalidPocket;
-	const auto Pockets = Inventory->GetPockets();
+	const auto Pockets = DisplayPockets();
 	if (Pockets.IsEmpty()) return EInventoryResult::InvalidPocket;
 	PocketId = Pockets[0].Id;
 	return bAdding ? Inventory->CheckPlacement(Pending.ProfileId, PocketId, Center, PreviewAngle)
@@ -191,6 +206,11 @@ void SInventoryPanel::SavePreferences()
 void SInventoryPanel::AssignKey(FKey Key)
 {
 	if (!Controls.IsValid() || Rebinding == INDEX_NONE) return;
+	if (Rebinding == static_cast<int32>(EInventoryControl::Toggle) && ItemUse.IsValid() && ItemUse->Shortcuts->Keys.Contains(Key))
+	{
+		Status = TEXT("That key is assigned to a quick-item shortcut. Change the shortcut first.");
+		return;
+	}
 	FString Error;
 	if (Controls->TrySetKey(static_cast<EInventoryControl>(Rebinding), Key, Error))
 	{
@@ -205,6 +225,7 @@ void SInventoryPanel::AssignKey(FKey Key)
 bool SInventoryPanel::HandleButton()
 {
 	if (!Controls.IsValid()) return false;
+	if (ItemUse.IsValid() && HandlePlayerButton()) return true;
 	if (Rebinding != INDEX_NONE)
 	{
 		if (InRect(Cursor, 630, 150, 330, 28))
@@ -259,6 +280,14 @@ FReply SInventoryPanel::Reply()
 FReply SInventoryPanel::Press(FKey Key)
 {
 	if (!Controls.IsValid()) return FReply::Handled();
+	if (QuickRebinding != INDEX_NONE && ItemUse.IsValid())
+	{
+		if (Key == EKeys::Escape) { QuickRebinding = INDEX_NONE; return Reply(); }
+		if (ItemUse->Shortcuts->TryBind(QuickRebinding, Key, Controls->GetKey(EInventoryControl::Toggle)))
+		{ QuickRebinding = INDEX_NONE; ItemUse->SaveShortcuts(); Status = TEXT("Shortcut updated."); }
+		else Status = TEXT("Choose a free keyboard key. Movement, mouse and inventory-open controls are reserved.");
+		return Reply();
+	}
 	if (Rebinding != INDEX_NONE) { AssignKey(Key); return Reply(); }
 	if (Key == Controls->GetKey(EInventoryControl::Toggle))
 	{
@@ -277,7 +306,7 @@ FReply SInventoryPanel::Press(FKey Key)
 		else if (!bDragging)
 		{
 			FInventoryEntry Entry;
-			if (HitItem(Cursor, Entry))
+			if (HitItem(Cursor, Entry) && !Inventory->IsReserved(Entry.Item.InstanceId))
 			{
 				SelectedId = Entry.Item.InstanceId;
 				Pending = Entry;
@@ -324,6 +353,7 @@ FReply SInventoryPanel::OnMouseButtonDown(const FGeometry& G, const FPointerEven
 	if (!Active() && Event.GetEffectingButton() == EKeys::LeftMouseButton && HandleButton())
 	{
 		Invalidate(EInvalidateWidgetReason::Paint);
+		if (bCloseRequested) { bCloseRequested = false; return FReply::Handled().ReleaseMouseCapture(); }
 		return Reply();
 	}
 	return Press(Event.GetEffectingButton());
@@ -369,7 +399,7 @@ FReply SInventoryPanel::OnKeyDown(const FGeometry&, const FKeyEvent& Event)
 }
 FReply SInventoryPanel::OnKeyUp(const FGeometry&, const FKeyEvent& Event) { return Release(Event.GetKey()); }
 void SInventoryPanel::OnMouseCaptureLost(const FCaptureLostEvent&) { CancelGesture(); }
-void SInventoryPanel::OnFocusLost(const FFocusEvent&) { CancelGesture(); Rebinding = INDEX_NONE; }
+void SInventoryPanel::OnFocusLost(const FFocusEvent&) { CancelGesture(); Rebinding = QuickRebinding = INDEX_NONE; }
 
 int32 SInventoryPanel::OnPaint(const FPaintArgs&, const FGeometry& G, const FSlateRect&, FSlateWindowElementList& Out, int32 Layer, const FWidgetStyle&, bool) const
 {
@@ -415,9 +445,18 @@ int32 SInventoryPanel::OnPaint(const FPaintArgs&, const FGeometry& G, const FSla
 	}
 	Box(FVector2D(880, 25), FVector2D(80, 42), Button);
 	Text(FVector2D(890, 36), TEXT("Close"), 13);
-	Text(FVector2D(40, 118), TEXT("TEST STORAGE"), 14, Muted);
+	if (!ItemUse.IsValid()) Text(FVector2D(40, 118), TEXT("TEST STORAGE"), 14, Muted);
+	else
+	{
+		Box(FVector2D(40,118), FVector2D(110,27), Button);
+		Text(FVector2D(47,122), TEXT("Quick storage"), 11);
+		Box(FVector2D(160,118), FVector2D(120,27), Button);
+		Text(FVector2D(167,122), TEXT("Open backpack"), 11);
+		Box(FVector2D(300,118), FVector2D(290,27), Button);
+		Text(FVector2D(307,122), ItemUse->IsBackpackEquipped() ? TEXT("Unequip backpack (keep contents)") : TEXT("Equip backpack"), 10);
+	}
 	if (!Inventory.IsValid() || !Controls.IsValid()) return Layer;
-	const auto Pockets = Inventory->GetPockets();
+	const auto Pockets = DisplayPockets();
 	if (Pockets.IsEmpty()) return Layer;
 	Box(PocketOrigin() - FVector2D(2), Pockets[0].Size + FVector2D(4), FLinearColor(0.22f, 0.3f, 0.36f));
 	Box(PocketOrigin(), Pockets[0].Size, FLinearColor(0.055f, 0.075f, 0.095f));
@@ -428,7 +467,23 @@ int32 SInventoryPanel::OnPaint(const FPaintArgs&, const FGeometry& G, const FSla
 		FInventoryItemProfile Profile;
 		if (Inventory->GetProfile(Entry.ProfileId, Profile))
 			Shape(Profile, Entry.Position, Entry.AngleDegrees,
-				Entry.Item.InstanceId == SelectedId ? FLinearColor(0.43f, 0.62f, 0.73f) : FLinearColor(0.3f, 0.4f, 0.47f));
+				Inventory->IsReserved(Entry.Item.InstanceId) ? FLinearColor(0.15f,0.22f,0.25f) : Entry.Item.InstanceId == SelectedId ? FLinearColor(0.43f, 0.62f, 0.73f) : FLinearColor(0.3f, 0.4f, 0.47f));
+	}
+	if (ItemUse.IsValid())
+	{
+		Text(FVector2D(40,516), DisplayPocket == TEXT("Quick") ? FString::Printf(TEXT("QUICK: max %.2f kg per object | no firearms"), ItemUse->QuickMaxItemMassKg) : TEXT("BACKPACK | smaller prototype storage"), 11, Muted);
+		const TCHAR* Labels[] = { TEXT("To hands"), TEXT("To quick"), TEXT("To backpack"), TEXT("Stow") };
+		for (int32 I=0; I<4; ++I) { Box(FVector2D(40+I*135,542), FVector2D(125,32), Button); Text(FVector2D(48+I*135,550), Labels[I], 11); }
+		Text(FVector2D(40,582), TEXT("SHORTCUTS: key to rebind | Assign = selected item | double tap cycles"), 10, Muted);
+		for (int32 I=0; I<3; ++I)
+		{
+			const float Y=607+I*36;
+			Box(FVector2D(40,Y), FVector2D(95,30), Button);
+			Text(FVector2D(47,Y+7), QuickRebinding==I ? TEXT("Key... Esc") : ItemUse->Shortcuts->Keys[I].GetDisplayName().ToString(), 11);
+			Text(FVector2D(150,Y+7), ItemUse->Shortcuts->ItemTypes[I].ToString(), 11);
+			Box(FVector2D(430,Y), FVector2D(160,30), Button); Text(FVector2D(444,Y+7), TEXT("Assign selected"), 11);
+		}
+		if (ItemUse->IsOpeningBackpack()) Text(FVector2D(40,710), FString::Printf(TEXT("Opening backpack... %.0f%%"), ItemUse->GetProgress()*100), 12);
 	}
 	Text(FVector2D(630, 150), Rebinding == INDEX_NONE ? TEXT("CONTROLS / click to rebind") : TEXT("Cancel rebinding"), 14, Muted);
 	for (int32 I = 0; I < static_cast<int32>(EInventoryControl::Count); ++I)
@@ -472,7 +527,56 @@ int32 SInventoryPanel::OnPaint(const FPaintArgs&, const FGeometry& G, const FSla
 		Text(FVector2D(40, 738), Describe(Result) + FString::Printf(TEXT("  |  %.1f degrees"), PreviewAngle), 14,
 			Result == EInventoryResult::Success ? FLinearColor(0.3f, 1, 0.6f) : FLinearColor(1, 0.4f, 0.3f));
 	}
-	else Text(FVector2D(40, 738), Status, 13, Muted);
+	else Text(FVector2D(40, 738), Status, 12, Muted);
 	Text(FVector2D(40, 775), FString::Printf(TEXT("%d items  |  Placeholder shapes  |  Items reset when Play ends"), Entries.Num()), 11, Muted);
 	return Layer;
+}
+
+TArray<FInventoryPocket> SInventoryPanel::DisplayPockets() const
+{
+	if (!Inventory.IsValid()) return {};
+	const auto Pockets = Inventory->GetPockets();
+	if (!ItemUse.IsValid()) return Pockets;
+	for (const auto& Pocket : Pockets) if (Pocket.Id == DisplayPocket) return { Pocket };
+	return {};
+}
+
+bool SInventoryPanel::HandlePlayerButton()
+{
+	if (InRect(Cursor,40,118,110,27)) { CancelGesture(); DisplayPocket=TEXT("Quick"); SelectedId.Invalidate(); bRequestedBackpack=false; return true; }
+	if (InRect(Cursor,160,118,120,27))
+	{
+		CancelGesture(); bRequestedBackpack=ItemUse->BeginOpenBackpack();
+		Status = bRequestedBackpack ? TEXT("Opening backpack...") : TEXT("Equip the backpack first."); return true;
+	}
+	if (InRect(Cursor,300,118,290,27)) { ItemUse->ToggleBackpackEquipment(); DisplayPocket=TEXT("Quick"); SelectedId.Invalidate(); Status=ItemUse->Status; return true; }
+	if (InRect(Cursor,40,542,125,32))
+	{
+		if (ItemUse->EquipToHands(SelectedId)) { bCloseRequested=true; OnClose.ExecuteIfBound(); }
+		else Status=TEXT("Select an available item first."); return true;
+	}
+	if (InRect(Cursor,175,542,125,32))
+	{
+		if (ItemUse->Transfer(SelectedId,TEXT("Quick"))) { DisplayPocket=TEXT("Quick"); Status=TEXT("Transferred to quick storage."); }
+		else Status=TEXT("Cannot transfer: check size, weight, firearm restriction and hands."); return true;
+	}
+	if (InRect(Cursor,310,542,125,32))
+	{
+		if (ItemUse->BeginOpenBackpack()) { PendingTransfer=SelectedId; bRequestedBackpack=true; Status=TEXT("Opening backpack to transfer..."); }
+		else Status=TEXT("Equip the backpack first."); return true;
+	}
+	if (InRect(Cursor,445,542,125,32)) { ItemUse->Stow(); Status=TEXT("Item stowed in its reserved place."); return true; }
+	for (int32 I=0; I<3; ++I)
+	{
+		const float Y=607+I*36;
+		if (InRect(Cursor,40,Y,95,30)) { QuickRebinding=I; Rebinding=INDEX_NONE; Status=TEXT("Press a keyboard key. Escape cancels."); return true; }
+		if (InRect(Cursor,430,Y,160,30))
+		{
+			FInventoryEntry Entry;
+			if (Inventory->GetItem(SelectedId,Entry) && Entry.PocketId==TEXT("Quick"))
+			{ ItemUse->Shortcuts->ItemTypes[I]=Entry.Item.Definition->ItemId; ItemUse->SaveShortcuts(); Status=TEXT("Shortcut assigned to this item type."); }
+			else Status=TEXT("Select an item in quick storage first."); return true;
+		}
+	}
+	return false;
 }
