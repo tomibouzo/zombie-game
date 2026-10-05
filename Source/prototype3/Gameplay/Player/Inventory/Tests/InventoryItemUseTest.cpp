@@ -177,7 +177,6 @@ public:
 			for (auto* Widget:Widgets) if (Widget->IsInViewport()) Panel=StaticCastSharedPtr<SInventoryPanel>(CastChecked<UInventoryDemoWidget>(Widget)->GetInventoryFocusTarget());
 			if (!Panel.IsValid()) { Test->AddError(TEXT("Player inventory UI missing")); return true; }
 			Panel->SetSaveControls(false); Capture(TEXT("player-quick.png"));
-			Click(FVector2D(205,130));
 			Test->TestTrue(TEXT("Backpack UI starts opening delay"),Use->IsOpeningBackpack());
 			Test->TestFalse(TEXT("Not accessible during opening"),Use->EquipToHands(BagBandage));
 			return Wait(2.25);
@@ -189,7 +188,7 @@ public:
 			FInventoryEntry Entry; Use->Inventory->GetItem(BagBandage,Entry);
 			Click(FVector2D(40,150)+Entry.Position);
 			if (GetDefault<UInventoryInputSettings>()->bToggleGrab) Click(FVector2D(40,150)+Entry.Position);
-			Click(FVector2D(90,556));
+			Panel->OnKeyDown(Panel->GetCachedGeometry(), FKeyEvent(GetDefault<UInventoryInputSettings>()->GetKey(EInventoryControl::ToHands),FModifierKeysState(),0,false,0,0));
 			Test->TestEqual(TEXT("UI selected bandage reaches hands"),Use->GetHeldId(),BagBandage);
 			Test->TestFalse(TEXT("Inventory closed restores movement"),PC->IsMoveInputIgnored());
 			Key(PC,EKeys::LeftMouseButton,true);
@@ -255,7 +254,6 @@ private:
 		// Render a snapshot panel so capture cannot replace the live panel's cached geometry.
 		auto* Use=GEditor->PlayWorld->GetFirstPlayerController()->GetPawn()->FindComponentByClass<UPlayerItemUseComponent>();
 		const auto Snapshot=SNew(SInventoryPanel).Inventory(Use->Inventory).ItemUse(Use).SaveControls(false);
-		Snapshot->SetDisplayedPocket(FString(Name).Contains(TEXT("backpack")) ? FName(TEXT("Backpack")) : FName(TEXT("Quick")));
 		FWidgetRenderer Renderer(true); TStrongObjectPtr<UTextureRenderTarget2D> Target(Renderer.DrawWidget(Snapshot,FVector2D(1000,800)));
 		TArray<FColor> Pixels; FReadSurfaceDataFlags Flags; Flags.SetLinearToGamma(false);
 		if (!Target.IsValid() || !Target->GameThread_GetRenderTargetResource()->ReadPixels(Pixels,Flags)) { Test->AddError(TEXT("Player UI capture failed")); return; }

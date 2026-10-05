@@ -277,7 +277,11 @@ void Aprototype3PlayerController::ToggleInventoryDemo(bool bLegacyLab)
 		InventoryDemoWidget->OnClose.BindUObject(this, &Aprototype3PlayerController::CloseInventoryDemo);
 		if (!bLegacyLab) InventoryDemoWidget->ConfigurePlayerInventory(ItemUse(this));
 	}
-	if (auto* Use=ItemUse(this)) Use->CancelUse();
+	if (auto* Use=ItemUse(this))
+	{
+		Use->CancelUse();
+		if (!bLegacyLab) Use->BeginOpenBackpack();
+	}
 	bCursorBeforeInventory = bShowMouseCursor;
 	bInventoryDemoOpen = true;
 	if (PlayerInput) PlayerInput->FlushPressedKeys();

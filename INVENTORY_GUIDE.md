@@ -1,6 +1,7 @@
-# Player inventory prototype — pause menu and controls
+# Player inventory prototype — backpack and quick pockets
 
-Updated: 2026-10-05. Pause menu and control cleanup on `pause-menu-controls`.
+Updated: 2026-10-05. Three-pocket layout on `inventory-quick-pockets`, based on
+the pause-menu checkpoint `74e3606` on `pause-menu-controls`.
 
 ## Pause and Options
 
@@ -33,11 +34,11 @@ are replaced by these default inventory-only keys (all rebindable in Options):
 
 | Action | Key |
 | --- | --- |
-| Show quick storage | Tab |
+| Cycle visible quick pocket (1 → 2 → 3 → 1) | Tab |
 | Open backpack (two-second delay) | R |
 | Equip / unequip backpack | U |
 | Take selected item in hands | H |
-| Transfer selected item to quick storage | T |
+| Transfer selected item to the visible quick pocket | T |
 | Transfer selected item to backpack | Y |
 | Stow held item | X |
 | Assign selected quick item to shortcut 1 / 2 / 3 | 1 / 2 / 3 |
@@ -47,9 +48,9 @@ The Add bandage control remains only in the isolated geometry laboratory. The
 player inventory no longer exposes it. Rotation speed remains saved and controlled
 by the wheel; its numeric indicator and +/- buttons are removed.
 
-This branch retains one visible storage view and the existing single Quick pocket.
-Three quick pockets, simultaneous backpack/pocket views, floor pickup and drag-out
-dropping belong to the next two feature branches.
+The backpack is shown on the left with one quick pocket beside it. The right side
+is available for the future floor list. Floor pickup and drag-out dropping belong
+to the third feature branch.
 
 ## Run this version
 
@@ -82,11 +83,11 @@ or create a duplicate. A reserved item cannot be moved or removed in the panel.
 
 ## Quick storage and backpack
 
-The same free-placement menu now has two storage views:
+The free-placement menu shows the backpack and one of three quick pockets together:
 
 | Setting | Prototype default |
 | --- | --- |
-| Quick space | 220 x 220 logical units |
+| Quick pockets | 3 independent spaces, each 220 x 220 logical units |
 | Maximum mass per quick object | 0.60 kg |
 | Quick total-weight limit | None |
 | Quick firearm rule | Firearms excluded even if small and light |
@@ -97,23 +98,32 @@ All values are provisional. Quick items must pass both the per-object mass rule
 and silhouette placement. A light oversized object still fails. Non-firearm
 throwables are not excluded by the firearm rule; no grenade action is supplied.
 
-One sample backpack starts equipped in the prototype equipment slot. Press
-**R** and wait for opening to finish before accessing its contents.
+One sample backpack starts equipped in the prototype equipment slot. Opening
+inventory starts its two-second opening delay automatically; the quick pocket is
+available immediately. **R** can reopen a closed backpack while inventory is open.
 Select an item using the existing grab/place controls, then press **H** to take
 it in hands. This closes the menu; use still takes the same 3 seconds.
 Closing inventory closes the backpack, so reopening it requires its access delay.
 
 **U** unequips the backpack, hides its contents and keeps their identities/placements.
-Equip it again to regain access. This prototype models one backpack; it does not
+Equip it again to start the opening delay. This prototype models one backpack; it does not
 yet implement dropping backpacks into the world, multiple bags or nested bags.
 
-**T / Y** transfers the selected item to quick storage / backpack at an available position.
+**Tab** cycles quick pockets, including during an item drag. Only the displayed
+quick pocket can be clicked. Drag between the backpack and quick pocket, or carry
+an item while cycling to place it into another quick pocket. Failed placements,
+canceled drags and closing the interface preserve the source item and angle.
+Changing pockets clears an idle selection from the hidden pocket. Initial sample
+quick items remain in pocket one; pockets two and three start empty.
+
+**T / Y** transfers the selected item to the visible quick pocket / backpack at an available position.
 These actions sample candidate positions; ordinary manual placement remains
 continuous. Failed transfers preserve the original. The backpack opens first
 when transferring into it. **X** stows the held item and frees its reserved place.
 
-Quick shortcuts are assigned by item type, not to a particular copy. Select an
-item in quick storage and press **1 / 2 / 3** to assign the corresponding shortcut.
+Quick shortcuts search all three pockets regardless of the last visible pocket.
+They are assigned by item type, not to a particular copy. Select an
+item in any quick pocket and press **1 / 2 / 3** to assign the corresponding shortcut.
 Change its key in Pause > Options. Duplicate shortcut keys, movement keys, mouse
 buttons and the current inventory-open key are rejected. Missing assigned items
 do nothing and never silently use an item from the backpack. Settings persist in
@@ -182,8 +192,10 @@ routing. The new checks cover quick admission, reservations, timing, damage,
 consumption, bag access, equipment identity, shortcuts and nonlethal damage.
 Reports and images are under `Saved/InventoryVerification`. Automated Play checks
 are separate from the user's manual assessment of appearance and feel.
-The script expects at least 21 checks, including pause-menu controls and the
-regression check for loading/resetting settings when the menu uses its defaults.
+The script expects at least 23 checks, including pause-menu defaults and the
+three-pocket lifecycle and panel interaction checks. The pocket checks use an
+isolated component world and synthetic Slate input; they do not assess gameplay
+appearance or feel.
 
 Food, water, radiation treatment, firearms, grenade throwing, durable equipment,
 world pickups, saved games and networking remain later slices. Their sample tags

@@ -12,7 +12,7 @@ class SInventoryPanel : public SLeafWidget
 {
 public:
 	DECLARE_DELEGATE_RetVal_TwoParams(bool, FOnDropItem, FGuid, FString&);
-	SLATE_BEGIN_ARGS(SInventoryPanel) : _Controls(nullptr), _SaveControls(true), _ItemUse(nullptr) {}
+	SLATE_BEGIN_ARGS(SInventoryPanel) : _Inventory(nullptr), _Controls(nullptr), _SaveControls(true), _ItemUse(nullptr) {}
 		SLATE_ARGUMENT(UInventoryComponent*, Inventory)
 		SLATE_ARGUMENT(UInventoryInputSettings*, Controls)
 		SLATE_ARGUMENT(bool, SaveControls)
@@ -22,7 +22,7 @@ public:
 	SLATE_END_ARGS()
 	void Construct(const FArguments& Args);
 	void SetSaveControls(bool bSave) { bSaveControls = bSave; }
-	void SetDisplayedPocket(FName Pocket) { DisplayPocket = Pocket; }
+	FName GetVisibleQuickPocket() const;
 	void CancelInteraction();
 	virtual FVector2D ComputeDesiredSize(float) const override { return FVector2D(1000, 800); }
 	virtual bool SupportsKeyboardFocus() const override { return true; }
@@ -39,11 +39,18 @@ public:
 	virtual void OnFocusLost(const FFocusEvent&) override;
 private:
 	TWeakObjectPtr<UPlayerItemUseComponent> ItemUse;
-	FName DisplayPocket = TEXT("Quick");
+	int32 QuickPocketIndex = 0;
 	bool bRequestedBackpack = false;
 	bool bCloseRequested = false;
 	FGuid PendingTransfer;
-	TArray<FInventoryPocket> DisplayPockets() const;
+	struct FPocketView
+	{
+		FInventoryPocket Pocket;
+		FVector2D Origin;
+		bool bAccessible;
+	};
+	TArray<FPocketView> DisplayPockets() const;
+	FVector2D PreviewCenter() const { return bMouseRotating ? RotationCenter : Cursor - GrabOffset; }
 	bool HandlePlayerControl(FKey Key);
 	TWeakObjectPtr<UInventoryComponent> Inventory;
 	TWeakObjectPtr<UInventoryInputSettings> Controls;

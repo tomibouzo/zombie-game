@@ -35,9 +35,9 @@ void SInventoryPanel::Tick(const FGeometry& Geometry, double Time, float Delta)
 		if (bRequestedBackpack && ItemUse->IsBackpackOpen())
 		{
 			if (PendingTransfer.IsValid()) Status = ItemUse->Transfer(PendingTransfer, TEXT("Backpack")) ? TEXT("Transferred to backpack.") : ItemUse->Status;
-			PendingTransfer.Invalidate(); bRequestedBackpack = false; DisplayPocket = TEXT("Backpack"); SelectedId.Invalidate();
+			else Status = TEXT("Backpack open.");
+			PendingTransfer.Invalidate(); bRequestedBackpack = false;
 		}
-		if (DisplayPocket == TEXT("Backpack") && !ItemUse->IsBackpackOpen()) DisplayPocket = TEXT("Quick");
 	}
 	if (Controls.IsValid() && Active() && (bTurnLeft || bTurnRight))
 		Turn((static_cast<int32>(bTurnRight) - static_cast<int32>(bTurnLeft)) * Controls->TurnSpeed * Delta);
@@ -46,18 +46,21 @@ void SInventoryPanel::Tick(const FGeometry& Geometry, double Time, float Delta)
 bool SInventoryPanel::HitItem(FVector2D Point, FInventoryEntry& OutEntry) const
 {
 	if (!Inventory.IsValid()) return false;
-	const FVector2D Local = Point - PocketOrigin();
 	const auto Pockets = DisplayPockets();
-	if (Pockets.IsEmpty() || !InRect(Local, 0, 0, Pockets[0].Size.X, Pockets[0].Size.Y)) return false;
 	const auto Entries = Inventory->GetEntries();
-	for (int32 I = Entries.Num() - 1; I >= 0; --I)
+	for (const auto& View : Pockets)
 	{
-		FInventoryItemProfile Profile;
-		if (Entries[I].PocketId == Pockets[0].Id && Inventory->GetProfile(Entries[I].ProfileId, Profile)
-			&& Profile.Contains(Local, Entries[I].Position, Entries[I].AngleDegrees))
+		const FVector2D Local = Point - View.Origin;
+		if (!View.bAccessible || !InRect(Local, 0, 0, View.Pocket.Size.X, View.Pocket.Size.Y)) continue;
+		for (int32 I = Entries.Num() - 1; I >= 0; --I)
 		{
-			OutEntry = Entries[I];
-			return true;
+			FInventoryItemProfile Profile;
+			if (Entries[I].PocketId == View.Pocket.Id && Inventory->GetProfile(Entries[I].ProfileId, Profile)
+				&& Profile.Contains(Local, Entries[I].Position, Entries[I].AngleDegrees))
+			{
+				OutEntry = Entries[I];
+				return true;
+			}
 		}
 	}
 	return false;
@@ -80,13 +83,23 @@ FString SInventoryPanel::Describe(EInventoryResult Result)
 
 EInventoryResult SInventoryPanel::Preview(FName& PocketId, FVector2D& Center) const
 {
-	Center = bMouseRotating ? RotationCenter : Cursor - PocketOrigin() - GrabOffset;
+	Center = PreviewCenter();
 	if (!Inventory.IsValid()) return EInventoryResult::InvalidPocket;
-	const auto Pockets = DisplayPockets();
-	if (Pockets.IsEmpty()) return EInventoryResult::InvalidPocket;
-	PocketId = Pockets[0].Id;
-	return bAdding ? Inventory->CheckPlacement(Pending.ProfileId, PocketId, Center, PreviewAngle)
-		: Inventory->CheckMove(SelectedId, PocketId, Center, PreviewAngle);
+	if (ItemUse.IsValid() && !bAdding)
+	{
+		FInventoryEntry Source;
+		if (!Inventory->GetItem(SelectedId, Source) || !ItemUse->CanAccess(Source.PocketId)) return EInventoryResult::InvalidPocket;
+	}
+	for (const auto& View : DisplayPockets())
+	{
+		const FVector2D Local = Center - View.Origin;
+		if (!View.bAccessible || !InRect(Local, 0, 0, View.Pocket.Size.X, View.Pocket.Size.Y)) continue;
+		PocketId = View.Pocket.Id;
+		Center = Local;
+		return bAdding ? Inventory->CheckPlacement(Pending.ProfileId, PocketId, Center, PreviewAngle)
+			: Inventory->CheckMove(SelectedId, PocketId, Center, PreviewAngle);
+	}
+	return EInventoryResult::InvalidPocket;
 }
 
 void SInventoryPanel::CancelGesture()
@@ -95,6 +108,10 @@ void SInventoryPanel::CancelGesture()
 	bMouseRotating = bHasRotationDirection = false;
 	Pending = FInventoryEntry();
 	GrabOffset = FVector2D::ZeroVector;
+	FInventoryEntry Selected;
+	if (ItemUse.IsValid() && Inventory.IsValid() && Inventory->GetItem(SelectedId, Selected)
+		&& UPlayerItemUseComponent::IsQuickPocket(Selected.PocketId) && Selected.PocketId != GetVisibleQuickPocket())
+		SelectedId.Invalidate();
 	Invalidate(EInvalidateWidgetReason::Paint);
 }
 
@@ -127,7 +144,7 @@ void SInventoryPanel::Turn(double Delta)
 void SInventoryPanel::BeginMouseRotation()
 {
 	if (!Active() || bMouseRotating) return;
-	RotationCenter = Cursor - PocketOrigin() - GrabOffset;
+	RotationCenter = Cursor - GrabOffset;
 	bMouseRotating = true;
 	bHasRotationDirection = false;
 	UpdateCursor(Cursor);
@@ -137,7 +154,7 @@ void SInventoryPanel::EndMouseRotation()
 {
 	if (!bMouseRotating) return;
 	// Re-anchor dragging at the current pointer without moving the item.
-	GrabOffset = Cursor - PocketOrigin() - RotationCenter;
+	GrabOffset = Cursor - RotationCenter;
 	bMouseRotating = bHasRotationDirection = false;
 }
 
@@ -146,7 +163,7 @@ void SInventoryPanel::UpdateCursor(FVector2D Position)
 	Cursor = Position;
 	if (bMouseRotating)
 	{
-		const FVector2D Direction = Cursor - PocketOrigin() - RotationCenter;
+		const FVector2D Direction = Cursor - RotationCenter;
 		constexpr double PivotRadiusSquared = 9.0;
 		if (Direction.SizeSquared() <= PivotRadiusSquared) bHasRotationDirection = false;
 		else
@@ -223,7 +240,7 @@ FReply SInventoryPanel::Press(FKey Key)
 	}
 	if (Key == Controls->GetKey(EInventoryControl::Cancel))
 	{
-		CancelGesture();
+		CancelInteraction();
 		Status = TEXT("Cancelled. Original position and angle restored.");
 		return Reply();
 	}
@@ -248,6 +265,7 @@ FReply SInventoryPanel::Press(FKey Key)
 			FInventoryEntry Entry;
 			if (HitItem(Cursor, Entry))
 			{
+				PendingTransfer.Invalidate(); bRequestedBackpack = false;
 				SelectedId = Entry.Item.InstanceId;
 				if (Inventory->IsReserved(SelectedId))
 				{
@@ -256,7 +274,8 @@ FReply SInventoryPanel::Press(FKey Key)
 				}
 				Pending = Entry;
 				PreviewAngle = Entry.AngleDegrees;
-				GrabOffset = Cursor - PocketOrigin() - Entry.Position;
+				for (const auto& View : DisplayPockets())
+					if (View.Pocket.Id == Entry.PocketId) GrabOffset = Cursor - View.Origin - Entry.Position;
 				bDragging = true;
 			}
 			else SelectedId.Invalidate();
@@ -341,7 +360,7 @@ int32 SInventoryPanel::OnPaint(const FPaintArgs&, const FGeometry& G, const FSla
 	{
 		TArray<FSlateVertex> Vertices;
 		TArray<SlateIndex> Indices;
-		for (const auto& Part : Profile.GetTransformedParts(PocketOrigin() + Center, Angle))
+		for (const auto& Part : Profile.GetTransformedParts(Center, Angle))
 		{
 			const int32 Base = Vertices.Num();
 			for (FVector2D P : Part.Vertices)
@@ -359,25 +378,34 @@ int32 SInventoryPanel::OnPaint(const FPaintArgs&, const FGeometry& G, const FSla
 	const FLinearColor Muted(0.65f, 0.72f, 0.78f);
 	Box(FVector2D::ZeroVector, FVector2D(1000, 800), FLinearColor(0.022f, 0.03f, 0.043f));
 	Text(FVector2D(40, 27), TEXT("INVENTORY"), 25);
-	Text(FVector2D(40, 118), ItemUse.IsValid()
-		? (DisplayPocket == TEXT("Quick") ? TEXT("QUICK STORAGE") : TEXT("BACKPACK"))
-		: TEXT("TEST STORAGE"), 14, Muted);
 	if (!Inventory.IsValid() || !Controls.IsValid()) return Layer;
 	const auto Pockets = DisplayPockets();
-	if (Pockets.IsEmpty()) return Layer;
-	Box(PocketOrigin() - FVector2D(2), Pockets[0].Size + FVector2D(4), FLinearColor(0.22f, 0.3f, 0.36f));
-	Box(PocketOrigin(), Pockets[0].Size, FLinearColor(0.055f, 0.075f, 0.095f));
 	const auto Entries = Inventory->GetEntries();
-	for (const auto& Entry : Entries)
+	for (const auto& View : Pockets)
 	{
-		if (Entry.PocketId != Pockets[0].Id || (bDragging && Entry.Item.InstanceId == SelectedId)) continue;
-		FInventoryItemProfile Profile;
-		if (Inventory->GetProfile(Entry.ProfileId, Profile))
-			Shape(Profile, Entry.Position, Entry.AngleDegrees,
-				Inventory->IsReserved(Entry.Item.InstanceId) ? FLinearColor(0.15f,0.22f,0.25f) : Entry.Item.InstanceId == SelectedId ? FLinearColor(0.43f, 0.62f, 0.73f) : FLinearColor(0.3f, 0.4f, 0.47f));
+		const bool bBag = View.Pocket.Id == TEXT("Backpack");
+		const FString Label = !ItemUse.IsValid() ? TEXT("TEST STORAGE") : bBag ? TEXT("BACKPACK")
+			: FString::Printf(TEXT("QUICK POCKET %d / %d"), QuickPocketIndex + 1, UPlayerItemUseComponent::QuickPocketCount);
+		Text(View.Origin - FVector2D(0, 32), Label, 14, Muted);
+		Box(View.Origin - FVector2D(2), View.Pocket.Size + FVector2D(4), FLinearColor(0.22f, 0.3f, 0.36f));
+		Box(View.Origin, View.Pocket.Size, FLinearColor(0.055f, 0.075f, 0.095f));
+		if (!View.bAccessible)
+		{
+			const FString State = ItemUse->IsOpeningBackpack()
+				? FString::Printf(TEXT("Opening... %.0f%%"), ItemUse->GetProgress() * 100)
+				: ItemUse->IsBackpackEquipped() ? TEXT("Closed") : TEXT("Unequipped");
+			Text(View.Origin + FVector2D(16, 16), State, 13, Muted);
+			continue;
+		}
+		for (const auto& Entry : Entries)
+		{
+			if (Entry.PocketId != View.Pocket.Id || (bDragging && Entry.Item.InstanceId == SelectedId)) continue;
+			FInventoryItemProfile Profile;
+			if (Inventory->GetProfile(Entry.ProfileId, Profile))
+				Shape(Profile, View.Origin + Entry.Position, Entry.AngleDegrees,
+					Inventory->IsReserved(Entry.Item.InstanceId) ? FLinearColor(0.15f,0.22f,0.25f) : Entry.Item.InstanceId == SelectedId ? FLinearColor(0.43f, 0.62f, 0.73f) : FLinearColor(0.3f, 0.4f, 0.47f));
+		}
 	}
-	if (ItemUse.IsValid() && ItemUse->IsOpeningBackpack())
-		Text(FVector2D(40, 666), FString::Printf(TEXT("Opening backpack... %.0f%%"), ItemUse->GetProgress() * 100), 12);
 	FInventoryEntry Selected;
 	if (Inventory->GetItem(SelectedId, Selected))
 		Text(FVector2D(40, 704), Selected.Item.Definition->DisplayName.ToString(), 13);
@@ -391,7 +419,7 @@ int32 SInventoryPanel::OnPaint(const FPaintArgs&, const FGeometry& G, const FSla
 		{
 			// Show the actual rotated silhouette, including the portion outside the storage area.
 			Out.PushClip(FSlateClippingZone(G));
-			Shape(Profile, Center, PreviewAngle, Result == EInventoryResult::Success ? FLinearColor(0.09f, 0.68f, 0.35f) : FLinearColor(0.84f, 0.12f, 0.12f));
+			Shape(Profile, PreviewCenter(), PreviewAngle, Result == EInventoryResult::Success ? FLinearColor(0.09f, 0.68f, 0.35f) : FLinearColor(0.84f, 0.12f, 0.12f));
 			Out.PopClip();
 		}
 		Text(FVector2D(40, 738), Describe(Result) + FString::Printf(TEXT("  |  %.1f degrees"), PreviewAngle), 14,
@@ -402,13 +430,29 @@ int32 SInventoryPanel::OnPaint(const FPaintArgs&, const FGeometry& G, const FSla
 	return Layer;
 }
 
-TArray<FInventoryPocket> SInventoryPanel::DisplayPockets() const
+FName SInventoryPanel::GetVisibleQuickPocket() const
+{
+	return UPlayerItemUseComponent::QuickPocketId(QuickPocketIndex);
+}
+
+TArray<SInventoryPanel::FPocketView> SInventoryPanel::DisplayPockets() const
 {
 	if (!Inventory.IsValid()) return {};
 	const auto Pockets = Inventory->GetPockets();
-	if (!ItemUse.IsValid()) return Pockets;
-	for (const auto& Pocket : Pockets) if (Pocket.Id == DisplayPocket) return { Pocket };
-	return {};
+	if (!ItemUse.IsValid())
+		return Pockets.IsEmpty() ? TArray<FPocketView>() : TArray<FPocketView>{ { Pockets[0], PocketOrigin(), true } };
+	TArray<FPocketView> Views;
+	FVector2D QuickOrigin = PocketOrigin();
+	for (const auto& Pocket : Pockets)
+		if (Pocket.Id == TEXT("Backpack"))
+		{
+			Views.Add({ Pocket, PocketOrigin(), ItemUse->CanAccess(Pocket.Id) });
+			QuickOrigin.X += Pocket.Size.X + 40;
+			break;
+		}
+	for (const auto& Pocket : Pockets)
+		if (Pocket.Id == GetVisibleQuickPocket()) { Views.Add({ Pocket, QuickOrigin, true }); break; }
+	return Views;
 }
 
 void SInventoryPanel::CancelInteraction()
@@ -423,7 +467,12 @@ bool SInventoryPanel::HandlePlayerControl(FKey Key)
 	auto Is = [&](EInventoryControl Action) { return Key == Controls->GetKey(Action); };
 	if (Is(EInventoryControl::ShowQuick))
 	{
-		CancelInteraction(); DisplayPocket = TEXT("Quick"); SelectedId.Invalidate();
+		QuickPocketIndex = (QuickPocketIndex + 1) % UPlayerItemUseComponent::QuickPocketCount;
+		// A carried preview can move to another pocket; an idle hidden selection cannot.
+		FInventoryEntry Selected;
+		if (!Active() && Inventory->GetItem(SelectedId, Selected) && UPlayerItemUseComponent::IsQuickPocket(Selected.PocketId))
+			SelectedId.Invalidate();
+		Invalidate(EInvalidateWidgetReason::Paint);
 		return true;
 	}
 	if (Is(EInventoryControl::OpenBackpack))
@@ -434,14 +483,16 @@ bool SInventoryPanel::HandlePlayerControl(FKey Key)
 	}
 	if (Is(EInventoryControl::ToggleBackpack))
 	{
-		CancelInteraction(); ItemUse->ToggleBackpackEquipment(); DisplayPocket = TEXT("Quick");
+		CancelInteraction(); ItemUse->ToggleBackpackEquipment();
+		if (ItemUse->IsBackpackEquipped()) ItemUse->BeginOpenBackpack();
 		SelectedId.Invalidate(); Status = ItemUse->Status;
 		return true;
 	}
 	if (Is(EInventoryControl::ToHands))
 	{
+		const FGuid Item = SelectedId;
 		CancelGesture();
-		if (ItemUse->EquipToHands(SelectedId))
+		if (ItemUse->EquipToHands(Item))
 		{
 			CancelInteraction(); bCloseRequested = true; OnClose.ExecuteIfBound();
 		}
@@ -450,20 +501,22 @@ bool SInventoryPanel::HandlePlayerControl(FKey Key)
 	}
 	if (Is(EInventoryControl::ToQuick))
 	{
+		const FGuid Item = SelectedId;
 		CancelInteraction();
-		if (ItemUse->Transfer(SelectedId, TEXT("Quick"))) { DisplayPocket = TEXT("Quick"); Status = TEXT("Transferred to quick storage."); }
+		if (ItemUse->Transfer(Item, GetVisibleQuickPocket())) { SelectedId = Item; Status = TEXT("Transferred to quick pocket."); }
 		else Status = TEXT("Cannot transfer: check size, weight, firearm restriction and hands.");
 		return true;
 	}
 	if (Is(EInventoryControl::ToBackpack))
 	{
+		const FGuid Item = SelectedId;
 		CancelInteraction();
 		FInventoryEntry Entry;
-		if (!Inventory->GetItem(SelectedId, Entry) || Inventory->IsReserved(SelectedId))
+		if (!Inventory->GetItem(Item, Entry) || Inventory->IsReserved(Item))
 			Status = TEXT("Select an available item first; stow items in hands.");
 		else if (ItemUse->BeginOpenBackpack())
 		{
-			PendingTransfer = SelectedId; bRequestedBackpack = true;
+			PendingTransfer = Item; bRequestedBackpack = true;
 			Status = TEXT("Opening backpack to transfer...");
 		}
 		else Status = TEXT("Equip the backpack first.");
@@ -479,7 +532,7 @@ bool SInventoryPanel::HandlePlayerControl(FKey Key)
 		if (!Is(static_cast<EInventoryControl>(static_cast<int32>(EInventoryControl::AssignShortcut1) + Slot))) continue;
 		CancelGesture();
 		FInventoryEntry Entry;
-		if (ItemUse->Shortcuts && Inventory->GetItem(SelectedId, Entry) && Entry.PocketId == TEXT("Quick"))
+		if (ItemUse->Shortcuts && Inventory->GetItem(SelectedId, Entry) && UPlayerItemUseComponent::IsQuickPocket(Entry.PocketId))
 		{
 			ItemUse->Shortcuts->ItemTypes[Slot] = Entry.Item.Definition->ItemId;
 			ItemUse->SaveShortcuts(); Status = TEXT("Shortcut assigned to this item type.");

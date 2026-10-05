@@ -27,7 +27,7 @@ if ($PlayTest) { $EditorArguments += '-InventoryPIE' }
 if ($LASTEXITCODE -ne 0) { throw "Unreal tests failed: $LASTEXITCODE. See $OutputDirectory\tests.log" }
 $Report = Get-Content -Raw (Join-Path $OutputDirectory 'Tests\index.json') | ConvertFrom-Json
 $PassedCount = [int]$Report.succeeded + [int]$Report.succeededWithWarnings
-if ($Report.failed -gt 0 -or $Report.notRun -gt 0 -or $PassedCount -lt 21) {
+if ($Report.failed -gt 0 -or $Report.notRun -gt 0 -or $PassedCount -lt 23) {
     throw 'The test report is incomplete or has failures. Inspect Saved\InventoryVerification.'
 }
 if ($Report.succeededWithWarnings -gt 0) { Write-Warning 'Tests passed with warnings; see the JSON report for details.' }
