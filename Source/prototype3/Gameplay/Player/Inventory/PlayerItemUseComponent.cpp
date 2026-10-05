@@ -196,7 +196,7 @@ bool UPlayerItemUseComponent::Transfer(FGuid Id, FName Pocket)
 void UPlayerItemUseComponent::Advance(float Seconds)
 {
 	if (!FMath::IsFinite(Seconds) || Seconds <= 0) return;
-	if (bOpening) { Elapsed += Seconds; if (Elapsed >= Duration) { bOpening = false; bBackpackOpen = true; Status = TEXT("Backpack open. Select an item, then 'To hands'."); } }
+	if (bOpening) { Elapsed += Seconds; if (Elapsed >= Duration) { bOpening = false; bBackpackOpen = true; Status = TEXT("Backpack open. Select an item to move or take in hands."); } }
 	else if (bUsing)
 	{
 		const auto* Action = HealingAction();

@@ -131,7 +131,7 @@ public:
 			Player->SetActorRotation(FRotator::ZeroRotator);
 			Settings->bToggleGrab = Index % 2 != 0;
 			FString Error;
-			const FKey DropKey = Settings->bToggleGrab ? EKeys::X : EKeys::Delete;
+			const FKey DropKey = Settings->bToggleGrab ? EKeys::Z : EKeys::Delete;
 			Test->TestTrue(TEXT("Drop can be rebound"), Settings->TrySetKey(EInventoryControl::Drop, DropKey, Error));
 			Grab(Entry);
 			if (Settings->bToggleGrab) MouseButton(false);

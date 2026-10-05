@@ -44,6 +44,11 @@ TSharedPtr<SWidget> UInventoryDemoWidget::GetInventoryFocusTarget() const
 	return Panel;
 }
 
+void UInventoryDemoWidget::CancelInteraction()
+{
+	if (Panel.IsValid()) Panel->CancelInteraction();
+}
+
 void UInventoryDemoWidget::ReleaseSlateResources(bool bReleaseChildren)
 {
 	Super::ReleaseSlateResources(bReleaseChildren);

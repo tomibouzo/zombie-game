@@ -39,6 +39,12 @@ public:
 	/** Temporary local inventory laboratory; its items persist until this controller ends. */
 	void ToggleInventoryDemo(bool bLegacyLab = false);
 	void CloseInventoryDemo();
+	void HandleInterfaceEscape();
+	bool HasInterfaceFocus(int32 UserIndex) const;
+	void OpenPauseMenu();
+	void ClosePauseMenu();
+	void ExitPlaySession();
+	void ExitToDesktop();
 	virtual bool InputKey(const FInputKeyEventArgs& Params) override;
 
 protected:
@@ -47,6 +53,9 @@ protected:
 	TObjectPtr<UInventoryDemoWidget> InventoryDemoWidget;
 	bool bInventoryDemoOpen = false;
 	bool bCursorBeforeInventory = false;
+	bool bCursorBeforePause = false;
+	TSharedPtr<class SPauseMenu> PauseMenu;
+	TSharedPtr<class IInputProcessor> InterfaceInputProcessor;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 	/** Input Mapping Contexts */

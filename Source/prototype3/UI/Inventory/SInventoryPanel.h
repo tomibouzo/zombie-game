@@ -23,6 +23,7 @@ public:
 	void Construct(const FArguments& Args);
 	void SetSaveControls(bool bSave) { bSaveControls = bSave; }
 	void SetDisplayedPocket(FName Pocket) { DisplayPocket = Pocket; }
+	void CancelInteraction();
 	virtual FVector2D ComputeDesiredSize(float) const override { return FVector2D(1000, 800); }
 	virtual bool SupportsKeyboardFocus() const override { return true; }
 	virtual void Tick(const FGeometry&, double, float) override;
@@ -42,9 +43,8 @@ private:
 	bool bRequestedBackpack = false;
 	bool bCloseRequested = false;
 	FGuid PendingTransfer;
-	int32 QuickRebinding = INDEX_NONE;
 	TArray<FInventoryPocket> DisplayPockets() const;
-	bool HandlePlayerButton();
+	bool HandlePlayerControl(FKey Key);
 	TWeakObjectPtr<UInventoryComponent> Inventory;
 	TWeakObjectPtr<UInventoryInputSettings> Controls;
 	bool bSaveControls = true;
@@ -63,7 +63,6 @@ private:
 	FVector2D Cursor = FVector2D::ZeroVector;
 	FVector2D GrabOffset = FVector2D::ZeroVector;
 	double PreviewAngle = 0;
-	int32 Rebinding = INDEX_NONE;
 	FString Status = TEXT("Grab an item to move it. Green fits; red cannot be placed.");
 	static FVector2D PocketOrigin() { return FVector2D(40, 150); }
 	bool Active() const { return bDragging || bAdding; }
@@ -72,8 +71,6 @@ private:
 	FReply Press(FKey Key);
 	FReply Release(FKey Key);
 	FReply Reply();
-	bool HandleButton();
-	void AssignKey(FKey Key);
 	void SavePreferences();
 	void CancelGesture();
 	void Turn(double Delta);

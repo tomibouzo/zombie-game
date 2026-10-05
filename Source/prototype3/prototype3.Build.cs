@@ -25,7 +25,7 @@ public class prototype3 : ModuleRules
 		PrivateDependencyModuleNames.AddRange(new string[] { "SlateCore" });
 		if (Target.bBuildEditor)
 		{
-			PrivateDependencyModuleNames.Add("UnrealEd"); // Opt-in PIE integration test only.
+			PrivateDependencyModuleNames.Add("UnrealEd"); // End Play from the pause menu; editor-only tests.
 		}
 
 		PublicIncludePaths.AddRange(new string[] { "prototype3" });
