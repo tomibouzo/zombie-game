@@ -7,6 +7,7 @@
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FPlayerVitalValueChangedDelegate,
 	float, CurrentValue, float, MaxValue, float, Percentage);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FPlayerDiedDelegate);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FPlayerDamageAppliedDelegate, float, Amount, bool, bInterruptActions);
 
 /** Owns the player's health and stamina state. Movement policy stays on the character. */
 UCLASS(ClassGroup=(Player), meta=(BlueprintSpawnableComponent))
@@ -23,7 +24,7 @@ public:
 
 	/** Applies damage without allowing health to fall below zero. */
 	UFUNCTION(BlueprintCallable, Category="Player|Vitals")
-	float ApplyDamage(float Amount);
+	float ApplyDamage(float Amount, bool bInterruptActions = true);
 
 	/** Restores health without reviving a dead owner. Returns the amount restored. */
 	UFUNCTION(BlueprintCallable, Category="Player|Vitals")
@@ -65,6 +66,10 @@ public:
 
 	UPROPERTY(BlueprintAssignable, Category="Player|Vitals")
 	FPlayerVitalValueChangedDelegate OnHealthChanged;
+
+	/** Future bleeding/poison ticks can opt out of interrupting inventory and healing. Death still closes both. */
+	UPROPERTY(BlueprintAssignable, Category="Player|Vitals")
+	FPlayerDamageAppliedDelegate OnDamageApplied;
 
 	UPROPERTY(BlueprintAssignable, Category="Player|Vitals")
 	FPlayerVitalValueChangedDelegate OnStaminaChanged;

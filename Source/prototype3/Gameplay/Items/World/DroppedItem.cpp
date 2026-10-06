@@ -6,6 +6,7 @@
 #include "Components/TextRenderComponent.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
+#include "EngineUtils.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
 #include "Camera/PlayerCameraManager.h"
@@ -39,6 +40,12 @@ const FPlaceholder* FindPlaceholder(FName Id)
 {
 	for (const auto& Spec : Placeholders) if (Spec.Id == Id) return &Spec;
 	return nullptr;
+}
+FTransform DropTransform(APawn* Player, const FPlaceholder& Spec)
+{
+	FVector Location = Player->GetActorLocation();
+	Location.Z += -Player->GetSimpleCollisionHalfHeight() + Spec.RestingSize().Z * 0.5 + 3;
+	return FTransform(FRotator(0, Player->GetActorRotation().Yaw, 0), Location);
 }
 }
 
@@ -159,9 +166,7 @@ ADroppedItem* ADroppedItem::DropFromInventory(UInventoryComponent* Inventory, FG
 		Error = TEXT("This test shape stays in the inventory.");
 		return nullptr;
 	}
-	FVector Location = Player->GetActorLocation();
-	Location.Z += -Player->GetSimpleCollisionHalfHeight() + Spec->RestingSize().Z * 0.5 + 3;
-	const FTransform Transform(FRotator(0, Player->GetActorRotation().Yaw, 0), Location);
+	const FTransform Transform = DropTransform(Player, *Spec);
 	auto* Dropped = Player->GetWorld()->SpawnActorDeferred<ADroppedItem>(StaticClass(), Transform,
 		nullptr, nullptr, ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
 	if (!Dropped || !Dropped->Initialize(Entry.Item, Entry.ProfileId))
@@ -170,6 +175,7 @@ ADroppedItem* ADroppedItem::DropFromInventory(UInventoryComponent* Inventory, FG
 		Error = TEXT("Could not create the world item. It remains in the inventory.");
 		return nullptr;
 	}
+	Dropped->bTransferring = true;
 	Dropped->FinishSpawning(Transform);
 	if (!IsValid(Dropped))
 	{
@@ -187,7 +193,65 @@ ADroppedItem* ADroppedItem::DropFromInventory(UInventoryComponent* Inventory, FG
 		return nullptr;
 	}
 	Dropped->Item = Removed;
+	Dropped->bTransferring = false;
 	return Dropped;
+}
+
+bool ADroppedItem::CanInteract(APawn* Player) const
+{
+	if (!IsValid(this) || IsActorBeingDestroyed() || bTransferring || !Item.IsValid()
+		|| !IsValid(Player) || Player->GetWorld() != GetWorld() || !FMath::IsFinite(PickupRadius) || PickupRadius <= 0) return false;
+	const FVector Feet = Player->GetActorLocation() - FVector(0, 0, Player->GetSimpleCollisionHalfHeight());
+	return FVector::DistSquared(Feet, GetActorLocation()) <= FMath::Square(PickupRadius);
+}
+
+TArray<TWeakObjectPtr<ADroppedItem>> ADroppedItem::FindNearby(APawn* Player)
+{
+	TArray<TWeakObjectPtr<ADroppedItem>> Items;
+	if (!IsValid(Player) || !Player->GetWorld()) return Items;
+	for (TActorIterator<ADroppedItem> It(Player->GetWorld()); It; ++It)
+		if (It->CanInteract(Player)) Items.Add(*It);
+	// Stable rows while physics moves items. Duplicate names remain separate instances.
+	Items.Sort([](const auto& A, const auto& B)
+	{
+		const FString NameA = A->GetItem().Definition->DisplayName.ToString();
+		const FString NameB = B->GetItem().Definition->DisplayName.ToString();
+		return NameA == NameB ? A->GetItem().InstanceId.ToString() < B->GetItem().InstanceId.ToString() : NameA < NameB;
+	});
+	return Items;
+}
+
+EInventoryResult ADroppedItem::PickUp(UInventoryComponent* Inventory, APawn* Player, FName Pocket, FVector2D Position, double Angle)
+{
+	if (!IsValid(Inventory) || !CanInteract(Player)) return EInventoryResult::InvalidItem;
+	// AddItem broadcasts synchronously. Guard against another pickup during that callback.
+	TGuardValue<bool> TransferGuard(bTransferring, true);
+	const auto Result = Inventory->AddItem(Item, InventoryProfileId, Pocket, Position, Angle);
+	if (Result != EInventoryResult::Success) return Result;
+	Item = FItemInstance();
+	SetActorEnableCollision(false);
+	SetActorHiddenInGame(true);
+	Destroy();
+	return EInventoryResult::Success;
+}
+
+bool ADroppedItem::DropAtFeet(APawn* Player, FString& Error)
+{
+	Error.Empty();
+	if (!CanInteract(Player)) { Error = TEXT("Floor item is no longer nearby."); return false; }
+	const FPlaceholder* Spec = FindPlaceholder(Item.Definition->ItemId);
+	if (!Spec || !Body->IsSimulatingPhysics()) { Error = TEXT("Cannot move this floor item."); return false; }
+	TGuardValue<bool> TransferGuard(bTransferring, true);
+	const FTransform Transform = DropTransform(Player, *Spec);
+	if (!SetActorLocationAndRotation(Transform.GetLocation(), Transform.Rotator(), false, nullptr, ETeleportType::TeleportPhysics))
+	{
+		Error = TEXT("Could not move the floor item. It remains in place.");
+		return false;
+	}
+	Body->SetPhysicsLinearVelocity(FVector::ZeroVector);
+	Body->SetPhysicsAngularVelocityInDegrees(FVector::ZeroVector);
+	Body->WakeAllRigidBodies();
+	return true;
 }
 
 void ADroppedItem::Tick(float DeltaSeconds)

@@ -40,8 +40,8 @@ void UPlayerItemUseComponent::BeginPlay()
 	if (!Inventory || !Vitals) return;
 	Shortcuts = DuplicateObject<UItemUseSettings>(GetDefault<UItemUseSettings>(), this);
 	Shortcuts->Normalize();
-	PreviousHealth = Vitals->GetCurrentHealth();
 	Vitals->OnHealthChanged.AddDynamic(this, &UPlayerItemUseComponent::HealthChanged);
+	Vitals->OnDamageApplied.AddDynamic(this, &UPlayerItemUseComponent::DamageApplied);
 	// Reuse the saved definitions and silhouettes supplied by the existing laboratory.
 	UInventoryComponent* Catalog = NewObject<UInventoryComponent>(this);
 	if (!InventoryDemo::Populate(Catalog)) { Status = TEXT("Could not load sample items."); return; }
@@ -151,15 +151,16 @@ void UPlayerItemUseComponent::CancelUse()
 
 void UPlayerItemUseComponent::HealthChanged(float Current, float Maximum, float Percentage)
 {
-	if (Current < PreviousHealth && bUsing)
-	{
-		CancelUse();
-		UpdateVisual();
-		Status = TEXT("Hurt: healing cancelled. Left click to try again.");
-	}
-	PreviousHealth = Current;
 	if (Current <= 0) { Stow(); CloseBackpack(); }
 	if (auto* Character = Cast<Aprototype3Character>(GetOwner())) Character->OnHealthUpdated.Broadcast(Percentage);
+}
+
+void UPlayerItemUseComponent::DamageApplied(float Amount, bool bInterruptActions)
+{
+	if (!bInterruptActions || Amount <= 0) return;
+	const bool bInterrupted = bUsing || bOpening || bBackpackOpen;
+	CancelUse(); CloseBackpack(); UpdateVisual();
+	if (bInterrupted) Status = TEXT("Hurt: inventory and item use interrupted.");
 }
 
 void UPlayerItemUseComponent::HandleShortcut(int32 Slot, double Time)
@@ -256,6 +257,7 @@ void UPlayerItemUseComponent::EndPlay(const EEndPlayReason::Type Reason)
 {
 	Stow();
 	if (Vitals) Vitals->OnHealthChanged.RemoveDynamic(this, &UPlayerItemUseComponent::HealthChanged);
+	if (Vitals) Vitals->OnDamageApplied.RemoveDynamic(this, &UPlayerItemUseComponent::DamageApplied);
 	if (Spikes) Spikes->Destroy();
 	Super::EndPlay(Reason);
 }

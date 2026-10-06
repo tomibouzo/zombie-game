@@ -136,7 +136,7 @@ FString UInventoryInputSettings::Label(EInventoryControl Action)
 	case EInventoryControl::Drop: return TEXT("Drop selected item");
 	case EInventoryControl::Add: return TEXT("Add bandage");
 	case EInventoryControl::RotateWithMouse: return TEXT("Hold to rotate");
-	case EInventoryControl::ShowQuick: return TEXT("Cycle quick pocket");
+	case EInventoryControl::ShowQuick: return TEXT("Pockets / cycle pocket in backpack");
 	case EInventoryControl::OpenBackpack: return TEXT("Open backpack");
 	case EInventoryControl::ToggleBackpack: return TEXT("Equip / unequip backpack");
 	case EInventoryControl::ToHands: return TEXT("Take selected item in hands");
