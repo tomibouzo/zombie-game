@@ -18,6 +18,9 @@ class PROTOTYPE3_API UPlayerItemUseComponent : public UActorComponent
 	GENERATED_BODY()
 public:
 	UPlayerItemUseComponent();
+	static constexpr int32 QuickPocketCount = 3;
+	static FName QuickPocketId(int32 Index);
+	static bool IsQuickPocket(FName Pocket);
 	UPROPERTY(EditAnywhere, Category="Prototype") bool bEnablePrototype = true;
 	UPROPERTY(EditAnywhere, Category="Prototype") bool bSpawnTestSpikes = true;
 	UPROPERTY(EditAnywhere, Category="Prototype", meta=(ClampMin="0.01")) float BackpackOpenSeconds = 2;

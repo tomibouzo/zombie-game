@@ -29,6 +29,14 @@
 #include "Widgets/Layout/SBorder.h"
 #include "Widgets/Layout/SBox.h"
 #include "Styling/CoreStyle.h"
+#include "UI/Pause/SPauseMenu.h"
+#include "Framework/Application/IInputProcessor.h"
+#include "Framework/Application/SlateApplication.h"
+#include "Widgets/SViewport.h"
+#include "Kismet/KismetSystemLibrary.h"
+#if WITH_EDITOR
+#include "Editor.h"
+#endif
 
 namespace
 {
@@ -36,6 +44,31 @@ UPlayerItemUseComponent* ItemUse(APlayerController* Controller)
 {
 	return Controller && Controller->GetPawn() ? Controller->GetPawn()->FindComponentByClass<UPlayerItemUseComponent>() : nullptr;
 }
+
+// Consume Escape before the Editor's Stop Play shortcut, only while this game's
+// viewport or one of its interfaces has focus. Never changes Editor preferences.
+class FGameInterfaceInputProcessor : public IInputProcessor
+{
+public:
+	explicit FGameInterfaceInputProcessor(Aprototype3PlayerController* InController) : Controller(InController) {}
+	virtual void Tick(float, FSlateApplication&, TSharedRef<ICursor>) override {}
+	virtual bool HandleKeyDownEvent(FSlateApplication&, const FKeyEvent& Event) override
+	{
+		if (Event.GetKey() != EKeys::Escape || !Controller.IsValid() || !Controller->HasInterfaceFocus(Event.GetUserIndex())) return false;
+		bConsumedEscape = true;
+		if (!Event.IsRepeat()) Controller->HandleInterfaceEscape();
+		return true;
+	}
+	virtual bool HandleKeyUpEvent(FSlateApplication&, const FKeyEvent& Event) override
+	{
+		if (Event.GetKey() != EKeys::Escape || !bConsumedEscape) return false;
+		bConsumedEscape = false;
+		return true;
+	}
+private:
+	TWeakObjectPtr<Aprototype3PlayerController> Controller;
+	bool bConsumedEscape = false;
+};
 }
 
 Aprototype3PlayerController::Aprototype3PlayerController()
@@ -80,6 +113,11 @@ UInputAction* Aprototype3PlayerController::GetSecondaryAction()
 void Aprototype3PlayerController::BeginPlay()
 {
 	Super::BeginPlay();
+	if (IsLocalPlayerController() && FSlateApplication::IsInitialized())
+	{
+		InterfaceInputProcessor = MakeShared<FGameInterfaceInputProcessor>(this);
+		FSlateApplication::Get().RegisterInputPreProcessor(InterfaceInputProcessor, 0);
+	}
 	if (IsLocalPlayerController() && GEngine && GEngine->GameViewport)
 	{
 		SAssignNew(ItemUseOverlay, SOverlay).Visibility(EVisibility::HitTestInvisible)
@@ -205,6 +243,12 @@ bool Aprototype3PlayerController::ShouldUseTouchControls() const
 
 bool Aprototype3PlayerController::InputKey(const FInputKeyEventArgs& Params)
 {
+	if (IsLocalController() && Params.Key == EKeys::Escape)
+	{
+		if (Params.Event == IE_Pressed) HandleInterfaceEscape();
+		return true;
+	}
+	if (PauseMenu.IsValid()) return true;
 	if (IsLocalController() && Params.Key == GetDefault<UInventoryInputSettings>()->GetKey(EInventoryControl::Toggle))
 	{
 		if (Params.Event == IE_Pressed) ToggleInventoryDemo();
@@ -223,6 +267,7 @@ bool Aprototype3PlayerController::InputKey(const FInputKeyEventArgs& Params)
 
 void Aprototype3PlayerController::ToggleInventoryDemo(bool bLegacyLab)
 {
+	if (PauseMenu.IsValid()) return;
 	if (bInventoryDemoOpen) { CloseInventoryDemo(); return; }
 	if (!IsLocalController()) return;
 	if (!InventoryDemoWidget)
@@ -232,7 +277,11 @@ void Aprototype3PlayerController::ToggleInventoryDemo(bool bLegacyLab)
 		InventoryDemoWidget->OnClose.BindUObject(this, &Aprototype3PlayerController::CloseInventoryDemo);
 		if (!bLegacyLab) InventoryDemoWidget->ConfigurePlayerInventory(ItemUse(this));
 	}
-	if (auto* Use=ItemUse(this)) Use->CancelUse();
+	if (auto* Use=ItemUse(this))
+	{
+		Use->CancelUse();
+		if (!bLegacyLab) Use->BeginOpenBackpack();
+	}
 	bCursorBeforeInventory = bShowMouseCursor;
 	bInventoryDemoOpen = true;
 	if (PlayerInput) PlayerInput->FlushPressedKeys();
@@ -253,7 +302,11 @@ void Aprototype3PlayerController::CloseInventoryDemo()
 {
 	if (!bInventoryDemoOpen) return;
 	bInventoryDemoOpen = false;
-	if (InventoryDemoWidget) InventoryDemoWidget->RemoveFromParent();
+	if (InventoryDemoWidget)
+	{
+		InventoryDemoWidget->CancelInteraction();
+		InventoryDemoWidget->RemoveFromParent();
+	}
 	if (auto* Use=ItemUse(this)) Use->CloseBackpack();
 	SetIgnoreMoveInput(false);
 	SetIgnoreLookInput(false);
@@ -262,8 +315,88 @@ void Aprototype3PlayerController::CloseInventoryDemo()
 	if (PlayerInput) PlayerInput->FlushPressedKeys();
 }
 
+bool Aprototype3PlayerController::HasInterfaceFocus(int32 UserIndex) const
+{
+	if (!IsLocalController() || !GetWorld() || !GetWorld()->IsGameWorld()) return false;
+	auto Focused = [UserIndex](const TSharedPtr<SWidget>& Widget)
+	{
+		return Widget.IsValid() && (Widget->HasUserFocus(UserIndex).IsSet() || Widget->HasUserFocusedDescendants(UserIndex));
+	};
+	if (Focused(PauseMenu)) return true;
+	if (bInventoryDemoOpen && InventoryDemoWidget && Focused(InventoryDemoWidget->GetInventoryFocusTarget())) return true;
+	UGameViewportClient* Viewport = GetWorld()->GetGameViewport();
+	return Viewport && Focused(Viewport->GetGameViewportWidget());
+}
+
+void Aprototype3PlayerController::HandleInterfaceEscape()
+{
+	if (!IsLocalController()) return;
+	// Hold a local reference because Resume removes the controller's menu reference.
+	if (const TSharedPtr<SPauseMenu> Menu = PauseMenu) Menu->HandleEscape();
+	else if (bInventoryDemoOpen) CloseInventoryDemo();
+	else OpenPauseMenu();
+}
+
+void Aprototype3PlayerController::OpenPauseMenu()
+{
+	if (!IsLocalController() || PauseMenu.IsValid() || !GetWorld()) return;
+	UGameViewportClient* Viewport = GetWorld()->GetGameViewport();
+	if (!Viewport) return;
+	if (bInventoryDemoOpen) CloseInventoryDemo();
+	if (!SetPause(true)) return;
+	const bool bPlayInEditor = GetWorld()->WorldType == EWorldType::PIE;
+	bCursorBeforePause = bShowMouseCursor;
+	if (PlayerInput) PlayerInput->FlushPressedKeys();
+	if (APawn* ControlledPawn = GetPawn())
+		if (UPlayerMeleeComponent* Melee = ControlledPawn->FindComponentByClass<UPlayerMeleeComponent>()) Melee->StopAttacking();
+	SetIgnoreMoveInput(true);
+	SetIgnoreLookInput(true);
+	bShowMouseCursor = true;
+	SAssignNew(PauseMenu, SPauseMenu).ItemUse(ItemUse(this))
+		.CanExitGame(bPlayInEditor).CanExitDesktop(!bPlayInEditor)
+		.OnResume(FSimpleDelegate::CreateUObject(this, &Aprototype3PlayerController::ClosePauseMenu))
+		.OnExitGame(FSimpleDelegate::CreateUObject(this, &Aprototype3PlayerController::ExitPlaySession))
+		.OnExitDesktop(FSimpleDelegate::CreateUObject(this, &Aprototype3PlayerController::ExitToDesktop));
+	Viewport->AddViewportWidgetContent(PauseMenu.ToSharedRef(), 200);
+	FInputModeUIOnly Mode;
+	Mode.SetWidgetToFocus(PauseMenu);
+	SetInputMode(Mode);
+}
+
+void Aprototype3PlayerController::ClosePauseMenu()
+{
+	if (!PauseMenu.IsValid()) return;
+	if (GetWorld() && GetWorld()->GetGameViewport())
+		GetWorld()->GetGameViewport()->RemoveViewportWidgetContent(PauseMenu.ToSharedRef());
+	PauseMenu.Reset();
+	SetPause(false);
+	SetIgnoreMoveInput(false);
+	SetIgnoreLookInput(false);
+	bShowMouseCursor = bCursorBeforePause;
+	SetInputMode(FInputModeGameOnly());
+	if (PlayerInput) PlayerInput->FlushPressedKeys();
+}
+
+void Aprototype3PlayerController::ExitPlaySession()
+{
+#if WITH_EDITOR
+	if (GetWorld() && GetWorld()->WorldType == EWorldType::PIE && GEditor)
+		GEditor->RequestEndPlayMap();
+#endif
+}
+
+void Aprototype3PlayerController::ExitToDesktop()
+{
+	if (GetWorld() && GetWorld()->WorldType != EWorldType::PIE)
+		UKismetSystemLibrary::QuitGame(this, this, EQuitPreference::Quit, false);
+}
+
 void Aprototype3PlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	if (InterfaceInputProcessor.IsValid() && FSlateApplication::IsInitialized())
+		FSlateApplication::Get().UnregisterInputPreProcessor(InterfaceInputProcessor);
+	InterfaceInputProcessor.Reset();
+	ClosePauseMenu();
 	CloseInventoryDemo();
 	if (ItemUseOverlay.IsValid() && GEngine && GEngine->GameViewport) GEngine->GameViewport->RemoveViewportWidgetContent(ItemUseOverlay.ToSharedRef());
 	ItemUseOverlay.Reset();

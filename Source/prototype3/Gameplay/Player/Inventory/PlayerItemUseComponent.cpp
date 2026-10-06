@@ -18,6 +18,19 @@
 
 UPlayerItemUseComponent::UPlayerItemUseComponent() { PrimaryComponentTick.bCanEverTick = true; }
 
+FName UPlayerItemUseComponent::QuickPocketId(int32 Index)
+{
+	static const FName Ids[] = { TEXT("Quick"), TEXT("Quick2"), TEXT("Quick3") };
+	return Index >= 0 && Index < QuickPocketCount ? Ids[Index] : NAME_None;
+}
+
+bool UPlayerItemUseComponent::IsQuickPocket(FName Pocket)
+{
+	for (int32 Index = 0; Index < QuickPocketCount; ++Index)
+		if (Pocket == QuickPocketId(Index)) return true;
+	return false;
+}
+
 void UPlayerItemUseComponent::BeginPlay()
 {
 	Super::BeginPlay();
@@ -32,13 +45,18 @@ void UPlayerItemUseComponent::BeginPlay()
 	// Reuse the saved definitions and silhouettes supplied by the existing laboratory.
 	UInventoryComponent* Catalog = NewObject<UInventoryComponent>(this);
 	if (!InventoryDemo::Populate(Catalog)) { Status = TEXT("Could not load sample items."); return; }
-	FInventoryPocket Quick;
-	Quick.Id = TEXT("Quick"); Quick.Size = QuickSize; Quick.MaxItemMassKg = QuickMaxItemMassKg; Quick.bAllowFirearms = false;
+	for (int32 Index = 0; Index < QuickPocketCount; ++Index)
+	{
+		FInventoryPocket Quick;
+		Quick.Id = QuickPocketId(Index); Quick.Size = QuickSize;
+		Quick.MaxItemMassKg = QuickMaxItemMassKg; Quick.bAllowFirearms = false;
+		Inventory->AddPocket(Quick);
+	}
 	FInventoryPocket Bag;
 	Bag.Id = TEXT("Backpack"); Bag.Size = BackpackSize;
 	FInventoryPocket Staging;
 	Staging.Id = TEXT("Setup");
-	Inventory->AddPocket(Quick); Inventory->AddPocket(Bag); Inventory->AddPocket(Staging);
+	Inventory->AddPocket(Bag); Inventory->AddPocket(Staging);
 	int32 Bandages = 0;
 	for (const auto& Entry : Catalog->GetEntries())
 	{
@@ -51,7 +69,7 @@ void UPlayerItemUseComponent::BeginPlay()
 		const bool bQuick = Id == TEXT("CannedBeans") || Id == TEXT("WaterBottle") || (Id == TEXT("Bandage") && Bandages++ == 0);
 		if (Inventory->AddItem(Entry.Item, Profile.Id, Staging.Id, Entry.Position, Entry.AngleDegrees) != EInventoryResult::Success) continue;
 		FVector2D Position;
-		const FName Destination = bQuick ? Quick.Id : Bag.Id;
+		const FName Destination = bQuick ? QuickPocketId(0) : Bag.Id;
 		if (Inventory->FindSpace(Entry.Item.InstanceId, Destination, Position)) Inventory->MoveItem(Entry.Item.InstanceId, Destination, Position, Entry.AngleDegrees);
 		else UE_LOG(LogTemp, Error, TEXT("Sample %s could not fit in the player inventory."), *Id.ToString());
 	}
@@ -76,7 +94,7 @@ void UPlayerItemUseComponent::BeginPlay()
 
 bool UPlayerItemUseComponent::CanAccess(FName Pocket) const
 {
-	return Pocket == TEXT("Quick") || (Pocket == TEXT("Backpack") && bBackpackEquipped && bBackpackOpen);
+	return IsQuickPocket(Pocket) || (Pocket == TEXT("Backpack") && bBackpackEquipped && bBackpackOpen);
 }
 
 bool UPlayerItemUseComponent::EquipToHands(FGuid Id)
@@ -146,12 +164,12 @@ void UPlayerItemUseComponent::HealthChanged(float Current, float Maximum, float 
 
 void UPlayerItemUseComponent::HandleShortcut(int32 Slot, double Time)
 {
-	if (!Shortcuts || !Shortcuts->ItemTypes.IsValidIndex(Slot) || bUsing || bOpening) return;
+	if (!Inventory || !Shortcuts || !Shortcuts->ItemTypes.IsValidIndex(Slot) || bUsing || bOpening) return;
 	if (Slot == LastShortcut && Time >= LastShortcutTime && Time - LastShortcutTime <= DoubleTapSeconds)
 	{
 		TArray<FName> Types;
 		for (const auto& Entry : Inventory->GetEntries())
-			if (Entry.PocketId == TEXT("Quick") && (Entry.Item.Definition->PrimaryAction || Entry.Item.Definition->SecondaryAction)) Types.AddUnique(Entry.Item.Definition->ItemId);
+			if (IsQuickPocket(Entry.PocketId) && (Entry.Item.Definition->PrimaryAction || Entry.Item.Definition->SecondaryAction)) Types.AddUnique(Entry.Item.Definition->ItemId);
 		if (!Types.IsEmpty())
 		{
 			Shortcuts->ItemTypes[Slot] = Types[(Types.IndexOfByKey(Shortcuts->ItemTypes[Slot]) + 1) % Types.Num()];
@@ -161,7 +179,8 @@ void UPlayerItemUseComponent::HandleShortcut(int32 Slot, double Time)
 	}
 	else { LastShortcut = Slot; LastShortcutTime = Time; }
 	for (const auto& Entry : Inventory->GetEntries())
-		if (Entry.PocketId == TEXT("Quick") && Entry.Item.Definition->ItemId == Shortcuts->ItemTypes[Slot]) { EquipToHands(Entry.Item.InstanceId); return; }
+		if (IsQuickPocket(Entry.PocketId) && Entry.Item.Definition->ItemId == Shortcuts->ItemTypes[Slot]
+			&& EquipToHands(Entry.Item.InstanceId)) return;
 }
 
 void UPlayerItemUseComponent::SaveShortcuts()
@@ -196,7 +215,7 @@ bool UPlayerItemUseComponent::Transfer(FGuid Id, FName Pocket)
 void UPlayerItemUseComponent::Advance(float Seconds)
 {
 	if (!FMath::IsFinite(Seconds) || Seconds <= 0) return;
-	if (bOpening) { Elapsed += Seconds; if (Elapsed >= Duration) { bOpening = false; bBackpackOpen = true; Status = TEXT("Backpack open. Select an item, then 'To hands'."); } }
+	if (bOpening) { Elapsed += Seconds; if (Elapsed >= Duration) { bOpening = false; bBackpackOpen = true; Status = TEXT("Backpack open. Select an item to move or take in hands."); } }
 	else if (bUsing)
 	{
 		const auto* Action = HealingAction();

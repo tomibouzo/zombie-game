@@ -18,6 +18,7 @@ public:
 	virtual void NativeOnInitialized() override;
 	virtual TSharedRef<SWidget> RebuildWidget() override;
 	TSharedPtr<SWidget> GetInventoryFocusTarget() const;
+	void CancelInteraction();
 	virtual void ReleaseSlateResources(bool bReleaseChildren) override;
 private:
 	UPROPERTY(Transient) TObjectPtr<UPlayerItemUseComponent> ItemUse;

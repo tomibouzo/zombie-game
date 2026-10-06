@@ -5,9 +5,14 @@
 #include "InventoryInputSettings.generated.h"
 
 // Drop keeps the old Remove slot so saved custom bindings remain valid.
-enum class EInventoryControl : uint8 { Toggle, Grab, TurnLeft, TurnRight, Cancel, Drop, Add, RotateWithMouse, Count };
+enum class EInventoryControl : uint8
+{
+	Toggle, Grab, TurnLeft, TurnRight, Cancel, Drop, Add, RotateWithMouse,
+	ShowQuick, OpenBackpack, ToggleBackpack, ToHands, ToQuick, ToBackpack, Stow,
+	AssignShortcut1, AssignShortcut2, AssignShortcut3, ToggleGrabMode, Count
+};
 
-/** Local player preferences for the laboratory, stored separately from its temporary items. */
+/** Saved inventory controls. The legacy Add slot is used only by the isolated laboratory. */
 UCLASS(Config=GameUserSettings)
 class PROTOTYPE3_API UInventoryInputSettings : public UObject
 {
