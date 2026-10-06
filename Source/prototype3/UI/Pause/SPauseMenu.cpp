@@ -158,7 +158,7 @@ void SPauseMenu::AssignKey(FKey Key)
 	if (Rebinding != INDEX_NONE)
 	{
 		const auto Action = static_cast<EInventoryControl>(Rebinding);
-		if (Action == EInventoryControl::Toggle && ItemUse.IsValid() && ItemUse->Shortcuts && ItemUse->Shortcuts->Keys.Contains(Key))
+		if ((Action == EInventoryControl::Toggle || Action == EInventoryControl::ShowQuick) && ItemUse.IsValid() && ItemUse->Shortcuts && ItemUse->Shortcuts->Keys.Contains(Key))
 		{ Status = TEXT("That key is assigned to a quick-item shortcut. Change the shortcut first."); return; }
 		if (Controls->TrySetKey(Action, Key, Status))
 		{
@@ -169,7 +169,7 @@ void SPauseMenu::AssignKey(FKey Key)
 	}
 	else if (ShortcutRebinding != INDEX_NONE && ItemUse.IsValid() && ItemUse->Shortcuts)
 	{
-		if (ItemUse->Shortcuts->TryBind(ShortcutRebinding, Key, Controls->GetKey(EInventoryControl::Toggle)))
+		if (Key != Controls->GetKey(EInventoryControl::ShowQuick) && ItemUse->Shortcuts->TryBind(ShortcutRebinding, Key, Controls->GetKey(EInventoryControl::Toggle)))
 		{
 			ShortcutRebinding = INDEX_NONE;
 			if (bSaveControls) ItemUse->SaveShortcuts();

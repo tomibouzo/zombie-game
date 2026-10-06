@@ -27,7 +27,7 @@ void UPlayerVitalsComponent::InitializeVitals(float InMaxHealth, float InMaxStam
 	BroadcastStaminaChanged();
 }
 
-float UPlayerVitalsComponent::ApplyDamage(float Amount)
+float UPlayerVitalsComponent::ApplyDamage(float Amount, bool bInterruptActions)
 {
 	if (!FMath::IsFinite(Amount) || Amount <= 0.0f || !IsAlive())
 	{
@@ -38,6 +38,7 @@ float UPlayerVitalsComponent::ApplyDamage(float Amount)
 	CurrentHealth = FMath::Max(CurrentHealth - Amount, 0.0f);
 	const float AppliedDamage = PreviousHealth - CurrentHealth;
 	BroadcastHealthChanged();
+	if (AppliedDamage > 0) OnDamageApplied.Broadcast(AppliedDamage, bInterruptActions);
 	if (CurrentHealth <= 0.0f)
 	{
 		OnDeath.Broadcast();

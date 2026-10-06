@@ -19,10 +19,14 @@ public:
 	virtual TSharedRef<SWidget> RebuildWidget() override;
 	TSharedPtr<SWidget> GetInventoryFocusTarget() const;
 	void CancelInteraction();
+	void SetPocketsOnly(bool bOnly);
+	bool IsPocketsOnly() const;
+	void CycleQuickPocket();
 	virtual void ReleaseSlateResources(bool bReleaseChildren) override;
 private:
 	UPROPERTY(Transient) TObjectPtr<UPlayerItemUseComponent> ItemUse;
 	UPROPERTY(Transient)
 	TObjectPtr<UInventoryComponent> Inventory;
 	TSharedPtr<SInventoryPanel> Panel;
+	bool bPocketsOnly = false;
 };

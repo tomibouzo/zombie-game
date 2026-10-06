@@ -97,14 +97,10 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FQuickPocketPanelTest, "Prototype.Inventory.Qui
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 bool FQuickPocketPanelTest::RunTest(const FString&)
 {
-	FQuickPocketsFixture Fixture;
-	auto* Inventory = Fixture.Inventory;
-	auto* Use = Fixture.Use;
-	for (const auto& Entry : Inventory->GetEntries())
-	{
-		FItemInstance Removed;
-		Inventory->RemoveItem(Entry.Item.InstanceId, Removed);
-	}
+	FQuickPocketsFixture F;
+	auto* Inventory = F.Inventory;
+	auto* Use = F.Use;
+	for (const auto& Entry : Inventory->GetEntries()) { FItemInstance Removed; Inventory->RemoveItem(Entry.Item.InstanceId,Removed); }
 	FInventoryItemProfile Profile;
 	Profile.Id = TEXT("PocketFixture");
 	Profile.Definition = NewObject<UItemDefinition>(Inventory);
@@ -113,83 +109,109 @@ bool FQuickPocketPanelTest::RunTest(const FString&)
 	Profile.Definition->Category = FGameplayTag::RequestGameplayTag(TEXT("Item.Category.Consumable.Medical"));
 	Profile.Definition->MassKg = .1;
 	FInventoryShapePart Shape; Shape.Vertices = {{-15,-10},{15,-10},{15,10},{-15,10}};
-	Profile.ShapeParts = { Shape };
-	if (!TestTrue(TEXT("Fixture profile valid"), Inventory->RegisterProfile(Profile) == EInventoryResult::Success)) return false;
-	const FItemInstance BagItem = FItemInstance::Create(Profile.Definition);
-	const FItemInstance QuickItem = FItemInstance::Create(Profile.Definition);
-	Inventory->AddItem(BagItem, Profile.Id, TEXT("Backpack"), FVector2D(50,50), 0);
-	Inventory->AddItem(QuickItem, Profile.Id, TEXT("Quick"), FVector2D(50,50), 0);
-	TStrongObjectPtr<UInventoryInputSettings> Settings(NewObject<UInventoryInputSettings>());
-	Settings->ResetDefaults();
-	FGuid Dropped;
-	const auto Panel = SNew(SInventoryPanel).Inventory(Inventory).ItemUse(Use).Controls(Settings.Get()).SaveControls(false)
-		.OnDropItem(SInventoryPanel::FOnDropItem::CreateLambda([&](FGuid Id, FString&) { Dropped = Id; return false; }));
-	const FGeometry G = FGeometry::MakeRoot(FVector2D(1000,800), FSlateLayoutTransform(1.5f));
-	const FVector2D BagOrigin(40,150), QuickOrigin(440,150);
-	auto Mouse = [&](FVector2D Point, FKey Key) { const auto P = G.LocalToAbsolute(Point); return FPointerEvent(0,P,P,TSet<FKey>(),Key,0,FModifierKeysState()); };
-	auto Down = [&](FVector2D P) { Panel->OnMouseButtonDown(G, Mouse(P,EKeys::LeftMouseButton)); };
-	auto Up = [&](FVector2D P) { Panel->OnMouseButtonUp(G, Mouse(P,EKeys::LeftMouseButton)); };
-	auto Key = [&](FKey K, bool Repeat = false) { Panel->OnKeyDown(G,FKeyEvent(K,FModifierKeysState(),0,Repeat,0,0)); };
-	auto Check = [&](FGuid Id, FName Pocket, FVector2D Position, double Angle = 0)
+	Profile.ShapeParts = {Shape};
+	if (!TestTrue(TEXT("Valid fixture profile"),Inventory->RegisterProfile(Profile)==EInventoryResult::Success)) return false;
+	TArray<FGuid> Ids;
+	for (int32 I=0; I<3; ++I)
 	{
-		FInventoryEntry Entry;
-		TestTrue(TEXT("Instance still exists"), Inventory->GetItem(Id,Entry));
-		TestEqual(TEXT("Destination pocket"), Entry.PocketId, Pocket);
-		TestTrue(TEXT("Placement preserved"), Entry.Position.Equals(Position,.001));
-		TestTrue(TEXT("Angle preserved"), FMath::IsNearlyEqual(Entry.AngleDegrees,Angle,.001));
-	};
-	TestEqual(TEXT("Initially pocket one"), Panel->GetVisibleQuickPocket(), FName(TEXT("Quick")));
-	Down(BagOrigin+FVector2D(50,50)); Up(QuickOrigin+FVector2D(100,100));
-	Check(BagItem.InstanceId,TEXT("Backpack"),FVector2D(50,50));
-	Down(QuickOrigin+FVector2D(60,50)); Key(EKeys::Tab);
-	TestEqual(TEXT("Cycle while dragging"), Panel->GetVisibleQuickPocket(),FName(TEXT("Quick2")));
-	Up(QuickOrigin+FVector2D(110,100));
-	Check(QuickItem.InstanceId,TEXT("Quick2"),FVector2D(100,100));
-	Key(EKeys::Tab,true);
-	TestEqual(TEXT("Held cycle key does not skip pockets"), Panel->GetVisibleQuickPocket(),FName(TEXT("Quick2")));
-	// Idle selection disappears when its pocket is hidden, so Drop cannot target it.
-	Key(EKeys::Tab); Key(EKeys::Delete);
-	TestFalse(TEXT("Hidden idle selection cannot be dropped"), Dropped.IsValid());
+		const auto Item=FItemInstance::Create(Profile.Definition); Ids.Add(Item.InstanceId);
+		Inventory->AddItem(Item,Profile.Id,UPlayerItemUseComponent::QuickPocketId(I),FVector2D(50),0);
+	}
+	TStrongObjectPtr<UInventoryInputSettings> Settings(NewObject<UInventoryInputSettings>()); Settings->ResetDefaults();
+	int32 Closed=0;
+	const auto Panel=SNew(SInventoryPanel).Inventory(Inventory).ItemUse(Use).Controls(Settings.Get()).SaveControls(false).PocketsOnly(true)
+		.OnClose(FSimpleDelegate::CreateLambda([&](){++Closed;}));
+	const FGeometry G=FGeometry::MakeRoot(FVector2D(1540,940),FSlateLayoutTransform(1.5f));
+	auto Mouse=[&](FVector2D P,FKey K){auto S=G.LocalToAbsolute(P);return FPointerEvent(0,S,S,TSet<FKey>(),K,0,FModifierKeysState());};
+	auto Down=[&](FVector2D P){Panel->OnMouseButtonDown(G,Mouse(P,EKeys::LeftMouseButton));};
+	auto Up=[&](FVector2D P){Panel->OnMouseButtonUp(G,Mouse(P,EKeys::LeftMouseButton));};
+	auto Key=[&](FKey K){Panel->OnKeyDown(G,FKeyEvent(K,FModifierKeysState(),0,false,0,0));};
+	TestTrue(TEXT("Pockets interface ready immediately"),Panel->IsInterfaceReady());
+	for (int32 I=0; I<3; ++I)
+	{
+		const FVector2D Origin(40+240*I,150);
+		Down(Origin+FVector2D(50)); Up(Origin+FVector2D(100));
+		FInventoryEntry Entry; Inventory->GetItem(Ids[I],Entry);
+		TestEqual(TEXT("All three pockets interact without cycling"),Entry.Position,FVector2D(100));
+	}
+	Key(EKeys::I);
+	TestFalse(TEXT("Full inventory begins loading"),Panel->IsInterfaceReady());
+	Use->Advance(1.9f); Panel->Tick(G,0,.1f);
+	Down(FVector2D(600,250)); Up(FVector2D(200,350));
+	FInventoryEntry Entry; Inventory->GetItem(Ids[0],Entry);
+	TestEqual(TEXT("All storage input gated during delay"),Entry.PocketId,FName(TEXT("Quick")));
+	Use->Advance(.1f); Panel->Tick(G,0,.1f);
+	TestTrue(TEXT("Full inventory available after delay"),Panel->IsInterfaceReady());
+	TestFalse(TEXT("Full inventory includes backpack"),Panel->IsPocketsOnly());
+	for (int32 I=0; I<3; ++I)
+	{
+		TestEqual(TEXT("Full view cycles one pocket at a time"),Panel->GetVisibleQuickPocket(),UPlayerItemUseComponent::QuickPocketId(I));
+		Down(FVector2D(600,250)); Up(FVector2D(600,280));
+		Inventory->GetItem(Ids[I],Entry);
+		TestEqual(TEXT("Visible pocket remains interactive"),Entry.Position,FVector2D(100,130));
+		Key(EKeys::Tab);
+		TestFalse(TEXT("Tab never changes full view to pockets-only"),Panel->IsPocketsOnly());
+		TestTrue(TEXT("Tab preserves backpack access"),Use->IsBackpackOpen());
+	}
+	TestEqual(TEXT("Third pocket wraps to first"),Panel->GetVisibleQuickPocket(),FName(TEXT("Quick")));
+	Down(FVector2D(600,280)); Up(FVector2D(430,720));
+	Inventory->GetItem(Ids[0],Entry);
+	TestEqual(TEXT("Enlarged backpack fits below former boundary"),Entry.PocketId,FName(TEXT("Backpack")));
+	TestEqual(TEXT("Expanded backpack placement"),Entry.Position,FVector2D(390,570));
 	Key(EKeys::Tab);
-	TestEqual(TEXT("Third pocket wraps to first"), Panel->GetVisibleQuickPocket(),FName(TEXT("Quick")));
-	Down(QuickOrigin+FVector2D(100,100)); Up(QuickOrigin+FVector2D(150,150));
-	Check(QuickItem.InstanceId,TEXT("Quick2"),FVector2D(100,100));
-	Key(EKeys::Tab);
-	Down(QuickOrigin+FVector2D(100,100)); Up(BagOrigin+FVector2D(150,150));
-	Check(QuickItem.InstanceId,TEXT("Quick2"),FVector2D(100,100));
-	Use->BeginOpenBackpack(); Use->Advance(2);
-	Down(QuickOrigin+FVector2D(100,100)); Up(BagOrigin+FVector2D(50,50));
-	Check(QuickItem.InstanceId,TEXT("Quick2"),FVector2D(100,100));
-	Down(QuickOrigin+FVector2D(100,100)); Key(EKeys::E); Panel->Tick(G,0,.125f);
-	Panel->OnKeyUp(G,FKeyEvent(EKeys::E,FModifierKeysState(),0,false,0,0));
-	Up(BagOrigin+FVector2D(150.25,150.75));
-	Check(QuickItem.InstanceId,TEXT("Backpack"),FVector2D(150.25,150.75),15);
-	// Backpack remains visible while cycling, and transfer targets the visible pocket.
-	Key(EKeys::Tab); Key(EKeys::T);
-	FInventoryEntry Entry; Inventory->GetItem(QuickItem.InstanceId,Entry);
-	TestEqual(TEXT("Transfer targets pocket three"), Entry.PocketId,FName(TEXT("Quick3")));
-	Down(QuickOrigin+Entry.Position); Up(QuickOrigin+FVector2D(2,2));
-	Check(QuickItem.InstanceId,TEXT("Quick3"),Entry.Position,15);
-	Down(QuickOrigin+Entry.Position); Key(EKeys::Tab); Key(EKeys::Escape); Up(BagOrigin+FVector2D(250,250));
-	Check(QuickItem.InstanceId,TEXT("Quick3"),Entry.Position,15);
-	Key(EKeys::Delete);
-	TestFalse(TEXT("Cancelled drag cannot leave a hidden drop target"), Dropped.IsValid());
-	// Key rebinding must retain cycling behavior.
-	FString Error;
-	TestTrue(TEXT("Cycle binding editable"), Settings->TrySetKey(EInventoryControl::ShowQuick,EKeys::Z,Error));
-	Key(EKeys::Tab);
-	TestEqual(TEXT("Old cycle key is inert"), Panel->GetVisibleQuickPocket(),FName(TEXT("Quick")));
-	Key(EKeys::Z); Key(EKeys::Z);
-	TestEqual(TEXT("New key reaches pocket three"), Panel->GetVisibleQuickPocket(),FName(TEXT("Quick3")));
-	Inventory->ReserveItem(QuickItem.InstanceId);
-	Down(QuickOrigin+Entry.Position); Up(BagOrigin+FVector2D(250,250));
-	Check(QuickItem.InstanceId,TEXT("Quick3"),Entry.Position,15);
-	Inventory->ReleaseItem(QuickItem.InstanceId);
-	Settings->bToggleGrab = true;
-	Down(QuickOrigin+Entry.Position); Up(QuickOrigin+Entry.Position); Key(EKeys::Z);
-	Down(QuickOrigin+FVector2D(100,100)); Up(QuickOrigin+FVector2D(100,100));
-	Check(QuickItem.InstanceId,TEXT("Quick"),FVector2D(100,100),15);
-	TestEqual(TEXT("Gestures preserve instance count"),Inventory->GetEntries().Num(),2);
+	Down(FVector2D(600,280)); Key(EKeys::Tab); Up(FVector2D(660,330));
+	Inventory->GetItem(Ids[1],Entry);
+	TestEqual(TEXT("Carried item can move across cycling"),Entry.PocketId,FName(TEXT("Quick3")));
+	Panel->SetPocketsOnly(true);
+	Key(EKeys::Tab); TestEqual(TEXT("Tab still closes pockets-only interface"),Closed,1);
+	Panel->SetPocketsOnly(false);
+	auto* Vitals=Use->GetOwner()->FindComponentByClass<UPlayerVitalsComponent>();
+	Vitals->ApplyDamage(1); Panel->Tick(G,0,.1f);
+	TestFalse(TEXT("Damage interrupts opening"),Use->IsOpeningBackpack());
+	TestEqual(TEXT("Interrupted opening closes UI"),Closed,2);
+	Panel->SetPocketsOnly(false); Use->Advance(2);
+	Vitals->ApplyDamage(1); Panel->Tick(G,0,.1f);
+	TestFalse(TEXT("Damage closes open backpack"),Use->IsBackpackOpen());
+	TestEqual(TEXT("Damage closes complete interface"),Closed,3);
+	Panel->SetPocketsOnly(false); Use->Advance(1);
+	Vitals->ApplyDamage(1,false); Use->Advance(1);
+	TestTrue(TEXT("Noninterrupting damage allows opening to finish"),Panel->IsInterfaceReady());
+	Vitals->ApplyDamage(1,false);
+	TestTrue(TEXT("Noninterrupting damage leaves backpack open"),Use->IsBackpackOpen());
+	FString Error; Settings->TrySetKey(EInventoryControl::ShowQuick,EKeys::Z,Error);
+	Key(EKeys::Tab); TestEqual(TEXT("Old cycle binding inert"),Panel->GetVisibleQuickPocket(),FName(TEXT("Quick")));
+	Key(EKeys::Z); TestEqual(TEXT("Rebound cycle key works"),Panel->GetVisibleQuickPocket(),FName(TEXT("Quick2")));
+	TestFalse(TEXT("Rebound cycle preserves full view"),Panel->IsPocketsOnly());
+	TestEqual(TEXT("Mode changes preserve ownership"),Inventory->GetEntries().Num(),3);
+	return true;
+}
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDamageInterruptionTest, "Prototype.Inventory.DamageInterruption",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FDamageInterruptionTest::RunTest(const FString&)
+{
+	FQuickPocketsFixture F;
+	auto* Vitals=F.Use->GetOwner()->FindComponentByClass<UPlayerVitalsComponent>();
+	FGuid Bandage;
+	for (const auto& Entry:F.Inventory->GetEntries())
+		if (Entry.PocketId==TEXT("Quick") && Entry.Item.Definition->ItemId==TEXT("Bandage")) Bandage=Entry.Item.InstanceId;
+	Vitals->ApplyDamage(40);
+	if (!TestTrue(TEXT("Bandage equipped"),F.Use->EquipToHands(Bandage))) return false;
+	F.Use->HandlePrimaryAction(); F.Use->Advance(.5f);
+	const float Progress=F.Use->GetProgress();
+	Vitals->ApplyDamage(1,false);
+	TestTrue(TEXT("Future damage-over-time can preserve bandage use"),F.Use->IsUsing());
+	TestEqual(TEXT("Noninterrupting damage preserves timer"),F.Use->GetProgress(),Progress);
+	Vitals->ApplyDamage(1);
+	TestFalse(TEXT("Direct hit cancels bandage"),F.Use->IsUsing());
+	TestEqual(TEXT("Direct hit clears progress"),F.Use->GetProgress(),0.f);
+	FInventoryEntry Entry;
+	TestTrue(TEXT("Interrupted bandage remains owned"),F.Inventory->GetItem(Bandage,Entry));
+	F.Use->HandlePrimaryAction(); Vitals->ApplyDamage(1,false); F.Use->Advance(10);
+	TestFalse(TEXT("Bandage completes through noninterrupting damage"),F.Inventory->GetItem(Bandage,Entry));
+	F.Use->BeginOpenBackpack(); F.Use->Advance(1);
+	Vitals->ApplyDamage(1000,false);
+	TestFalse(TEXT("Death always interrupts opening"),F.Use->IsOpeningBackpack());
+	TestFalse(TEXT("Death leaves backpack closed"),F.Use->IsBackpackOpen());
 	return true;
 }
 #endif

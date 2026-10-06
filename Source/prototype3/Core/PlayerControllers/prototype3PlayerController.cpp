@@ -118,37 +118,6 @@ void Aprototype3PlayerController::BeginPlay()
 		InterfaceInputProcessor = MakeShared<FGameInterfaceInputProcessor>(this);
 		FSlateApplication::Get().RegisterInputPreProcessor(InterfaceInputProcessor, 0);
 	}
-	if (IsLocalPlayerController() && GEngine && GEngine->GameViewport)
-	{
-		SAssignNew(ItemUseOverlay, SOverlay).Visibility(EVisibility::HitTestInvisible)
-		+SOverlay::Slot().HAlign(HAlign_Left).VAlign(VAlign_Top).Padding(24)
-		[
-			SNew(SBox).WidthOverride(600)
-			[SNew(SBorder).BorderImage(FCoreStyle::Get().GetBrush(TEXT("WhiteBrush")))
-			.BorderBackgroundColor(FLinearColor(.02f,.03f,.04f,.85f)).Padding(12)
-			[
-			SNew(SVerticalBox)
-			+SVerticalBox::Slot().AutoHeight()[SNew(STextBlock).Font(FCoreStyle::GetDefaultFontStyle(TEXT("Bold"),14)).Text_Lambda([this]()
-			{
-				auto* Use=ItemUse(this); auto* Vitals=GetPawn() ? GetPawn()->FindComponentByClass<UPlayerVitalsComponent>() : nullptr;
-				return FText::FromString(Use && Vitals ? FString::Printf(TEXT("Health %.0f / %.0f   |   %s"),Vitals->GetCurrentHealth(),Vitals->GetMaxHealth(),*Use->GetHeldName()) : TEXT(""));
-			})]
-			+SVerticalBox::Slot().AutoHeight()[SNew(STextBlock).Font(FCoreStyle::GetDefaultFontStyle(TEXT("Regular"),11)).AutoWrapText(true).Text_Lambda([this]()
-			{
-				auto* Use=ItemUse(this); if (!Use || !Use->Shortcuts) return FText::GetEmpty();
-				FString Text;
-				for (int32 I=0; I<3; ++I) Text += Use->Shortcuts->Keys[I].GetDisplayName().ToString()+TEXT(": ")+Use->Shortcuts->ItemTypes[I].ToString()+TEXT("   ");
-				return FText::FromString(Text+TEXT("| Double tap: cycle | Left click: use | Right click: stow"));
-			})]
-			+SVerticalBox::Slot().AutoHeight()[SNew(STextBlock).Font(FCoreStyle::GetDefaultFontStyle(TEXT("Regular"),11)).AutoWrapText(true).Text_Lambda([this]() { auto* Use=ItemUse(this); return FText::FromString(Use ? Use->Status : FString()); })]
-			+SVerticalBox::Slot().AutoHeight().Padding(0,5)[SNew(SProgressBar).Percent_Lambda([this]() -> TOptional<float>
-			{ auto* Use=ItemUse(this); return Use && (Use->IsUsing() || Use->IsOpeningBackpack()) ? Use->GetProgress() : 0.f; })]
-			]]
-		];
-		GEngine->GameViewport->AddViewportWidgetContent(ItemUseOverlay.ToSharedRef(),10);
-	}
-
-	
 	// only spawn touch controls on local player controllers
 	if (IsLocalPlayerController() && ShouldUseTouchControls())
 	{
@@ -249,6 +218,15 @@ bool Aprototype3PlayerController::InputKey(const FInputKeyEventArgs& Params)
 		return true;
 	}
 	if (PauseMenu.IsValid()) return true;
+	if (IsLocalController() && Params.Key == GetDefault<UInventoryInputSettings>()->GetKey(EInventoryControl::ShowQuick))
+	{
+		if (Params.Event == IE_Pressed)
+		{
+			if (bInventoryDemoOpen && InventoryDemoWidget && !InventoryDemoWidget->IsPocketsOnly()) InventoryDemoWidget->CycleQuickPocket();
+			else ToggleInventoryDemo(false, true);
+		}
+		return true;
+	}
 	if (IsLocalController() && Params.Key == GetDefault<UInventoryInputSettings>()->GetKey(EInventoryControl::Toggle))
 	{
 		if (Params.Event == IE_Pressed) ToggleInventoryDemo();
@@ -265,10 +243,16 @@ bool Aprototype3PlayerController::InputKey(const FInputKeyEventArgs& Params)
 	return Super::InputKey(Params);
 }
 
-void Aprototype3PlayerController::ToggleInventoryDemo(bool bLegacyLab)
+void Aprototype3PlayerController::ToggleInventoryDemo(bool bLegacyLab, bool bPocketsOnly)
 {
 	if (PauseMenu.IsValid()) return;
-	if (bInventoryDemoOpen) { CloseInventoryDemo(); return; }
+	if (bInventoryDemoOpen)
+	{
+		if (InventoryDemoWidget && InventoryDemoWidget->IsPocketsOnly() != bPocketsOnly)
+			InventoryDemoWidget->SetPocketsOnly(bPocketsOnly);
+		else CloseInventoryDemo();
+		return;
+	}
 	if (!IsLocalController()) return;
 	if (!InventoryDemoWidget)
 	{
@@ -280,8 +264,10 @@ void Aprototype3PlayerController::ToggleInventoryDemo(bool bLegacyLab)
 	if (auto* Use=ItemUse(this))
 	{
 		Use->CancelUse();
-		if (!bLegacyLab) Use->BeginOpenBackpack();
+		Use->CloseBackpack();
+		if (!bLegacyLab && !bPocketsOnly && !Use->BeginOpenBackpack()) return;
 	}
+	InventoryDemoWidget->SetPocketsOnly(bPocketsOnly);
 	bCursorBeforeInventory = bShowMouseCursor;
 	bInventoryDemoOpen = true;
 	if (PlayerInput) PlayerInput->FlushPressedKeys();
@@ -398,7 +384,5 @@ void Aprototype3PlayerController::EndPlay(const EEndPlayReason::Type EndPlayReas
 	InterfaceInputProcessor.Reset();
 	ClosePauseMenu();
 	CloseInventoryDemo();
-	if (ItemUseOverlay.IsValid() && GEngine && GEngine->GameViewport) GEngine->GameViewport->RemoveViewportWidgetContent(ItemUseOverlay.ToSharedRef());
-	ItemUseOverlay.Reset();
 	Super::EndPlay(EndPlayReason);
 }

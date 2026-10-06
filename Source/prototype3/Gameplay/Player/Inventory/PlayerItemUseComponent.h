@@ -26,7 +26,7 @@ public:
 	UPROPERTY(EditAnywhere, Category="Prototype", meta=(ClampMin="0.01")) float BackpackOpenSeconds = 2;
 	UPROPERTY(EditAnywhere, Category="Prototype", meta=(ClampMin="0.01")) double QuickMaxItemMassKg = 0.6;
 	UPROPERTY(EditAnywhere, Category="Prototype") FVector2D QuickSize = FVector2D(220,220);
-	UPROPERTY(EditAnywhere, Category="Prototype") FVector2D BackpackSize = FVector2D(360,360);
+	UPROPERTY(EditAnywhere, Category="Prototype") FVector2D BackpackSize = FVector2D(420,600);
 	UPROPERTY(EditAnywhere, Category="Prototype", meta=(ClampMin="0.1", ClampMax="1")) float DoubleTapSeconds = 0.3f;
 	UPROPERTY(Transient) TObjectPtr<UInventoryComponent> Inventory;
 	UPROPERTY(Transient) TObjectPtr<UItemUseSettings> Shortcuts;
@@ -64,7 +64,7 @@ private:
 	UPROPERTY(Transient) TObjectPtr<AInventoryTestSpikes> Spikes;
 	FGuid HeldId;
 	bool bUsing = false, bOpening = false, bBackpackOpen = false, bBackpackEquipped = true;
-	float Elapsed = 0, Duration = 3, PreviousHealth = 0;
+	float Elapsed = 0, Duration = 3;
 	int32 LastShortcut = INDEX_NONE;
 	double LastShortcutTime = -100;
 	const UHealingItemActionData* HealingAction() const;
@@ -72,4 +72,5 @@ private:
 	void TrySpawnSpikes();
 	bool bSpikesSpawnAttempted = false;
 	UFUNCTION() void HealthChanged(float Current, float Maximum, float Percentage);
+	UFUNCTION() void DamageApplied(float Amount, bool bInterruptActions);
 };

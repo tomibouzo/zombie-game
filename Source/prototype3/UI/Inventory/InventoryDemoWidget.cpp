@@ -27,14 +27,17 @@ TSharedRef<SWidget> UInventoryDemoWidget::RebuildWidget()
 	}
 	return SNew(SScaleBox).Stretch(EStretch::ScaleToFit)
 	[
-		SNew(SBox).WidthOverride(1000).HeightOverride(800)
+		SNew(SBox).WidthOverride(1780).HeightOverride(1040).HAlign(HAlign_Center).VAlign(VAlign_Center)
 		[
-			SAssignNew(Panel, SInventoryPanel).Inventory(Inventory).ItemUse(ItemUse)
+			SNew(SBox).WidthOverride(1540).HeightOverride(940)
+			[
+			SAssignNew(Panel, SInventoryPanel).Inventory(Inventory).ItemUse(ItemUse).Player(GetOwningPlayerPawn()).PocketsOnly(bPocketsOnly)
 			.OnClose(FSimpleDelegate::CreateWeakLambda(this, [this]() { OnClose.ExecuteIfBound(); }))
 			.OnDropItem(SInventoryPanel::FOnDropItem::CreateWeakLambda(this, [this](FGuid Id, FString& Error)
 			{
 				return ADroppedItem::DropFromInventory(Inventory, Id, GetOwningPlayerPawn(), Error) != nullptr;
 			}))
+			]
 		]
 	];
 }
@@ -48,6 +51,16 @@ void UInventoryDemoWidget::CancelInteraction()
 {
 	if (Panel.IsValid()) Panel->CancelInteraction();
 }
+
+void UInventoryDemoWidget::SetPocketsOnly(bool bOnly)
+{
+	bPocketsOnly = bOnly;
+	if (Panel.IsValid()) Panel->SetPocketsOnly(bOnly);
+}
+
+bool UInventoryDemoWidget::IsPocketsOnly() const { return Panel.IsValid() ? Panel->IsPocketsOnly() : bPocketsOnly; }
+
+void UInventoryDemoWidget::CycleQuickPocket() { if (Panel.IsValid()) Panel->CycleQuickPocket(); }
 
 void UInventoryDemoWidget::ReleaseSlateResources(bool bReleaseChildren)
 {
