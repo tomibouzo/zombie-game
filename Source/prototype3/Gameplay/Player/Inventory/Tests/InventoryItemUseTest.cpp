@@ -71,6 +71,7 @@ bool FQuickStorageRulesTest::RunTest(const FString&)
 #include "UI/Inventory/InventoryDemoWidget.h"
 #include "UI/Inventory/SInventoryPanel.h"
 #include "UI/Inventory/InventoryInputSettings.h"
+#include "UObject/UnrealType.h"
 #include "Blueprint/WidgetBlueprintLibrary.h"
 #include "Framework/Application/SlateApplication.h"
 #include "Layout/WidgetPath.h"
@@ -84,7 +85,13 @@ class FItemUsePIECheck : public IAutomationLatentCommand
 {
 public:
 	explicit FItemUsePIECheck(FAutomationTestBase* InTest) : Test(InTest), Started(FPlatformTime::Seconds()) {}
-	~FItemUsePIECheck() { FSlateApplication::Get().SetHandleDeviceInputWhenApplicationNotActive(bPreviousInput); }
+	~FItemUsePIECheck()
+	{
+		FSlateApplication::Get().SetHandleDeviceInputWhenApplicationNotActive(bPreviousInput);
+		if (SavedControls.IsValid())
+			for (TFieldIterator<FProperty> P(SavedControls->GetClass()); P; ++P)
+				if (P->HasAnyPropertyFlags(CPF_Config)) P->CopyCompleteValue_InContainer(GetMutableDefault<UInventoryInputSettings>(),SavedControls.Get());
+	}
 	bool Update() override
 	{
 		UWorld* World=GEditor ? GEditor->PlayWorld : nullptr;
@@ -92,7 +99,7 @@ public:
 		auto* Pawn=PC ? Cast<Aprototype3Character>(PC->GetPawn()) : nullptr;
 		auto* Use=Pawn ? Pawn->FindComponentByClass<UPlayerItemUseComponent>() : nullptr;
 		auto* Vitals=Pawn ? Pawn->FindComponentByClass<UPlayerVitalsComponent>() : nullptr;
-		if (!Use || !Use->Inventory || !Use->Shortcuts || !Vitals || !Vitals->IsAlive())
+		if (!Use || !Use->Inventory || !Vitals || !Vitals->IsAlive())
 		{
 			if (FPlatformTime::Seconds()-Started<60) return false;
 			Test->AddError(TEXT("Item-use PIE failed to initialize.")); return true;
@@ -103,8 +110,10 @@ public:
 		{
 			bPreviousInput=FSlateApplication::Get().GetHandleDeviceInputWhenApplicationNotActive();
 			FSlateApplication::Get().SetHandleDeviceInputWhenApplicationNotActive(true);
-			Use->bSavePreferences=false;
-			Use->Shortcuts->Keys={EKeys::E,EKeys::F,EKeys::G}; Use->Shortcuts->ItemTypes={FName(TEXT("Bandage")),FName(TEXT("CannedBeans")),NAME_None};
+			auto* Controls = GetMutableDefault<UInventoryInputSettings>();
+			SavedControls.Reset(DuplicateObject<UInventoryInputSettings>(Controls,GetTransientPackage()));
+			Controls->ResetDefaults(); PC->RebuildControls();
+
 			for (const auto& Entry : Use->Inventory->GetEntries())
 			{
 				Test->TestTrue(TEXT("No sample stranded in setup"),Entry.PocketId!=TEXT("Setup"));
@@ -112,27 +121,26 @@ public:
 			}
 			Count=Use->Inventory->GetEntries().Num();
 			Vitals->ApplyDamage(40);
-			Key(PC,EKeys::E,true); Key(PC,EKeys::E,false);
+			Key(PC,EKeys::G,true); Key(PC,EKeys::G,false);
 			Test->TestEqual(TEXT("One press puts bandage in hands"),Use->GetHeldId(),QuickBandage);
 			Test->TestFalse(TEXT("Shortcut never starts consumption"),Use->IsUsing());
 			Test->TestEqual(TEXT("Shortcut preserves health"),Vitals->GetCurrentHealth(),60.f);
-			Key(PC,EKeys::LeftMouseButton,true);
+			Key(PC,EKeys::RightMouseButton,true);
 			return Wait(.25);
 		}
 		if (Phase==1)
 		{
 			if (FParse::Param(FCommandLine::Get(),TEXT("InventoryCapture"))) FScreenshotRequest::RequestScreenshot(FPaths::ConvertRelativePathToFull(FPaths::ProjectSavedDir()/TEXT("InventoryVerification/player-held.png")),false,false);
-			Key(PC,EKeys::LeftMouseButton,false);
-			Test->TestTrue(TEXT("Real primary input starts use"),Use->IsUsing());
+			Test->TestTrue(TEXT("Real secondary hold starts use"),Use->IsUsing());
 			Key(PC,EKeys::W,true); Key(PC,EKeys::LeftShift,true);
 			return Wait(.65);
 		}
 		if (Phase==2)
 		{
 			if (FParse::Param(FCommandLine::Get(),TEXT("InventoryCapture"))) FScreenshotRequest::RequestScreenshot(FPaths::ConvertRelativePathToFull(FPaths::ProjectSavedDir()/TEXT("InventoryVerification/player-use-hud.png")),true,false);
-			Test->TestTrue(TEXT("Only walking during consumption"),Pawn->GetActiveGait()==EPlayerLocomotionGait::Walking);
+			Test->TestTrue(TEXT("New run request interrupts consumption"),!Use->IsUsing() && Pawn->GetActiveGait()==EPlayerLocomotionGait::Running);
 			Key(PC,EKeys::W,false); Key(PC,EKeys::LeftShift,false);
-			Test->TestTrue(TEXT("Use accumulated real elapsed time"),Use->GetProgress()>.1f);
+			Key(PC,EKeys::RightMouseButton,false);
 			Vitals->ApplyDamage(10);
 			Test->TestEqual(TEXT("Damage resets progress"),Use->GetProgress(),0.f);
 			Test->TestFalse(TEXT("Damage cancels use immediately"),Use->IsUsing());
@@ -144,13 +152,12 @@ public:
 			Test->TestFalse(TEXT("Healing does not resume automatically"),Use->IsUsing());
 			Test->TestEqual(TEXT("No healing after waiting a full use duration"),Vitals->GetCurrentHealth(),50.f);
 			Test->TestEqual(TEXT("Interrupted bandage is not consumed"),Use->Inventory->GetEntries().Num(),Count);
-			Key(PC,EKeys::LeftMouseButton,true);
+			Key(PC,EKeys::RightMouseButton,true);
 			return Wait(.25);
 		}
 		if (Phase==4)
 		{
-			Key(PC,EKeys::LeftMouseButton,false);
-			Test->TestTrue(TEXT("A new click starts healing again"),Use->IsUsing());
+			Test->TestTrue(TEXT("A fresh hold starts healing again"),Use->IsUsing());
 			Test->TestTrue(TEXT("Retry begins with a fresh timer"),Use->GetProgress()>.01f && Use->GetProgress()<.3f);
 			return Wait(1.0);
 		}
@@ -162,10 +169,11 @@ public:
 		}
 		if (Phase==6)
 		{
+			Key(PC,EKeys::RightMouseButton,false);
 			Test->TestEqual(TEXT("Bandage restores 25 health after manual retry"),Vitals->GetCurrentHealth(),75.f);
 			Test->TestEqual(TEXT("Single item consumed"),Use->Inventory->GetEntries().Num(),Count-1);
 			Test->TestFalse(TEXT("Hands cleared"),Use->HasHeldItem());
-			Key(PC,EKeys::E,true); Key(PC,EKeys::E,false);
+			Key(PC,EKeys::G,true); Key(PC,EKeys::G,false);
 			Test->TestFalse(TEXT("Missing quick bandage does not pull from bag"),Use->HasHeldItem());
 			Test->TestFalse(TEXT("Closed bag cannot supply hands"),Use->EquipToHands(BagBandage));
 			PC->ToggleInventoryDemo();
@@ -187,21 +195,22 @@ public:
 			Capture(TEXT("player-backpack.png"));
 			FInventoryEntry Entry; Use->Inventory->GetItem(BagBandage,Entry);
 			Click(FVector2D(40,150)+Entry.Position);
-			if (GetDefault<UInventoryInputSettings>()->bToggleGrab) Click(FVector2D(40,150)+Entry.Position);
-			Panel->OnKeyDown(Panel->GetCachedGeometry(), FKeyEvent(GetDefault<UInventoryInputSettings>()->GetKey(EInventoryControl::ToHands),FModifierKeysState(),0,false,0,0));
+			Click(FVector2D(40,150)+Entry.Position);
+
 			Test->TestEqual(TEXT("UI selected bandage reaches hands"),Use->GetHeldId(),BagBandage);
-			Test->TestFalse(TEXT("Inventory closed restores movement"),PC->IsMoveInputIgnored());
-			Key(PC,EKeys::LeftMouseButton,true);
+			Test->TestTrue(TEXT("Taking item leaves inventory open"),PC->IsMoveInputIgnored());
+			PC->CloseInventoryDemo();
+			Test->TestFalse(TEXT("Closing inventory restores movement"),PC->IsMoveInputIgnored());
+			Key(PC,EKeys::RightMouseButton,true);
 			return Wait(.25);
 		}
 		if (Phase==9)
 		{
-			Key(PC,EKeys::LeftMouseButton,false);
 			Test->TestTrue(TEXT("Bag bandage has same use duration"),Use->GetProgress()>.01f && Use->GetProgress()<.3f);
-			Use->CancelUse();
+			Key(PC,EKeys::RightMouseButton,false);
 			Test->TestEqual(TEXT("Cancel preserves inventory"),Use->Inventory->GetEntries().Num(),Count-1);
 			Vitals->Heal(100);
-			Use->HandlePrimaryAction();
+			Use->PressItemAction(true);
 			Test->TestFalse(TEXT("Full health cannot waste a bandage"),Use->IsUsing());
 			Use->Stow();
 			const FGuid BagIdentity=Use->Backpack.InstanceId;
@@ -210,12 +219,15 @@ public:
 			Use->ToggleBackpackEquipment();
 			Test->TestEqual(TEXT("Reequip preserves backpack identity"),Use->Backpack.InstanceId,BagIdentity);
 			Test->TestEqual(TEXT("Reequip preserves contents"),Use->Inventory->GetEntries().Num(),Count-1);
-			Use->HandleShortcut(1,100); Use->HandleShortcut(1,100.1);
-			Test->TestTrue(TEXT("Double tap cycles type"),Use->Shortcuts->ItemTypes[1]!=TEXT("CannedBeans"));
+			Use->PressQuickItem(1); Use->ReleaseQuickItem(1);
+			const FGuid FirstTap = Use->GetHeldId();
+			Use->PressQuickItem(1); Use->ReleaseQuickItem(1);
+			Test->TestEqual(TEXT("Double tap retains the same named item"),Use->GetHeldId(),FirstTap);
 			Test->TestFalse(TEXT("Double tap never consumes"),Use->IsUsing());
 			Use->Stow();
-			Test->TestTrue(TEXT("Rebind shortcut"),Use->Shortcuts->TryBind(0,EKeys::J,GetDefault<UInventoryInputSettings>()->GetKey(EInventoryControl::Toggle)));
-			Test->TestFalse(TEXT("Duplicate shortcut rejected"),Use->Shortcuts->TryBind(1,EKeys::J,EKeys::I));
+			FString BindError;
+			Test->TestTrue(TEXT("Rebind shortcut"),GetMutableDefault<UInventoryInputSettings>()->TrySetKey(EInventoryControl::Bandage,EKeys::J,BindError));
+			Test->TestFalse(TEXT("Duplicate shortcut rejected"),GetMutableDefault<UInventoryInputSettings>()->TrySetKey(EInventoryControl::Primary,EKeys::J,BindError));
 			int32 SpikeCount=0;
 			for (TActorIterator<AInventoryTestSpikes> It(World); It; ++It)
 			{
@@ -262,6 +274,7 @@ private:
 	}
 	FAutomationTestBase* Test;
 	double Started,WaitUntil=0;
+	TStrongObjectPtr<UInventoryInputSettings> SavedControls;
 	int32 Phase=0,Count=0;
 	bool bPreviousInput=false;
 	FGuid QuickBandage,BagBandage;

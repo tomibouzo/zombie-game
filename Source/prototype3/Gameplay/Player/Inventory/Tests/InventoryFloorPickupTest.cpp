@@ -33,7 +33,7 @@ struct FFloorFixture
 		auto* Vitals = NewObject<UPlayerVitalsComponent>(Player); Vitals->RegisterComponent();
 		Vitals->InitializeVitals(100,100,50,.25f);
 		Use = NewObject<UPlayerItemUseComponent>(Player);
-		Use->bSpawnTestSpikes = false; Use->bSavePreferences = false; Use->RegisterComponent();
+		Use->bSpawnTestSpikes = false; Use->RegisterComponent();
 		Player->DispatchBeginPlay();
 		for (const auto& Entry : Inventory->GetEntries())
 		{
@@ -138,7 +138,7 @@ bool FFloorPanelTest::RunTest(const FString&)
 	auto Tick = [&]() { Panel->Tick(G,0,.21f); };
 	auto Present = [&]() { FInventoryEntry E; return F.Inventory->GetItem(Id,E); };
 	const FVector2D Floor(780,168), Quick(610,250), Bag(150,260);
-	Down(Floor); Down(Floor,EKeys::MiddleMouseButton); Up(Quick);
+	Down(Floor); Panel->OnKeyDown(G,FKeyEvent(EKeys::C,FModifierKeysState(),0,false,0,0)); Up(Quick);
 	TestFalse(TEXT("Cancel never admits floor item"),Present());
 	Down(Floor); Up(FVector2D(750,250));
 	TestTrue(TEXT("Invalid gap release preserves world source"),Actor->CanInteract(F.Player));
@@ -190,7 +190,7 @@ bool FFloorPanelTest::RunTest(const FString&)
 	Down(Floor); Up(Floor); Down(Bag); Up(Bag);
 	TestTrue(TEXT("Click mode pickup into open backpack succeeds"),F.Inventory->GetItem(Id,Entry));
 	TestEqual(TEXT("Backpack destination"),Entry.PocketId,FName(TEXT("Backpack")));
-	Key(EKeys::Delete);
+	Key(EKeys::F);
 	TestEqual(TEXT("Mapped Drop still works on selected item"),Drops,2);
 	Settings->bToggleGrab=false;
 	Down(Floor);
@@ -218,21 +218,50 @@ bool FFloorScrollTest::RunTest(const FString&)
 	Panel->OnMouseWheel(G,Mouse(FVector2D(780,168),EKeys::MouseWheelAxis,-1));
 	TestEqual(TEXT("List scrolling does not alter rotation speed"),Settings->TurnSpeed,120.f);
 	const FGuid Expected=Nearby[3]->GetItem().InstanceId;
+	FString Error;
+	Settings->AssignKey(EInventoryControl::Grab,1,EKeys::J,false,Error);
 	Panel->OnMouseButtonDown(G,Mouse(FVector2D(780,168),EKeys::LeftMouseButton));
+	Panel->OnKeyDown(G,FKeyEvent(EKeys::J,FModifierKeysState(),0,false,0,0));
 	Panel->OnMouseWheel(G,Mouse(FVector2D(780,168),EKeys::MouseWheelAxis,1));
 	TestEqual(TEXT("Wheel during drag adjusts rotation speed"),Settings->TurnSpeed,135.f);
 	Panel->OnMouseButtonUp(G,Mouse(FVector2D(150,260),EKeys::LeftMouseButton));
 	FInventoryEntry Entry;
+	TestFalse(TEXT("Floor drag waits for last grab binding release"),F.Inventory->GetItem(Expected,Entry));
+	Panel->OnKeyUp(G,FKeyEvent(EKeys::J,FModifierKeysState(),0,false,0,0));
 	TestTrue(TEXT("Scrolled row picks the displayed instance"),F.Inventory->GetItem(Expected,Entry));
 	TestEqual(TEXT("Duplicate names do not duplicate items"),ADroppedItem::FindNearby(F.Player).Num(),19);
 	Panel->SetPocketsOnly(false); F.Use->Advance(2); Panel->Tick(G,0,.21f);
 	const auto Remaining=ADroppedItem::FindNearby(F.Player);
 	const FGuid Last=Remaining.Last()->GetItem().InstanceId;
+	Settings->TrySetKey(EInventoryControl::FasterRotation,EKeys::Invalid,Error);
+	Settings->TrySetKey(EInventoryControl::SlowerRotation,EKeys::Invalid,Error);
 	Panel->OnMouseWheel(G,Mouse(FVector2D(780,708),EKeys::MouseWheelAxis,-100));
+	TestEqual(TEXT("Unbound speed controls preserve fixed rotation speed"),Settings->TurnSpeed,135.f);
 	Panel->OnMouseButtonDown(G,Mouse(FVector2D(780,708),EKeys::LeftMouseButton));
 	Panel->OnMouseButtonUp(G,Mouse(FVector2D(150,550),EKeys::LeftMouseButton));
 	TestTrue(TEXT("Extended floor list scrolls and selects near backpack bottom"),F.Inventory->GetItem(Last,Entry));
 	TestEqual(TEXT("Extended list pickup reaches backpack"),Entry.PocketId,FName(TEXT("Backpack")));
+	return true;
+}
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHeldItemDropTest, "Prototype.Inventory.HeldItemDrop",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FHeldItemDropTest::RunTest(const FString&)
+{
+	FFloorFixture F;
+	const FItemInstance Item = FItemInstance::Create(F.Profile.Definition);
+	if (!TestTrue(TEXT("Fixture placed"),F.Inventory->AddItem(Item,F.Profile.Id,TEXT("Quick"),FVector2D(60),0)==EInventoryResult::Success)) return false;
+	if (!TestTrue(TEXT("Take fixture in hands"),F.Use->EquipToHands(Item.InstanceId))) return false;
+	FString Error;
+	TestNull(TEXT("Invalid world drop fails"),ADroppedItem::DropFromInventory(F.Inventory,Item.InstanceId,nullptr,Error));
+	TestEqual(TEXT("Failed drop retains hands"),F.Use->GetHeldId(),Item.InstanceId);
+	TestTrue(TEXT("Failed drop retains reservation"),F.Inventory->IsReserved(Item.InstanceId));
+	auto* Dropped = ADroppedItem::DropFromInventory(F.Inventory,Item.InstanceId,F.Player,Error);
+	if (!TestNotNull(TEXT("Owned held item drops successfully"),Dropped)) return false;
+	TestEqual(TEXT("World actor has original identity"),Dropped->GetItem().InstanceId,Item.InstanceId);
+	TestFalse(TEXT("Successful drop clears hands"),F.Use->HasHeldItem());
+	TestFalse(TEXT("Successful drop clears reservation"),F.Inventory->IsReserved(Item.InstanceId));
+	FInventoryEntry Entry;
+	TestFalse(TEXT("No inventory duplicate after held drop"),F.Inventory->GetItem(Item.InstanceId,Entry));
 	return true;
 }
 #endif

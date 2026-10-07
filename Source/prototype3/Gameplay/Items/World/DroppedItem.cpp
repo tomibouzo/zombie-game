@@ -1,6 +1,7 @@
 #include "Gameplay/Items/World/DroppedItem.h"
 #include "Gameplay/Items/ItemDefinition.h"
 #include "Gameplay/Player/Inventory/InventoryComponent.h"
+#include "Gameplay/Player/Inventory/PlayerItemUseComponent.h"
 #include "Components/BoxComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/TextRenderComponent.h"
@@ -155,7 +156,9 @@ ADroppedItem* ADroppedItem::DropFromInventory(UInventoryComponent* Inventory, FG
 		Error = TEXT("Cannot drop this item right now.");
 		return nullptr;
 	}
-	if (Inventory->IsReserved(InstanceId))
+	auto* Use = Player->FindComponentByClass<UPlayerItemUseComponent>();
+	const bool bHeldByPlayer = Use && Use->Inventory == Inventory && Use->GetHeldId() == InstanceId;
+	if (Inventory->IsReserved(InstanceId) && !bHeldByPlayer)
 	{
 		Error = TEXT("Stow this item before dropping it.");
 		return nullptr;
@@ -186,13 +189,14 @@ ADroppedItem* ADroppedItem::DropFromInventory(UInventoryComponent* Inventory, FG
 	Dropped->Body->SetSimulatePhysics(true);
 	FItemInstance Removed;
 	if (!IsValid(Dropped) || !Dropped->Body->IsSimulatingPhysics()
-		|| Inventory->RemoveItem(InstanceId, Removed) != EInventoryResult::Success)
+		|| Inventory->RemoveItem(InstanceId, Removed, bHeldByPlayer) != EInventoryResult::Success)
 	{
 		if (IsValid(Dropped)) Dropped->Destroy();
 		Error = TEXT("Could not transfer the item. It remains in the inventory.");
 		return nullptr;
 	}
 	Dropped->Item = Removed;
+	if (bHeldByPlayer) Use->Stow();
 	Dropped->bTransferring = false;
 	return Dropped;
 }

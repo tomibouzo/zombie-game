@@ -1,254 +1,191 @@
-# Player inventory prototype — backpack, quick pockets and floor items
+# Inventory and controls
 
-Updated: 2026-10-06. Floor pickup and drag dropping on `floor-pickup-drag-drop`,
-based on main `3250dbd`, which includes the pause menu and three quick pockets.
+Updated: 2026-10-06. Controls redesign on `controls-options-rework`.
+Read `Source/prototype3/Gameplay/Items/README.md` before changing item actions.
 
-## Pause and Options
+## Options
 
-**Escape** closes the current interface. From gameplay it opens Pause; from Pause
-it resumes; from Options it returns to Pause; from inventory it closes inventory.
-Closing inventory during a drag cancels that placement and keeps the original item.
-Holding Escape does not repeatedly open/close menus. Escape is reserved and cannot
-be rebound. A previous inventory assignment using Escape migrates to a free key,
-preserving other saved keys, grab mode and rotation speed.
+Pause > Options has **Controls**, **Sound**, and **Graphics**. Sound and Graphics
+are placeholders. Controls uses a horizontal scrollable bar: **Movement**, **Item actions**,
+**Gameplay**, and **Inventory**. Gameplay contains opening keys; Inventory groups
+backpack, item handling, rotation speed, and floor-list controls.
 
-Pause contains **Resume**, **Options**, **Exit Game**, and **Exit to Desktop**, in
-that order. The world and item-use timers pause while Pause or Options is open.
-In Play in Editor, **Exit Game** ends Play and **Exit to Desktop** is disabled.
-The editor's Stop toolbar button also remains available. The Escape handler is
-scoped to this game's focused viewport/interfaces and does not change editor
-preferences. In standalone/packaged play, Exit to Desktop quits the game; Exit Game
-is disabled until there is a title-menu/session destination.
+Every editable action has **two binding buttons**; the second starts **Unbound**. Buttons
+show compact key names (LMC, RMC, Esc, L Ctrl), with full names on hover. Either
+binding activates the action; releasing one while the other is held does not end
+a held action. Gameplay and inventory manipulation bindings are independent.
 
-**Options** contains a scrollable list of inventory and quick-item key assignments,
-plus **Reset controls to default**. Select a key and press its replacement; Escape
-closes Options without completing an in-progress assignment. Conflicts within the
-same input context are rejected. Gameplay quick-item keys may share inventory-only
-keys (for example E), but cannot conflict with opening inventory. Reset restores
-keys, hold-grab mode and rotation speed, retaining the assigned quick-item types.
+Choose a slot, then press a keyboard key or mouse button. **Delete** clears that
+slot; **Escape** cancels capture. Same-context conflicts offer **Replace / Cancel**.
+Replace clears only the colliding slots. Keys may be reused in different contexts.
+Edits remain a draft until **Apply changes**. Exiting dirty Options offers **Cancel**
+(return to editing), **Cancel and exit** (discard), or **Save and exit**.
+Explicitly empty slots survive reloading. Esc is fixed and cannot be reassigned.
+Hints show current keys, or **Unbound**, including actions with neither slot bound.
 
-Inventory shows storage/item names and placement feedback. A separate read-only
-controls panel on the right shows each current binding on its own line. The old
-persistent health/item/status/progress overlay is removed. Rebinding is in Options. These default inventory
-keys replace the old buttons (all rebindable in Options):
+**Reset this section** restores that section's keys/preferences. A default used
+by another section stays unbound, with an explanation; other sections are preserved.
+**Reset all controls** requires confirmation. Movement also has look sensitivity
+and vertical inversion. Inventory has hold/click dragging and numeric rotation speed.
 
-| Action | Key |
-| --- | --- |
-| From gameplay: open pockets and floor; in pockets: close; in backpack: cycle pocket | Tab |
-| Open full inventory (two-second delay) | I; R from pockets |
-| Equip / unequip backpack | U |
-| Take selected item in hands | H |
-| Transfer selected item to the first fitting quick pocket | T |
-| Transfer selected item to backpack | Y |
-| Stow held item | X |
-| Assign selected quick item to shortcut 1 / 2 / 3 | 1 / 2 / 3 |
-| Switch hold / click grab mode | V |
+## Default controls
 
-The Add bandage control remains only in the isolated geometry laboratory. The
-player inventory no longer exposes it. Rotation speed remains saved and controlled
-by the wheel; its numeric indicator and +/- buttons are removed.
+All listed actions except Esc are rebindable. The input model for run/sprint/crouch remains
+the existing combined tap-toggle / hold-until-release behavior. No mode setting.
+There is no jumping; Space remains reserved. Delete is reserved for clearing a
+binding during assignment.
 
-The full interface has the backpack on the left, one pocket in the
-middle, and the floor list on the right at the same height as the backpack.
-Tab cycles the displayed pocket (1 → 2 → 3 → 1) while keeping the backpack open.
-Pockets mode shows all three pockets in a
-row with the floor list. The controls manual sits outside the storage panel in both
-modes. A margin gives dragged items room to clear the storage panel's edge.
+| Context | Action | Default key |
+| --- | --- | --- |
+| Gameplay | Move forward / backward / left / right | W / S / A / D |
+| Gameplay | Run / sprint / crouch | Left Shift / Left Alt / Left Ctrl |
+| Gameplay | Primary / secondary item action | Left / right mouse |
+| Gameplay | Take / use bandage | G |
+| Gameplay or inventory | Stow held item | X |
+| Gameplay or pockets | Open / close pockets | Tab |
+| Gameplay or inventory | Open / close backpack | I |
+| Backpack open | Next pocket | Tab |
+| Inventory | Select / drag / place item | Left mouse |
+| Inventory | Rotate item with mouse | Hold right mouse |
+| Inventory | Rotate item left / right | Q / E |
+| Inventory | Cancel item placement | C |
+| Inventory | Drop selected item | F |
+| Manipulating an item | Increase / decrease rotation speed | Wheel up / down |
+| Over floor list, idle | Scroll floor items up / down | Wheel up / down |
+| Gameplay / interface | Pause / close interface / Back | Escape |
 
-## Run this version
+The separate pockets and pocket-cycle actions may both use Tab because their
+contexts differ. T/Y automatic transfers, H take-in-hands, player-assigned object
+slots, V drag-mode toggle, and R backpack-open alias are retired.
+The isolated geometry laboratory retains its B add-bandage test control.
 
-Open this checkout's `prototype3.uproject`, load
-`/Game/FirstPerson/Lvl_FirstPerson`, and press Play. The prototype is enabled by
-the character's ItemUse component.
+## Hands and item use
 
-- **E once** puts the configured quick item in hands. It never consumes it.
-- **Double E** cycles the shortcut's item type among available quick items and
-  puts that type in hands. Holding the key does not repeat the action.
-- **Left click** starts the held bandage's use. Releasing the button does not cancel.
-- **Right click** cancels and stows the held item in its reserved place.
-- **I** opens inventory by default; an existing customized open key is preserved.
-  Pause > Options shows the current key.
-- **F** initially selects canned beans; the third shortcut (**G**) starts unassigned.
-  Other sample action effects are not implemented in this first bandage slice.
+Primary and secondary execute only the matching item contract slot. A missing
+slot does nothing. With empty hands, primary retains the existing punch.
+Bandage healing is **secondary**: hold right mouse for **3 seconds** to restore
+**25 health**. Release early to stop without consuming or healing.
+Most future consumables should follow the same hold/release rule.
 
-The bandage takes **3 seconds** and restores **25 health**, capped at maximum health.
-You may walk while using it; running, sprinting, jumping and melee are blocked.
-Interrupting damage cancels healing and its animation. The bandage stays in hands,
-unspent; another left click is required to begin a fresh 3-second use.
-Canceling, opening inventory or death stops use without spending the bandage.
-Full health prevents use. The effect and consumption happen only at completion.
+Tap a quick-item key to take its fixed item type into hands from any pocket.
+Hold it for 0.3 seconds to begin the same secondary use action; keep holding until
+completion. Release cancels unfinished use and leaves the item in hands.
+Continued holding never consumes another item automatically. Only Bandage has a
+quick-item binding. Food/water effects and their bindings are deferred. The former
+default 1 migrates to G, or a free letter when G is already assigned.
 
-A white roll is shown in first person with simple movement while using it.
-It is positioned by the camera until a holding pose is authored. Other sample objects currently
-share this placeholder. These are not finished models or hand animations.
-The held object's place stays reserved (shown dimmed) so stowing it cannot fail
-or create a duplicate. A reserved item cannot be moved or removed in the panel.
+A valid new conflicting action interrupts healing: switching items or requesting
+applicable run/sprint. Direction, movement, stamina and standing clearance still
+apply. A failed request, such as a missing quick item, preserves the current use.
+Interrupted use needs a fresh press. Walking can coexist with healing.
+Full health prevents wasting a bandage.
 
-## Quick storage and backpack
+X stows to the reserved original storage position. Opening a cursor interface
+or losing viewport focus stops item use and clears held input; it preserves the
+item in hands. Interface clicks never also perform gameplay item actions.
+Taking an item reserves its existing entry; it never creates a second item.
 
-The full free-placement menu shows the backpack and one quick pocket together:
+## Inventory interaction
 
-| Setting | Prototype default |
-| --- | --- |
-| Quick pockets | 3 independent spaces, each 220 x 220 logical units |
-| Maximum mass per quick object | 0.60 kg |
-| Quick total-weight limit | None |
-| Quick firearm rule | Firearms excluded even if small and light |
-| Backpack space | 420 x 600 logical units |
-| Backpack opening delay | 2 seconds |
+Tab opens all current pockets plus the floor list immediately. I opens the
+backpack after the existing two-second delay, showing backpack + one pocket +
+floor. Tab cycles pockets in backpack view, including during a drag.
+I or Back closes/cancels the backpack. Reopening requires the delay.
+Inventory/opening blocks movement and looking.
 
-All values are provisional. Quick items must pass both the per-object mass rule
-and silhouette placement. A light oversized object still fails. Non-firearm
-throwables are not excluded by the firearm rule; no grenade action is supplied.
+Single grab/select activation selects an item. In default hold mode, moving more
+than five logical pixels starts dragging; release places it. Double activation on
+the same unmoved, unrotated stored item takes it into hands, leaving inventory open.
+Double activation on the held item stows it. This also works with rebound keyboard
+keys and with optional click-to-grab/click-to-place mode.
 
-One sample backpack starts equipped in the prototype equipment slot. **I** starts
-the full interface's two-second opening delay. The dark Inventory panel and title
-appear immediately, with a progress bar centered in that panel. Containers and the
-controls manual appear when opening completes; storage input is blocked until then.
-**Tab** opens pockets and floor immediately. From pockets, **I** or **R** starts
-opening the full interface. Tab in the full interface cycles the visible pocket
-without switching modes or closing the backpack. Tab closes the pockets-only view. Escape closes either mode or
-cancels opening. Direct damage closes the full interface and interrupts opening.
-Select an item using the existing grab/place controls, then press **H** to take
-it in hands. This closes the menu; use still takes the same 3 seconds.
-Closing inventory closes the backpack, so reopening it requires its access delay.
+Hold the rotation control and move around the fixed item center; release it to
+resume dragging smoothly. Q/E turn continuously. The rotation speed is saved,
+15–360 degrees/second, default 120; the default mouse response is 1:1.
+Wheel changes speed by 15 while manipulating an item, otherwise scrolls the
+hovered floor list. It never does both. Unbind the speed actions and set a numeric
+speed in Options to keep a fixed value; floor scrolling remains independent.
 
-**U** unequips the backpack, hides its contents and keeps their identities/placements.
-Equip it again from pockets, then open the full interface. This prototype models one backpack; it does not
-yet implement dropping backpacks into the world, multiple bags or nested bags.
+Green placement commits; red placement restores original position/angle.
+Rendering, hit testing and collision use the same polygons. Holes remain usable;
+edges may touch and every shape part must fit.
+C cancels placement while keeping inventory open. Back cancels and closes it.
+A held item may be dragged directly: success clears hands/reservation; canceled
+or failed placement preserves the original hands/storage state.
 
-All three quick pockets are visible and interactive together in pockets mode.
-In backpack mode, Tab cycles one visible pocket and can carry a dragged item across
-the change. Cycling clears idle selection from a hidden pocket; canceling a carried
-item preserves its original storage and angle. Switching interface modes cancels a
-pending drag and clears selection. Failed placements, canceled drags and closing the interface
-preserve the source item and angle. Initial sample quick items remain in pocket one;
-pockets two and three start empty.
+## Storage and dropping
 
-**T / Y** transfers the selected item to a quick pocket / backpack at an available position.
-T targets the displayed pocket in backpack mode, or the first fitting pocket in pockets mode.
-These actions sample candidate positions; ordinary manual placement remains
-continuous. Failed transfers preserve the original. The backpack opens first
-when transferring into it. **X** stows the held item and frees its reserved place.
+Storage placement is manual, including floor pickup. Quick-item bindings only
+search pockets; they never pull from a backpack or the floor.
+Prototype storage: three 220×220 pockets, each with a 0.60 kg per-item limit and
+no firearms; one 420×600 backpack. Values and footprints are provisional.
+Future clothing/wearables will determine pocket count/size.
 
-Quick shortcuts search all three pockets.
-They are assigned by item type, not to a particular copy. Select an
-item in any quick pocket and press **1 / 2 / 3** to assign the corresponding shortcut.
-Change its key in Pause > Options. Duplicate shortcut keys, movement keys, mouse
-buttons and the current inventory-open key are rejected. Missing assigned items
-do nothing and never silently use an item from the backpack. Settings persist in
-GameUserSettings; inventory contents reset at the end of Play.
+Backpack equipment has no player binding until a full feature exists. The internal
+prototype equipment toggle is retained for fixtures. This is one bag, without
+world backpack drops, multiple bags or nested containers.
+Direct damage interrupts backpack access and closes its interface.
 
-## Dropping items
+F drops a selected item at the player's feet, including one in hands.
+The world actor must be ready before ownership transfers. Failed drops preserve
+inventory and hands. There is no deletion control. The equipped backpack is not
+an inventory entry and cannot be dropped here.
 
-In the inventory, select an item and press **Drop** (default **Delete**). You can
-drop the selected item without holding it, including in click-to-grab mode. The
-former Remove binding becomes Drop, preserving a custom key; there is no item
-deletion control. A held item reserved for use must be stowed first. The equipped
-backpack is outside the inventory's item entries and cannot be dropped here.
+Dragging an item entirely clear of **all displayed storage grids** also drops it.
+The floor list and surrounding panel do not block a drop. Its complete rotated
+silhouette must clear the grids; the cursor alone is insufficient. Partial overlap
+or edge contact cancels the world drop. Hold mode commits on release; click mode
+commits on the next grab activation.
 
-The nine saved sample types have temporary named, colored world shapes. The L,
-bar and frame geometry fixtures remain in the isolated laboratory. A dropped
-item appears at the player's feet, falls onto static ground, and ignores the
-player and other dropped items. It keeps its item identity and profile; the
-inventory entry is removed only after the world actor is ready. World items
-survive closing the menu but reset at the end of Play. Items falling below
-world Z -10,000 cm are removed.
+Dropped sample items have provisional named colored physics shapes. They fall
+onto static ground and ignore pawns/other drops. Instance identity, quantity and
+profile survive transfer. Items persist for the Play session; below-world cleanup
+defaults to Z=-10,000 cm, configured by `DroppedItem.CleanupZ`.
 
-Dragging an item entirely clear of all displayed backpack/pocket grids also drops
-it at the player's feet. The floor list and surrounding panel do not block a drop.
-The complete rotated silhouette must clear the storage grids; the cursor alone is
-insufficient. A partial overlap or edge contact cancels the world drop and keeps the
-original placement. Hold mode commits on release; click mode commits on the next
-grab click. Reserved items must still be stowed first.
+## Nearby floor items and damage
 
-## Nearby floor items
+The floor list refreshes every 0.2 seconds. Default radius is 250 cm from the
+player's feet in 3D, configured by `DroppedItem.PickupRadius`; no sight trace yet.
+Drag a floor name to reveal its silhouette and place it in a pocket/open backpack.
+Until placement succeeds, the world actor remains intact. Cancel, invalid fit,
+range loss, actor destruction, focus loss or closing the menu never duplicate it.
+Dragging the silhouette clear of every storage grid may instead move the same
+actor to the player's feet and clear its velocity. Direct floor-to-hands pickup
+and carrying with no reserved storage home remain deferred.
 
-The floor section lists nearby dropped item names. Wheel over the list to scroll;
-while dragging, the wheel continues to adjust rotation speed. The list refreshes
-every 0.2 seconds. It is accessible immediately in pockets mode and after opening
-completes in full inventory mode.
-The default radius is 250 cm (2.5 m), measured from the player's feet in 3D. Tune
-`PickupRadius` under `[/Script/prototype3.DroppedItem]` in Game config. This prototype
-uses distance only and does not require a sight trace.
+TEST SPIKES are an existing optional prototype hazard: 10 damage/second, stopping
+at 1 health. `bSpawnTestSpikes` disables them. Damage normally interrupts healing
+and backpack access; `ApplyDamage(Amount, false)` permits future damage-over-time
+without interruption. Death always interrupts. No bleeding/poison system is added.
 
-Grab a name to reveal the item's actual silhouette. Place it in any quick
-pocket or an open backpack using the existing rotation and fit controls. The world
-actor stays intact until admission succeeds. A blocked placement, cancel, menu close,
-focus/capture loss, destroyed actor or item leaving range keeps the source untransferred.
-Pickup preserves instance identity, definition, quantity and profile. Quick-pocket
-weight/firearm restrictions and the backpack opening delay still apply.
+## Code and verification
 
-A floor item can also be dragged completely outside the panel and dropped at your
-feet without entering a grid. This moves the same actor and clears its old velocity.
-Failed or canceled movement leaves it where it was. Only world items with a profile
-registered in this inventory appear in the list; all existing sample drops qualify.
+- `InventoryInputSettings`: canonical controls, contexts, two slots, persistence,
+  migration and preferences. `ItemUseSettings` only supplies the fixed quick-item
+  catalog and reads legacy preferences for migration.
+- `prototype3PlayerController`: runtime Enhanced Input mappings, quick-item
+  press/release, focus, pause and menu changes. Saved keyboard/mouse mappings
+  replace legacy digital asset mappings; analog/platform mappings are retained.
+- `prototype3Character`: matching primary/secondary routing and locomotion
+  interruption. Existing gait intent/stance/priority architecture is preserved.
+- `PlayerItemUseComponent`: hands, reservation, timed use, quick-item delay,
+  backpack access and damage interruption.
+- `SInventoryPanel`: contextual gestures and manual transactions.
+  `SPauseMenu`: sections, key capture, conflicts and reset.
+- `InventoryComponent` and `DroppedItem`: placement and ownership transactions.
 
-## Safe damage test
+Run `Scripts/VerifyInventory.ps1 -EngineRoot C:\UE_5.8` for a build and headless
+item/inventory code tests. Reports are under `Saved/InventoryVerification`.
+Optional `-PlayTest` / `-Capture` enable separate gameplay/visual checks; without
+those flags their gated tests report an informational skip, not gameplay evidence.
 
-A patch of cones labeled **TEST SPIKES** spawns in front/right of the local player
-on the floor. Touch it to take 10 damage per second. It stops at 1 health and
-cannot kill. Leave the patch, equip a bandage and click to heal. Reenter while
-using a bandage to test interruption and manual retry. The ItemUse component can disable the
-prototype hazard with `bSpawnTestSpikes`.
+The suite covers binding persistence/migration/unbinding, menu conflict decisions,
+strict item slots, hold/release and damage cancellation, single consumption,
+double activation, dual-key release, held-item move/drop rollback, storage admission,
+floor scrolling, rotation and geometry. Appearance and gameplay feel require the
+user's own playthrough.
 
-Damage calls default to interrupting both backpack access and bandage use.
-Future bleeding/poison systems can call `ApplyDamage(Amount, false)` to reduce health
-without interrupting either action. This only prepares the policy; no damage-over-time
-effect is added. Death always interrupts. The current test spikes still interrupt.
-
-## Preserved manipulation controls
-
-Hold left mouse to drag (or use your saved click-toggle mode). Hold right mouse
-while moving the cursor around the item to rotate, then release right mouse to
-resume dragging smoothly. Q/E also turn. The wheel changes the
-shared rotation speed in steps of 15, from 15 to 360 degrees/s. At the default
-120, mouse rotation is 1:1. Pressing the wheel cancels placement. Controls are
-rebindable in Pause > Options. Gameplay shortcuts only apply with this
-menu closed, so E can also remain a panel rotation binding.
-
-Green placements commit; red placements restore the original angle and position.
-Rendering, hit testing and collision share the same polygon silhouettes. Holes
-remain usable, edges may touch, and every part must fit inside its destination.
-
-## Implementation and verification
-
-- `Gameplay/Player/Inventory/InventoryComponent`: placement, pocket admission,
-  reservation, consumption and identity-preserving movement.
-- `Gameplay/Player/Inventory/PlayerItemUseComponent`: prototype population,
-  hands, quick shortcuts, backpack access, use timer and damage interruption.
-- `Gameplay/Player/Inventory/ItemUseSettings`: saved shortcut types and keys.
-- `Gameplay/Player/Inventory/InventoryTestSpikes`: nonlethal test hazard.
-- `UHealingItemActionData`: existing healing amount plus configurable UseSeconds.
-- `Core/Characters/prototype3Character`: assembly, held-item input routing and
-  movement restriction. Primary input uses healing data from either action slot;
-  the saved bandage definition retains the secondary-slot data supplied earlier.
-- `UI/Inventory`: existing menu adapted to player-owned storage. The old 560x560
-  laboratory is retained for independent geometry/rotation regression tests.
-- `UI/Pause/SPauseMenu`: pause actions and saved key assignment screen.
-- `Core/PlayerControllers/prototype3PlayerController`: interface focus, pausing,
-  scoped Escape handling and editor-safe exit actions.
-- `Gameplay/Items/World/DroppedItem`: temporary world shapes, transfer and cleanup.
-
-Run `Scripts/VerifyInventory.ps1 -Capture -PlayTest` in this checkout. It builds
-Unreal 5.8.1 and runs the item/inventory suite, including real Play input and UI
-routing. The new checks cover quick admission, reservations, timing, damage,
-consumption, bag access, equipment identity, shortcuts and nonlethal damage.
-Reports and images are under `Saved/InventoryVerification`. Automated Play checks
-are separate from the user's manual assessment of appearance and feel.
-The script expects at least 27 checks, including pause-menu defaults and the
-three-pocket lifecycle and panel interaction checks. The pocket checks use an
-isolated component world and synthetic Slate input; they do not assess gameplay
-appearance or feel.
-
-`FloorTransfers`, `FloorPanel` and `FloorScroll` add isolated physics-world and Slate
-input checks for ownership, failed/canceled transfers, range, backpack access,
-whole-item drop boundaries, reservations, grab modes and list scrolling.
-`QuickPocketPanel` checks full-interface loading, all three pockets in pockets mode,
-single-pocket cycling (including during drags) in backpack mode, mode switching,
-expanded backpack placement and damage closure. `DamageInterruption` checks bandage
-preservation/retry, noninterrupting damage and death during opening.
-
-Food, water, radiation treatment, firearms, grenade throwing, durable equipment,
-saved games and networking remain later slices. Their sample tags
-are configuration only. Existing sample masses and polygon sizes are provisional.
+Future work stays separate: run/sprint intent replacement; wearable storage;
+animated backpack/pocket selection; walking inventory; direct floor-to-hands;
+food/water and other item effects; saves/networking. The requested manual scrap-pile
+scroll check comes after these controls are completed and pushed.

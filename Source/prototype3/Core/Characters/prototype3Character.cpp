@@ -6,6 +6,7 @@
 #include "Gameplay/Player/Vitals/PlayerVitalsComponent.h"
 #include "Gameplay/Player/Inventory/InventoryComponent.h"
 #include "Gameplay/Player/Inventory/PlayerItemUseComponent.h"
+#include "UI/Inventory/InventoryInputSettings.h"
 #include "Animation/AnimInstance.h"
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
@@ -100,9 +101,7 @@ void Aprototype3Character::SetupPlayerInputComponent(UInputComponent* PlayerInpu
 	// Set up action bindings
 	if (UEnhancedInputComponent* EnhancedInputComponent = Cast<UEnhancedInputComponent>(PlayerInputComponent))
 	{
-		// Jumping
-		EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Started, this, &Aprototype3Character::DoJumpStart);
-		EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Completed, this, &Aprototype3Character::DoJumpEnd);
+		// Jump is intentionally unavailable; Space remains reserved.
 
 		// Moving
 		EnhancedInputComponent->BindAction(MoveAction, ETriggerEvent::Triggered, this, &Aprototype3Character::MoveInput);
@@ -175,7 +174,9 @@ void Aprototype3Character::LookInput(const FInputActionValue& Value)
 	FVector2D LookAxisVector = Value.Get<FVector2D>();
 
 	// pass the axis values to the aim input
-	DoAim(LookAxisVector.X, LookAxisVector.Y);
+	const auto* Controls = GetDefault<UInventoryInputSettings>();
+	DoAim(LookAxisVector.X * Controls->LookSensitivity,
+		LookAxisVector.Y * Controls->LookSensitivity * (Controls->bInvertLookY ? -1.f : 1.f));
 
 }
 
@@ -265,16 +266,34 @@ void Aprototype3Character::DoPrimaryActionStart_Implementation()
 
 void Aprototype3Character::DoPrimaryActionEnd_Implementation()
 {
+	ItemUseComponent->ReleaseItemAction(false);
 	MeleeComponent->StopAttacking();
 }
 
 void Aprototype3Character::DoSecondaryActionStart_Implementation()
 {
-	ItemUseComponent->Stow();
+	ItemUseComponent->PressItemAction(true);
 }
 
 void Aprototype3Character::DoSecondaryActionEnd_Implementation()
 {
+	ItemUseComponent->ReleaseItemAction(true);
+}
+
+void Aprototype3Character::PrepareForItemUse()
+{
+	ClearSpeedRequests();
+	bRequestedGaitInterruptsUse = false;
+	SetActiveGait(EPlayerLocomotionGait::Walking);
+}
+
+void Aprototype3Character::ClearControlIntents()
+{
+	ClearSpeedRequests();
+	bRequestedGaitInterruptsUse = false;
+	bCrouchInputHeld = false;
+	LocomotionIntent.MovementInput = FVector2D::ZeroVector;
+	MeleeComponent->StopAttacking();
 }
 
 void Aprototype3Character::DoEndCrouch()
@@ -363,6 +382,12 @@ void Aprototype3Character::GaitInputStarted(EPlayerLocomotionGait RequestedGait)
 	if (!GaitIntent || GaitIntent->bHeld)
 	{
 		return;
+	}
+	if (ItemUseComponent->IsUsing())
+	{
+		// Check applicability before interrupting. Capsule clearance is resolved below.
+		if (!IsGaitAllowedForMovementInput(RequestedGait) || !CanUseStaminaMovement()) return;
+		bRequestedGaitInterruptsUse = true;
 	}
 
 	if (IsCrouchActive() && !IsGaitAllowedForMovementInput(RequestedGait))
@@ -478,6 +503,17 @@ void Aprototype3Character::ResolveLocomotionState()
 		: EPlayerLocomotionStance::Standing;
 
 	const bool bIsMoving = GetVelocity().SizeSquared2D() > FMath::Square(1.0f);
+	if (bRequestedGaitInterruptsUse)
+	{
+		if (!HasRequestedGait()) bRequestedGaitInterruptsUse = false;
+		else if (!IsCrouchActive() && bIsMoving && CanUseStaminaMovement()
+			&& ((LocomotionIntent.Sprint.IsRequested() && IsGaitAllowedForMovementInput(EPlayerLocomotionGait::Sprinting))
+				|| (LocomotionIntent.Run.IsRequested() && IsGaitAllowedForMovementInput(EPlayerLocomotionGait::Running))))
+		{
+			ItemUseComponent->CancelUse();
+			bRequestedGaitInterruptsUse = false;
+		}
+	}
 	if (ItemUseComponent->IsUsing() || ItemUseComponent->IsOpeningBackpack() || IsCrouchActive() || !bIsMoving || !CanUseStaminaMovement())
 	{
 		SetActiveGait(EPlayerLocomotionGait::Walking);

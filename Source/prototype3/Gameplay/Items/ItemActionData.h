@@ -5,7 +5,7 @@
 #include "UObject/Object.h"
 #include "ItemActionData.generated.h"
 
-/** Data describing an item action. Input bindings live on the definition. */
+/** Semantic item action data. Physical key bindings belong to player controls settings. */
 UCLASS(Abstract, BlueprintType, EditInlineNew, DefaultToInstanced)
 class PROTOTYPE3_API UItemActionData : public UObject
 {

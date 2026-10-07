@@ -46,6 +46,9 @@ public:
 	void ExitPlaySession();
 	void ExitToDesktop();
 	virtual bool InputKey(const FInputKeyEventArgs& Params) override;
+	virtual void FlushPressedKeys() override;
+	void RebuildControls();
+	bool IsAssigningControls() const;
 
 protected:
 	UPROPERTY(Transient)
@@ -55,6 +58,8 @@ protected:
 	bool bCursorBeforePause = false;
 	TSharedPtr<class SPauseMenu> PauseMenu;
 	TSharedPtr<class IInputProcessor> InterfaceInputProcessor;
+	TSet<FKey> QuickKeysDown;
+	UPROPERTY(Transient) TArray<TObjectPtr<UInputMappingContext>> FilteredMappingContexts;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 	/** Input Mapping Contexts */
