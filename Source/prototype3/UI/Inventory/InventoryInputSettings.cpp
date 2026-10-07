@@ -4,7 +4,7 @@
 namespace
 {
 using A = EInventoryControl;
-constexpr uint32 Game = 1, Pockets = 2, Backpack = 4, PocketDrag = 8, BackpackDrag = 16, Menu = 32;
+constexpr uint32 Game = 1, Pockets = 2, Backpack = 4, PocketDrag = 8, BackpackDrag = 16, MenuContext = 32;
 constexpr uint32 Inventory = Pockets | Backpack | PocketDrag | BackpackDrag;
 TArray<FKey> DefaultKeys()
 {
@@ -174,7 +174,7 @@ bool UInventoryInputSettings::IsBindable(A Action)
 }
 uint32 UInventoryInputSettings::Contexts(A Action)
 {
-	if (Action == A::Back) return Game | Inventory | Menu;
+	if (Action == A::Back) return Game | Inventory | MenuContext;
 	if (!IsBindable(Action)) return 0;
 	if (Action == A::Toggle || Action == A::Stow) return Game | Inventory;
 	if (Action == A::ShowQuick) return Game | Pockets | PocketDrag;
