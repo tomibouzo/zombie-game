@@ -3,6 +3,8 @@
 #include "Gameplay/Items/ItemDefinition.h"
 #include "Gameplay/Items/World/DroppedItem.h"
 #include "GameFramework/Pawn.h"
+#include "GameFramework/PlayerController.h"
+#include "Core/PlayerControllers/prototype3PlayerController.h"
 #include "Gameplay/Player/Inventory/PlayerItemUseComponent.h"
 #include "Gameplay/Player/Inventory/ItemUseSettings.h"
 #include "Rendering/DrawElements.h"
@@ -551,6 +553,8 @@ void SInventoryPanel::OnFocusLost(const FFocusEvent&)
 {
 	CancelInteraction();
 	if (ItemUse.IsValid() && !bPocketsOnly) ItemUse->CloseBackpack();
+	if (Player.IsValid()) if (auto* Controller = Cast<Aprototype3PlayerController>(Player->GetController()); Controller && Controller->IsInventoryInterfaceOpen())
+		Controller->FlushPressedKeys();
 }
 
 int32 SInventoryPanel::OnPaint(const FPaintArgs&, const FGeometry& G, const FSlateRect&, FSlateWindowElementList& Out, int32 Layer, const FWidgetStyle&, bool) const

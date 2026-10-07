@@ -238,11 +238,28 @@ bool Aprototype3PlayerController::ShouldUseTouchControls() const
 
 void Aprototype3PlayerController::FlushPressedKeys()
 {
+	// SetInputMode queues the Slate focus change. Its later viewport LostFocus
+	// flush must not erase the opener or walking buttons routed into this UI.
+	const auto* Use = ItemUse(this);
+	const bool bEnteringBackpack = bInventoryDemoOpen && Use && Use->IsBackpackActive();
+	TMap<FKey, FKeyState> WalkingStates;
+	if (PlayerInput && (bEnteringBackpack || bPreserveWalkingInput))
+		for (FKey Key : HeldMovementKeys())
+			if (FKeyState* State = PlayerInput->GetKeyState(Key))
+			{
+				WalkingStates.Add(Key, *State);
+				// Keep movement out of Enhanced Input's ignore-until-release list.
+				// Replaying Press after Flush would combine a release and a press in
+				// one frame, which the engine treats as a released key.
+				*State = FKeyState();
+			}
 	QuickKeysDown.Empty();
-	BackpackKeysDown.Empty();
-	if (auto* Use = ItemUse(this)) Use->CancelUse();
+	if (!bEnteringBackpack) BackpackKeysDown.Empty();
+	if (auto* ActiveUse = ItemUse(this)) ActiveUse->CancelUse();
 	if (auto* PlayerCharacter = Cast<Aprototype3Character>(GetPawn())) PlayerCharacter->ClearControlIntents();
 	Super::FlushPressedKeys();
+	for (const auto& Pair : WalkingStates)
+		if (FKeyState* State = PlayerInput->GetKeyState(Pair.Key)) *State = Pair.Value;
 }
 
 TArray<FKey> Aprototype3PlayerController::HeldMovementKeys() const
@@ -253,11 +270,6 @@ TArray<FKey> Aprototype3PlayerController::HeldMovementKeys() const
 		for (int32 Slot = 0; Slot < 2; ++Slot)
 			if (const FKey Key = Controls->GetKey(Action, Slot); Key.IsValid() && IsInputKeyDown(Key)) Keys.AddUnique(Key);
 	return Keys;
-}
-
-void Aprototype3PlayerController::RestoreMovementKeys(const TArray<FKey>& Keys)
-{
-	for (FKey Key : Keys) Super::InputKey(FInputKeyEventArgs::CreateSimulated(Key, IE_Pressed, 1.f));
 }
 
 bool Aprototype3PlayerController::HandleInventoryControlKey(FKey Key, EInputEvent Event)
@@ -299,7 +311,11 @@ bool Aprototype3PlayerController::InputKey(const FInputKeyEventArgs& Params)
 		else if (Params.Event == IE_Released)
 		{
 			const bool bWasDown = BackpackKeysDown.Remove(Params.Key) > 0;
-			if (bWasDown && BackpackKeysDown.IsEmpty()) if (auto* Use = ItemUse(this)) Use->ReleaseBackpackInput();
+			if (bWasDown && BackpackKeysDown.IsEmpty()) if (auto* ActiveUse = ItemUse(this))
+			{
+				if (ActiveUse->GetBackpackMode() == EBackpackMode::Selecting && !HeldMovementKeys().IsEmpty()) ActiveUse->CloseBackpack();
+				else ActiveUse->ReleaseBackpackInput();
+			}
 		}
 		return true;
 	}
@@ -375,7 +391,6 @@ void Aprototype3PlayerController::ToggleInventoryDemo(bool bLegacyLab, bool bPoc
 	InventoryDemoWidget->SetPocketsOnly(bPocketsOnly);
 	bCursorBeforeInventory = bShowMouseCursor;
 	bInventoryDemoOpen = true;
-	const auto MovementKeys = HeldMovementKeys();
 	FlushPressedKeys();
 	// A held attack is driven by the pawn component's tick, independently of UI input.
 	if (APawn* ControlledPawn = GetPawn())
@@ -389,13 +404,11 @@ void Aprototype3PlayerController::ToggleInventoryDemo(bool bLegacyLab, bool bPoc
 	FInputModeUIOnly InventoryInputMode;
 	InventoryInputMode.SetWidgetToFocus(InventoryDemoWidget->GetInventoryFocusTarget());
 	SetInputMode(InventoryInputMode);
-	if (!bPocketsOnly && !bLegacyLab) RestoreMovementKeys(MovementKeys);
 }
 
 void Aprototype3PlayerController::CloseInventoryDemo()
 {
 	if (!bInventoryDemoOpen) return;
-	const auto MovementKeys = HeldMovementKeys();
 	bInventoryDemoOpen = false;
 	if (InventoryDemoWidget)
 	{
@@ -407,8 +420,8 @@ void Aprototype3PlayerController::CloseInventoryDemo()
 	SetIgnoreLookInput(false);
 	bShowMouseCursor = bCursorBeforeInventory;
 	SetInputMode(FInputModeGameOnly());
+	TGuardValue<bool> PreserveWalking(bPreserveWalkingInput, true);
 	FlushPressedKeys();
-	RestoreMovementKeys(MovementKeys);
 }
 
 bool Aprototype3PlayerController::HasInterfaceFocus(int32 UserIndex) const

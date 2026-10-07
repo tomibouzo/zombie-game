@@ -6,6 +6,14 @@
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Core/Characters/prototype3Character.h"
+#include "Core/PlayerControllers/prototype3PlayerController.h"
+#include "Engine/LocalPlayer.h"
+#include "GameFramework/PlayerInput.h"
+#include "EnhancedPlayerInput.h"
+#include "EnhancedInputSubsystems.h"
+#include "InputMappingContext.h"
+#include "InputAction.h"
+#include "InputKeyEventArgs.h"
 #include "Gameplay/Player/Inventory/InventoryComponent.h"
 #include "Gameplay/Player/Inventory/PlayerItemUseComponent.h"
 #include "Gameplay/Player/Vitals/PlayerVitalsComponent.h"
@@ -193,6 +201,76 @@ bool FBackpackPanelDelayTest::RunTest(const FString&)
 	Panel->CancelInteraction();
 	TestFalse(TEXT("Interface cancellation clears pending state"),F.Use->IsArranging());
 	TestEqual(TEXT("Canceled gesture keeps committed source"),F.Entry().PocketId,FName(TEXT("Backpack")));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FBackpackInputRoutingTest, "Prototype.Inventory.BackpackInputRouting",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FBackpackInputRoutingTest::RunTest(const FString&)
+{
+	FBackpackFixture F;
+	auto* Type = LoadClass<Aprototype3PlayerController>(nullptr, TEXT("/Game/FirstPerson/Blueprints/BP_FirstPersonPlayerController.BP_FirstPersonPlayerController_C"));
+	if (!TestNotNull(TEXT("Player controller class"), Type)) return false;
+	auto* Controller = F.World->SpawnActor<Aprototype3PlayerController>(Type);
+	Controller->Player = NewObject<ULocalPlayer>(GEngine);
+	Controller->Player->PlayerController = Controller;
+	auto* Input = NewObject<UEnhancedPlayerInput>(Controller);
+	Controller->PlayerInput = Input;
+	auto* MoveAction = NewObject<UInputAction>(Controller); MoveAction->ValueType = EInputActionValueType::Axis2D;
+	auto* Mapping = NewObject<UInputMappingContext>(Controller);
+	Mapping->MapKey(MoveAction, EKeys::W);
+	auto* Subsystem = NewObject<UEnhancedInputLocalPlayerSubsystem>(Controller->GetLocalPlayer());
+	FModifyContextOptions MappingOptions; MappingOptions.bForceImmediately = true;
+	Subsystem->AddMappingContext(Mapping, 0, MappingOptions);
+	Controller->Possess(F.Player);
+	TStrongObjectPtr<UInventoryInputSettings> Saved(DuplicateObject<UInventoryInputSettings>(GetMutableDefault<UInventoryInputSettings>(), GetTransientPackage()));
+	auto* Settings = GetMutableDefault<UInventoryInputSettings>(); Settings->ResetDefaults();
+	FString Error; Settings->AssignKey(EInventoryControl::Toggle,1,EKeys::J,false,Error);
+	auto BeginPress = [&]()
+	{
+		Controller->CloseInventoryDemo();
+		F.Use->BeginOpenBackpack(true);
+		Controller->bInventoryDemoOpen = true;
+		Controller->BackpackKeysDown.Add(EKeys::I);
+		// Reproduce the viewport focus flush queued by opening the Slate interface.
+		Controller->FlushPressedKeys();
+	};
+	BeginPress(); F.Use->Advance(.1f);
+	TestTrue(TEXT("Focus flush preserves the physical opener"),Controller->BackpackKeysDown.Contains(EKeys::I));
+	TestTrue(TEXT("Release routes through the inventory controller"),Controller->HandleInventoryControlKey(EKeys::I,IE_Released));
+	TestTrue(TEXT("Release after focus change selects quick mode"),F.Use->GetBackpackMode()==EBackpackMode::Quick);
+	F.Use->Advance(.4f); TestTrue(TEXT("Tap completes quick opening"),F.Use->IsBackpackOpen());
+	BeginPress(); F.Use->Advance(.3f);
+	Controller->HandleInventoryControlKey(EKeys::I,IE_Released);
+	TestFalse(TEXT("Release while slow charging cancels opening"),F.Use->IsBackpackActive());
+	BeginPress(); F.Use->Advance(.3f);
+	Controller->HandleInventoryControlKey(EKeys::J,IE_Pressed);
+	Controller->HandleInventoryControlKey(EKeys::I,IE_Released);
+	TestTrue(TEXT("Alternate binding keeps the same hold alive"),F.Use->IsOpeningBackpack());
+	Controller->HandleInventoryControlKey(EKeys::J,IE_Released);
+	TestFalse(TEXT("Last held binding release cancels charging"),F.Use->IsBackpackActive());
+	BeginPress(); F.Use->Advance(2.5f);
+	Controller->HandleInventoryControlKey(EKeys::I,IE_Released);
+	TestTrue(TEXT("Release after loading leaves slow inventory open"),F.Use->IsBackpackOpen());
+	Controller->HandleInventoryControlKey(EKeys::I,IE_Pressed);
+	TestFalse(TEXT("A fresh press closes loaded inventory"),F.Use->IsBackpackActive());
+	BeginPress();
+	Controller->HandleInventoryControlKey(EKeys::W,IE_Pressed);
+	TArray<UInputComponent*> Stack;
+	Controller->PlayerInput->ProcessInputStack(Stack,.016f,false);
+	TestTrue(TEXT("Walking press reaches player input"),Controller->IsInputKeyDown(EKeys::W));
+	Controller->FlushPressedKeys();
+	Controller->PlayerInput->ProcessInputStack(Stack,.016f,false);
+	TestTrue(TEXT("UI focus flush retains held walking"),Controller->IsInputKeyDown(EKeys::W));
+	TestTrue(TEXT("Enhanced movement action is not ignored after flush"),Input->GetActionValue(MoveAction).GetMagnitude() > 0);
+	Controller->CloseInventoryDemo();
+	Input->ProcessInputStack(Stack,.016f,false);
+	TestTrue(TEXT("Closing also preserves held walking"),Controller->IsInputKeyDown(EKeys::W));
+	Controller->InputKey(FInputKeyEventArgs::CreateSimulated(EKeys::W,IE_Released,0.f));
+	Controller->PlayerInput->ProcessInputStack(Stack,.016f,false);
+	TestFalse(TEXT("Walking release is not stuck"),Controller->IsInputKeyDown(EKeys::W));
+	Controller->CloseInventoryDemo();
+	Settings->CopySettingsFrom(*Saved.Get());
 	return true;
 }
 #endif

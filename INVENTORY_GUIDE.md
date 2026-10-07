@@ -216,6 +216,6 @@ floor scrolling, rotation and geometry. Appearance and gameplay feel require the
 user's own playthrough.
 
 Future work stays separate: run/sprint intent replacement; wearable storage;
-animated backpack/pocket selection; walking inventory; direct floor-to-hands;
-food/water and other item effects; saves/networking. The requested manual scrap-pile
-scroll check comes after these controls are completed and pushed.
+animated backpack/pocket selection; direct floor-to-hands; food/water and other
+item effects; saves/networking. The mixed floor-item test pile is implemented
+independently on `floor-item-test-pile` for scrolling and pickup checks.
