@@ -131,7 +131,7 @@ public:
 			return false;
 		}
 		if (FPlatformTime::Seconds() < WaitUntil) return false;
-		if (Case == 5) { MouseButton(EKeys::MiddleMouseButton, true); MouseButton(EKeys::MiddleMouseButton, false); }
+		if (Case == 5) { App.ProcessKeyDownEvent(FKeyEvent(EKeys::C,FModifierKeysState(),0,false,0,0)); App.ProcessKeyUpEvent(FKeyEvent(EKeys::C,FModifierKeysState(),0,false,0,0)); }
 		if (Case == 6) App.ReleaseAllPointerCapture();
 		if (Case == 7) { Pointer = FVector2D(45,155); RouteMove(); }
 		if (Case == 8) App.ClearKeyboardFocus();
@@ -193,7 +193,7 @@ private:
 			FInventoryEntry Preview;
 			Inventory->GetItem(ItemId,Preview);
 			Test->TestEqual(Label(TEXT("rotation preview preserves stored angle")),Preview.AngleDegrees,Before.AngleDegrees);
-			if (Case == 12) { MouseButton(EKeys::MiddleMouseButton,true); MouseButton(EKeys::MiddleMouseButton,false); }
+			if (Case == 12) { App.ProcessKeyDownEvent(FKeyEvent(EKeys::C,FModifierKeysState(),0,false,0,0)); App.ProcessKeyUpEvent(FKeyEvent(EKeys::C,FModifierKeysState(),0,false,0,0)); }
 			else if (Case == 15) App.ClearKeyboardFocus();
 			else if (Case == 16) App.ReleaseAllPointerCapture();
 			else if (Case != 10)

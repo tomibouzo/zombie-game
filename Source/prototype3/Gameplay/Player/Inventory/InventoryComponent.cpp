@@ -80,9 +80,9 @@ EInventoryResult UInventoryComponent::CheckPlacement(FName ProfileId, FName Pock
 	return ValidatePlacement(ProfileId, PocketId, Position, AngleDegrees, FGuid());
 }
 
-EInventoryResult UInventoryComponent::CheckMove(FGuid InstanceId, FName PocketId, FVector2D Position, double AngleDegrees) const
+EInventoryResult UInventoryComponent::CheckMove(FGuid InstanceId, FName PocketId, FVector2D Position, double AngleDegrees, bool bAllowReserved) const
 {
-	if (IsReserved(InstanceId)) return EInventoryResult::InUse;
+	if (IsReserved(InstanceId) && !bAllowReserved) return EInventoryResult::InUse;
 	const int32 Index = FindItem(InstanceId);
 	if (Index == INDEX_NONE) return EInventoryResult::NotFound;
 	if (!Entries[Index].Item.IsValid()) return EInventoryResult::InvalidItem;
@@ -108,9 +108,9 @@ EInventoryResult UInventoryComponent::AddItem(const FItemInstance& Item, FName P
 	return EInventoryResult::Success;
 }
 
-EInventoryResult UInventoryComponent::MoveItem(FGuid InstanceId, FName PocketId, FVector2D Position, double AngleDegrees)
+EInventoryResult UInventoryComponent::MoveItem(FGuid InstanceId, FName PocketId, FVector2D Position, double AngleDegrees, bool bAllowReserved)
 {
-	const EInventoryResult Result = CheckMove(InstanceId, PocketId, Position, AngleDegrees);
+	const EInventoryResult Result = CheckMove(InstanceId, PocketId, Position, AngleDegrees, bAllowReserved);
 	if (Result != EInventoryResult::Success) return Result;
 	FInventoryEntry& Entry = Entries[FindItem(InstanceId)];
 	AngleDegrees = InventoryGeometry::NormalizeAngle(AngleDegrees);
@@ -122,14 +122,15 @@ EInventoryResult UInventoryComponent::MoveItem(FGuid InstanceId, FName PocketId,
 	return EInventoryResult::Success;
 }
 
-EInventoryResult UInventoryComponent::RemoveItem(FGuid InstanceId, FItemInstance& OutItem)
+EInventoryResult UInventoryComponent::RemoveItem(FGuid InstanceId, FItemInstance& OutItem, bool bAllowReserved)
 {
 	OutItem = FItemInstance();
-	if (IsReserved(InstanceId)) return EInventoryResult::InUse;
+	if (IsReserved(InstanceId) && !bAllowReserved) return EInventoryResult::InUse;
 	const int32 Index = FindItem(InstanceId);
 	if (Index == INDEX_NONE) return EInventoryResult::NotFound;
 	OutItem = Entries[Index].Item;
 	Entries.RemoveAt(Index);
+	ReservedItems.Remove(InstanceId);
 	OnInventoryChanged.Broadcast();
 	return EInventoryResult::Success;
 }

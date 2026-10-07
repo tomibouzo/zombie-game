@@ -1,23 +1,28 @@
 #include "Gameplay/Player/Inventory/ItemUseSettings.h"
-UItemUseSettings::UItemUseSettings()
+UItemUseSettings::UItemUseSettings() { Keys = { EKeys::One, EKeys::Two, EKeys::Three }; }
+FName UItemUseSettings::ItemType(int32 Slot)
 {
-	Keys = { EKeys::E, EKeys::F, EKeys::G };
-	ItemTypes = { FName(TEXT("Bandage")), FName(TEXT("CannedBeans")), NAME_None };
+	static const FName Types[] = { TEXT("Bandage"), TEXT("CannedBeans"), TEXT("WaterBottle") };
+	return Slot >= 0 && Slot < ItemCount ? Types[Slot] : NAME_None;
 }
-void UItemUseSettings::Normalize()
+
+FString UItemUseSettings::Label(int32 Slot)
 {
-	if (Keys.Num() != 3) Keys = { EKeys::E, EKeys::F, EKeys::G };
-	if (ItemTypes.Num() != 3) ItemTypes = { FName(TEXT("Bandage")), FName(TEXT("CannedBeans")), NAME_None };
+	switch (Slot)
+	{
+	case 0: return TEXT("Bandage");
+	case 1: return TEXT("Canned food");
+	case 2: return TEXT("Water");
+	default: return FString();
+	}
 }
-bool UItemUseSettings::TryBind(int32 Slot, FKey Key, FKey InventoryToggle)
+
+FKey UItemUseSettings::MigrationKey(int32 Slot) const
 {
-	Normalize();
-	if (!Keys.IsValidIndex(Slot) || !Key.IsValid() || Key.IsGamepadKey() || Key.IsMouseButton()
-		|| Key == InventoryToggle || Key == EKeys::MouseScrollUp || Key == EKeys::MouseScrollDown
-		|| Key == EKeys::W || Key == EKeys::A || Key == EKeys::S || Key == EKeys::D
-		|| Key == EKeys::LeftShift || Key == EKeys::RightShift || Key == EKeys::LeftAlt || Key == EKeys::RightAlt
-		|| Key == EKeys::LeftControl || Key == EKeys::RightControl || Key == EKeys::SpaceBar || Key == EKeys::Escape) return false;
-	for (int32 I = 0; I < Keys.Num(); ++I) if (I != Slot && Keys[I] == Key) return false;
-	Keys[Slot] = Key;
-	return true;
+	if (Slot < 0 || Slot >= ItemCount) return EKeys::Invalid;
+	const FKey Defaults[] = { EKeys::One, EKeys::Two, EKeys::Three };
+	const FKey OldDefaults[] = { EKeys::E, EKeys::F, EKeys::G };
+	const int32 Index = ItemTypes.IsEmpty() ? Slot : ItemTypes.IndexOfByKey(ItemType(Slot));
+	if (!Keys.IsValidIndex(Index)) return Defaults[Slot];
+	return Index < 3 && Keys[Index] == OldDefaults[Index] ? Defaults[Slot] : Keys[Index];
 }

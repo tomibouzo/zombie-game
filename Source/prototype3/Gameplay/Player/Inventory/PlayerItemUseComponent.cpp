@@ -15,6 +15,7 @@
 #include "Engine/World.h"
 #include "Core/Characters/prototype3Character.h"
 #include "GameFramework/PlayerController.h"
+#include "UI/Inventory/InventoryInputSettings.h"
 
 UPlayerItemUseComponent::UPlayerItemUseComponent() { PrimaryComponentTick.bCanEverTick = true; }
 
@@ -38,8 +39,6 @@ void UPlayerItemUseComponent::BeginPlay()
 	Inventory = GetOwner()->FindComponentByClass<UInventoryComponent>();
 	Vitals = GetOwner()->FindComponentByClass<UPlayerVitalsComponent>();
 	if (!Inventory || !Vitals) return;
-	Shortcuts = DuplicateObject<UItemUseSettings>(GetDefault<UItemUseSettings>(), this);
-	Shortcuts->Normalize();
 	Vitals->OnHealthChanged.AddDynamic(this, &UPlayerItemUseComponent::HealthChanged);
 	Vitals->OnDamageApplied.AddDynamic(this, &UPlayerItemUseComponent::DamageApplied);
 	// Reuse the saved definitions and silhouettes supplied by the existing laboratory.
@@ -89,7 +88,7 @@ void UPlayerItemUseComponent::BeginPlay()
 		UpdateVisual();
 	}
 
-	Status = TEXT("Shortcut: item to hands. Left click: use. Marked spikes hurt, but cannot kill.");
+	Status = TEXT("Tap a quick-item key to take it in hands; hold to use. Release stops unfinished use.");
 }
 
 bool UPlayerItemUseComponent::CanAccess(FName Pocket) const
@@ -103,11 +102,11 @@ bool UPlayerItemUseComponent::EquipToHands(FGuid Id)
 	if (!Inventory || !Vitals || !Vitals->IsAlive() || !Inventory->GetItem(Id, Entry) || !CanAccess(Entry.PocketId)) return false;
 	if (HeldId == Id) return true;
 	if (Inventory->IsReserved(Id)) return false;
-	Stow();
 	if (!Inventory->ReserveItem(Id)) return false;
+	Stow();
 	HeldId = Id;
 	if (auto* Melee = GetOwner()->FindComponentByClass<UPlayerMeleeComponent>()) Melee->StopAttacking();
-	Status = GetHeldName() + TEXT(" in hands. Left click to use; right click to stow.");
+	Status = GetHeldName() + TEXT(" in hands.");
 	UpdateVisual();
 	return true;
 }
@@ -120,33 +119,52 @@ void UPlayerItemUseComponent::Stow()
 	UpdateVisual();
 }
 
-const UHealingItemActionData* UPlayerItemUseComponent::HealingAction() const
+const UHealingItemActionData* UPlayerItemUseComponent::HealingAction(bool bSecondary) const
 {
 	FInventoryEntry Entry;
 	if (!Inventory || !Inventory->GetItem(HeldId, Entry)) return nullptr;
-	if (auto* Heal = Cast<UHealingItemActionData>(Entry.Item.Definition->PrimaryAction)) return Heal;
-	return Cast<UHealingItemActionData>(Entry.Item.Definition->SecondaryAction);
+	return Cast<UHealingItemActionData>(bSecondary ? Entry.Item.Definition->SecondaryAction : Entry.Item.Definition->PrimaryAction);
 }
 
 bool UPlayerItemUseComponent::HandlePrimaryAction()
 {
+	return PressItemAction(false);
+}
+
+bool UPlayerItemUseComponent::PressItemAction(bool bSecondary)
+{
 	if (bOpening) return true;
 	if (!HasHeldItem()) return false;
 	if (bUsing) return true;
-	const auto* Action = HealingAction();
-	if (!Action) { Status = TEXT("This sample's action is not implemented yet. Right click to stow."); return true; }
+	FInventoryEntry Entry;
+	if (!Inventory || !Inventory->GetItem(HeldId, Entry)) return true;
+	const UItemActionData* Contract = bSecondary ? Entry.Item.Definition->SecondaryAction : Entry.Item.Definition->PrimaryAction;
+	if (!Contract) return true; // A missing slot consumes its input without falling back to unarmed/another slot.
+	const auto* Action = HealingAction(bSecondary);
+	if (!Action) { Status = TEXT("This item's action is not implemented yet."); return true; }
 	if (!Vitals || !Vitals->IsAlive() || Vitals->GetCurrentHealth() >= Vitals->GetMaxHealth())
 	{ Status = TEXT("No healing needed. Item preserved."); return true; }
 	if (!Action->IsValidActionData() || !FMath::IsFinite(Action->UseSeconds) || Action->UseSeconds <= 0) return true;
+	if (auto* Character = Cast<Aprototype3Character>(GetOwner())) Character->PrepareForItemUse();
+	if (auto* Melee = GetOwner()->FindComponentByClass<UPlayerMeleeComponent>()) Melee->StopAttacking();
+	bActiveSecondary = bSecondary;
 	Duration = Action->UseSeconds; Elapsed = 0; bUsing = true;
-	Status = TEXT("Using bandage. Walk only. Damage cancels use.");
+	Status = TEXT("Using bandage. Release to stop; an applicable conflicting action interrupts use.");
 	return true;
+}
+
+void UPlayerItemUseComponent::ReleaseItemAction(bool bSecondary)
+{
+	if (bUsing && !bUsingFromQuickKey && bActiveSecondary == bSecondary) CancelUse();
 }
 
 void UPlayerItemUseComponent::CancelUse()
 {
 	if (bUsing) Status = TEXT("Use cancelled. Item preserved.");
 	bUsing = false; Elapsed = 0;
+	HeldQuickItem = INDEX_NONE;
+	QuickHoldElapsed = 0;
+	bQuickUseAttempted = bUsingFromQuickKey = false;
 }
 
 void UPlayerItemUseComponent::HealthChanged(float Current, float Maximum, float Percentage)
@@ -163,44 +181,46 @@ void UPlayerItemUseComponent::DamageApplied(float Amount, bool bInterruptActions
 	if (bInterrupted) Status = TEXT("Hurt: inventory and item use interrupted.");
 }
 
-void UPlayerItemUseComponent::HandleShortcut(int32 Slot, double Time)
+void UPlayerItemUseComponent::PressQuickItem(int32 Slot)
 {
-	if (!Inventory || !Shortcuts || !Shortcuts->ItemTypes.IsValidIndex(Slot) || bUsing || bOpening) return;
-	if (Slot == LastShortcut && Time >= LastShortcutTime && Time - LastShortcutTime <= DoubleTapSeconds)
-	{
-		TArray<FName> Types;
-		for (const auto& Entry : Inventory->GetEntries())
-			if (IsQuickPocket(Entry.PocketId) && (Entry.Item.Definition->PrimaryAction || Entry.Item.Definition->SecondaryAction)) Types.AddUnique(Entry.Item.Definition->ItemId);
-		if (!Types.IsEmpty())
-		{
-			Shortcuts->ItemTypes[Slot] = Types[(Types.IndexOfByKey(Shortcuts->ItemTypes[Slot]) + 1) % Types.Num()];
-			SaveShortcuts();
-		}
-		LastShortcut = INDEX_NONE;
-	}
-	else { LastShortcut = Slot; LastShortcutTime = Time; }
+	const FName Type = UItemUseSettings::ItemType(Slot);
+	if (!Inventory || Type.IsNone() || bOpening || HeldQuickItem == Slot) return;
 	for (const auto& Entry : Inventory->GetEntries())
-		if (IsQuickPocket(Entry.PocketId) && Entry.Item.Definition->ItemId == Shortcuts->ItemTypes[Slot]
-			&& EquipToHands(Entry.Item.InstanceId)) return;
+		if (IsQuickPocket(Entry.PocketId) && Entry.Item.Definition->ItemId == Type && EquipToHands(Entry.Item.InstanceId))
+		{
+			CancelUse();
+			HeldQuickItem = Slot;
+			QuickHoldElapsed = 0;
+			bQuickUseAttempted = bUsingFromQuickKey = false;
+			return;
+		}
+	Status = UItemUseSettings::Label(Slot) + TEXT(" is not available in your pockets.");
 }
 
-void UPlayerItemUseComponent::SaveShortcuts()
+void UPlayerItemUseComponent::ReleaseQuickItem(int32 Slot)
 {
-	if (!bSavePreferences || !Shortcuts) return;
-	auto* Saved = GetMutableDefault<UItemUseSettings>();
-	Saved->Keys = Shortcuts->Keys; Saved->ItemTypes = Shortcuts->ItemTypes; Saved->SaveConfig();
+	if (HeldQuickItem == Slot) CancelQuickItemHold();
+}
+
+void UPlayerItemUseComponent::CancelQuickItemHold()
+{
+	if (bUsingFromQuickKey) CancelUse();
+	HeldQuickItem = INDEX_NONE;
+	QuickHoldElapsed = 0;
+	bQuickUseAttempted = bUsingFromQuickKey = false;
 }
 
 bool UPlayerItemUseComponent::BeginOpenBackpack()
 {
-	if (!Backpack.IsValid() || !bBackpackEquipped || bUsing || !Vitals || !Vitals->IsAlive()) return false;
+	if (!Backpack.IsValid() || !bBackpackEquipped || !Vitals || !Vitals->IsAlive()) return false;
+	CancelUse();
 	if (!bBackpackOpen && !bOpening) { bOpening = true; Elapsed = 0; Duration = FMath::Max(0.01f, BackpackOpenSeconds); Status = TEXT("Opening backpack..."); }
 	return true;
 }
 void UPlayerItemUseComponent::CloseBackpack() { bOpening = bBackpackOpen = false; if (!bUsing) Elapsed = 0; }
 void UPlayerItemUseComponent::ToggleBackpackEquipment()
 {
-	if (!Backpack.IsValid() || bUsing) return;
+	if (!Backpack.IsValid()) return;
 	Stow(); CloseBackpack(); bBackpackEquipped = !bBackpackEquipped;
 	Status = bBackpackEquipped ? TEXT("Backpack equipped.") : TEXT("Backpack unequipped. Contents preserved.");
 }
@@ -216,10 +236,23 @@ bool UPlayerItemUseComponent::Transfer(FGuid Id, FName Pocket)
 void UPlayerItemUseComponent::Advance(float Seconds)
 {
 	if (!FMath::IsFinite(Seconds) || Seconds <= 0) return;
+	if (HeldQuickItem != INDEX_NONE && !bQuickUseAttempted && !bUsing)
+	{
+		QuickHoldElapsed += Seconds;
+		const float Threshold = FMath::Max(.1f, QuickUseHoldSeconds);
+		if (QuickHoldElapsed >= Threshold)
+		{
+			bQuickUseAttempted = true;
+			// These fixed consumables declare their use in the secondary action slot.
+			PressItemAction(true);
+			bUsingFromQuickKey = bUsing;
+			Seconds = QuickHoldElapsed - Threshold;
+		}
+	}
 	if (bOpening) { Elapsed += Seconds; if (Elapsed >= Duration) { bOpening = false; bBackpackOpen = true; Status = TEXT("Backpack open. Select an item to move or take in hands."); } }
 	else if (bUsing)
 	{
-		const auto* Action = HealingAction();
+		const auto* Action = HealingAction(bActiveSecondary);
 		if (!Action || !Vitals || !Vitals->IsAlive()) { CancelUse(); return; }
 		Elapsed += Seconds;
 		if (Elapsed >= Duration)
@@ -227,7 +260,7 @@ void UPlayerItemUseComponent::Advance(float Seconds)
 			const float Amount = static_cast<float>(Action->HealAmount);
 			if (Vitals->GetCurrentHealth() < Vitals->GetMaxHealth() && Inventory->ConsumeReservedItem(HeldId))
 			{
-				bUsing = false; HeldId.Invalidate(); Vitals->Heal(Amount);
+				bUsing = false; bUsingFromQuickKey = false; HeldId.Invalidate(); Vitals->Heal(Amount);
 				Status = TEXT("Bandage used. Health restored.");
 			}
 			else CancelUse();

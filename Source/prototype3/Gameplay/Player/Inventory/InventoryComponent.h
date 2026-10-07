@@ -24,15 +24,15 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Inventory")
 	EInventoryResult AddItem(const FItemInstance& Item, FName ProfileId, FName PocketId, FVector2D Position, double AngleDegrees);
 	UFUNCTION(BlueprintCallable, Category="Inventory")
-	EInventoryResult MoveItem(FGuid InstanceId, FName PocketId, FVector2D Position, double AngleDegrees);
+	EInventoryResult MoveItem(FGuid InstanceId, FName PocketId, FVector2D Position, double AngleDegrees, bool bAllowReserved = false);
 	/** Removes the whole instance and returns it. Failed operations return an invalid output. */
 	UFUNCTION(BlueprintCallable, Category="Inventory")
-	EInventoryResult RemoveItem(FGuid InstanceId, FItemInstance& OutItem);
+	EInventoryResult RemoveItem(FGuid InstanceId, FItemInstance& OutItem, bool bAllowReserved = false);
 	/** Preview for a new item. CheckMove ignores only the moving instance's silhouette. */
 	UFUNCTION(BlueprintPure, Category="Inventory")
 	EInventoryResult CheckPlacement(FName ProfileId, FName PocketId, FVector2D Position, double AngleDegrees) const;
 	UFUNCTION(BlueprintPure, Category="Inventory")
-	EInventoryResult CheckMove(FGuid InstanceId, FName PocketId, FVector2D Position, double AngleDegrees) const;
+	EInventoryResult CheckMove(FGuid InstanceId, FName PocketId, FVector2D Position, double AngleDegrees, bool bAllowReserved = false) const;
 	UFUNCTION(BlueprintPure, Category="Inventory")
 	bool GetItem(FGuid InstanceId, FInventoryEntry& OutEntry) const;
 	UFUNCTION(BlueprintPure, Category="Inventory")

@@ -6,7 +6,6 @@
 
 class UInventoryComponent;
 class UPlayerVitalsComponent;
-class UItemUseSettings;
 class UStaticMeshComponent;
 class AInventoryTestSpikes;
 class UHealingItemActionData;
@@ -27,17 +26,18 @@ public:
 	UPROPERTY(EditAnywhere, Category="Prototype", meta=(ClampMin="0.01")) double QuickMaxItemMassKg = 0.6;
 	UPROPERTY(EditAnywhere, Category="Prototype") FVector2D QuickSize = FVector2D(220,220);
 	UPROPERTY(EditAnywhere, Category="Prototype") FVector2D BackpackSize = FVector2D(420,600);
-	UPROPERTY(EditAnywhere, Category="Prototype", meta=(ClampMin="0.1", ClampMax="1")) float DoubleTapSeconds = 0.3f;
+	UPROPERTY(EditAnywhere, Category="Prototype", meta=(ClampMin="0.1", ClampMax="1")) float QuickUseHoldSeconds = 0.3f;
 	UPROPERTY(Transient) TObjectPtr<UInventoryComponent> Inventory;
-	UPROPERTY(Transient) TObjectPtr<UItemUseSettings> Shortcuts;
 	UPROPERTY(Transient) FItemInstance Backpack;
-	bool bSavePreferences = true;
 	bool EquipToHands(FGuid Id);
 	void Stow();
 	bool HandlePrimaryAction();
+	bool PressItemAction(bool bSecondary);
+	void ReleaseItemAction(bool bSecondary);
 	void CancelUse();
-	void HandleShortcut(int32 Slot, double Time);
-	void SaveShortcuts();
+	void PressQuickItem(int32 Slot);
+	void ReleaseQuickItem(int32 Slot);
+	void CancelQuickItemHold();
 	bool BeginOpenBackpack();
 	void CloseBackpack();
 	void ToggleBackpackEquipment();
@@ -51,7 +51,7 @@ public:
 	float GetProgress() const;
 	FString GetHeldName() const;
 	FString Status;
-	/** Used by the prototype UI; transfer keeps identity and fails without mutation. */
+	/** Fixture/setup helper. Player storage placement is always manual through the panel. */
 	bool Transfer(FGuid Id, FName Pocket);
 	void Advance(float Seconds);
 protected:
@@ -65,9 +65,12 @@ private:
 	FGuid HeldId;
 	bool bUsing = false, bOpening = false, bBackpackOpen = false, bBackpackEquipped = true;
 	float Elapsed = 0, Duration = 3;
-	int32 LastShortcut = INDEX_NONE;
-	double LastShortcutTime = -100;
-	const UHealingItemActionData* HealingAction() const;
+	int32 HeldQuickItem = INDEX_NONE;
+	float QuickHoldElapsed = 0;
+	bool bQuickUseAttempted = false;
+	bool bUsingFromQuickKey = false;
+	bool bActiveSecondary = false;
+	const UHealingItemActionData* HealingAction(bool bSecondary) const;
 	void UpdateVisual();
 	void TrySpawnSpikes();
 	bool bSpikesSpawnAttempted = false;

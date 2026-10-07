@@ -3,6 +3,7 @@
 #include "UI/Inventory/InventoryDemoData.h"
 #include "UI/Inventory/SInventoryPanel.h"
 #include "UI/Inventory/InventoryInputSettings.h"
+#include "Gameplay/Player/Inventory/ItemUseSettings.h"
 #include "Misc/AutomationTest.h"
 #include "UObject/StrongObjectPtr.h"
 #include "Misc/Paths.h"
@@ -288,49 +289,51 @@ bool FInventoryPanelInteractionTest::RunTest(const FString&)
 	TestEqual(TEXT("Invalid collision restores angle"), Entry.AngleDegrees,15.);
 	Down(Pointer); Up(FVector2D(45,155));
 	I->GetItem(Id,Entry); TestEqual(TEXT("Partial outside rejected"),Entry.Position,Placed);
-	Down(Pointer); Move(FVector2D(300,600)); Down(FVector2D(300,600),EKeys::MiddleMouseButton); Up(FVector2D(300,600));
+	Down(Pointer); Move(FVector2D(300,600)); Key(EKeys::C); Up(FVector2D(300,600));
 	I->GetItem(Id,Entry); TestEqual(TEXT("Cancel restores original"),Entry.Position,Placed);
 	Down(Pointer); Key(EKeys::Q); Panel->OnFocusLost(FFocusEvent()); Panel->Tick(G,0,1); Up(FVector2D(300,600));
 	I->GetItem(Id,Entry); TestEqual(TEXT("Focus loss cancels gesture"),Entry.Position,Placed);
 	Down(Pointer); Panel->OnMouseCaptureLost(FCaptureLostEvent()); Up(FVector2D(300,600));
 	I->GetItem(Id,Entry); TestEqual(TEXT("Capture loss cancels gesture"),Entry.Position,Placed);
 	// The old settings column is inert; Options owns rebinding now.
-	Down(FVector2D(800,240)); Up(FVector2D(800,240)); Key(EKeys::F); KeyUp(EKeys::F);
+	Down(FVector2D(800,240)); Up(FVector2D(800,240)); Key(EKeys::G); KeyUp(EKeys::G);
 	TestTrue(TEXT("Former controls column cannot rebind"),Settings->GetKey(EInventoryControl::Grab)==EKeys::LeftMouseButton);
 	FString Error;
-	Settings->TrySetKey(EInventoryControl::Grab,EKeys::F,Error);
-	Key(Settings->GetKey(EInventoryControl::ToggleGrabMode));
-	TestTrue(TEXT("Grab mode switches with its assigned key"),Settings->bToggleGrab);
-	Move(Pointer); Key(EKeys::F); KeyUp(EKeys::F); Move(FVector2D(340,630));
+	Settings->TrySetKey(EInventoryControl::Grab,EKeys::G,Error);
+	Key(EKeys::V);
+	TestFalse(TEXT("Retired mode hotkey cannot change the preference"),Settings->bToggleGrab);
+	Settings->bToggleGrab = true; // The Options menu now owns this preference.
+	Move(Pointer); Key(EKeys::G); KeyUp(EKeys::G); Move(FVector2D(340,630));
 	I->GetItem(Id,Entry); TestEqual(TEXT("Toggle release keeps item held"),Entry.Position,Placed);
-	Key(EKeys::F); KeyUp(EKeys::F);
+	Key(EKeys::G); KeyUp(EKeys::G);
 	I->GetItem(Id,Entry); TestEqual(TEXT("Second press commits"),Entry.Position,FVector2D(300,480));
-	Move(FVector2D(340,630)); Key(EKeys::F); KeyUp(EKeys::F);
+	Move(FVector2D(340,630)); Key(EKeys::G); KeyUp(EKeys::G);
 	Panel->OnMouseWheel(G,FPointerEvent(0,FVector2D(340,630),FVector2D(340,630),TSet<FKey>(),EKeys::Invalid,1,FModifierKeysState()));
 	TestEqual(TEXT("Wheel up increases shared rotation speed"),Settings->TurnSpeed,135.f);
 	Key(EKeys::E); Panel->Tick(G,0,0.1f); KeyUp(EKeys::E);
 	Panel->OnMouseWheel(G,FPointerEvent(0,FVector2D(340,630),FVector2D(340,630),TSet<FKey>(),EKeys::Invalid,-1,FModifierKeysState()));
 	TestEqual(TEXT("Wheel down decreases shared rotation speed"),Settings->TurnSpeed,120.f);
-	Key(EKeys::F); KeyUp(EKeys::F);
+	Key(EKeys::G); KeyUp(EKeys::G);
 	I->GetItem(Id,Entry); TestTrue(TEXT("Faster Q/E turning uses wheel speed"),FMath::IsNearlyEqual(Entry.AngleDegrees,28.5,0.001));
+	Key(EKeys::G); KeyUp(EKeys::G);
 	Panel->OnMouseWheel(G,FPointerEvent(0,FVector2D(340,630),FVector2D(340,630),TSet<FKey>(),EKeys::Invalid,100,FModifierKeysState()));
 	TestEqual(TEXT("Wheel speed maximum"),Settings->TurnSpeed,360.f);
 	Panel->OnMouseWheel(G,FPointerEvent(0,FVector2D(340,630),FVector2D(340,630),TSet<FKey>(),EKeys::Invalid,-100,FModifierKeysState()));
 	TestEqual(TEXT("Wheel speed minimum"),Settings->TurnSpeed,15.f);
-	Key(EKeys::Delete);
+	Key(EKeys::F);
 	TestEqual(TEXT("Drop requests the selected item without holding"),RequestedDrop,Id);
 	TestEqual(TEXT("Failed selected drop preserves inventory"),I->GetEntries().Num(),InitialCount);
-	Move(FVector2D(340,630)); Key(EKeys::F); KeyUp(EKeys::F); Key(EKeys::Delete);
+	Move(FVector2D(340,630)); Key(EKeys::G); KeyUp(EKeys::G); Key(EKeys::F);
 	TestEqual(TEXT("An unavailable world drop does not delete the held item"),I->GetEntries().Num(),InitialCount);
 	I->GetItem(Id,Entry);
 	TestEqual(TEXT("Failed drop restores the stored placement"),Entry.Position,FVector2D(300,480));
 	Down(FVector2D(850,665)); Up(FVector2D(850,665));
 	TestEqual(TEXT("Former Remove button has no deletion action"),I->GetEntries().Num(),InitialCount);
-	Key(EKeys::B); Move(FVector2D(110,220)); Key(EKeys::F); KeyUp(EKeys::F);
+	Key(EKeys::B); Move(FVector2D(110,220)); Key(EKeys::G); KeyUp(EKeys::G);
 	TestEqual(TEXT("Add through configured controls"),I->GetEntries().Num(),InitialCount + 1);
 	Key(EKeys::I); TestTrue(TEXT("Close shortcut"),bClosed);
 	bClosed = false;
-	Move(FVector2D(340,630)); Key(EKeys::F); Move(FVector2D(800,400)); Key(EKeys::Escape);
+	Move(FVector2D(340,630)); Key(EKeys::G); Move(FVector2D(800,400)); Key(EKeys::Escape);
 	TestTrue(TEXT("Escape closes inventory during a drag"),bClosed);
 	I->GetItem(Id,Entry);
 	TestEqual(TEXT("Escape preserves the original item position"),Entry.Position,FVector2D(300,480));
@@ -350,17 +353,21 @@ bool FInventoryInputTest::RunTest(const FString&)
 	TestFalse(TEXT("Analog axis rejected"),Settings->TrySetKey(EInventoryControl::Grab,EKeys::MouseX,Error));
 	TestFalse(TEXT("Wheel cannot be held for grab"),Settings->TrySetKey(EInventoryControl::Grab,EKeys::MouseScrollDown,Error));
 	TestTrue(TEXT("Right mouse rotates by default"),Settings->GetKey(EInventoryControl::RotateWithMouse)==EKeys::RightMouseButton);
-	TestTrue(TEXT("Middle mouse cancels by default"),Settings->GetKey(EInventoryControl::Cancel)==EKeys::MiddleMouseButton);
-	TestTrue(TEXT("Delete is the default drop key"),Settings->GetKey(EInventoryControl::Drop)==EKeys::Delete);
+	TestTrue(TEXT("C cancels by default"),Settings->GetKey(EInventoryControl::Cancel)==EKeys::C);
+	TestTrue(TEXT("F is the default drop key"),Settings->GetKey(EInventoryControl::Drop)==EKeys::F);
 	TestEqual(TEXT("Drop replaces the old removal control"),UInventoryInputSettings::Label(EInventoryControl::Drop),FString(TEXT("Drop selected item")));
 	TestFalse(TEXT("Wheel cannot hold mouse rotation"),Settings->TrySetKey(EInventoryControl::RotateWithMouse,EKeys::MouseScrollDown,Error));
 	TestFalse(TEXT("Wheel reserved from turn bindings"),Settings->TrySetKey(EInventoryControl::TurnRight,EKeys::MouseScrollUp,Error));
 	TestTrue(TEXT("Mouse rotation supported"),Settings->TrySetKey(EInventoryControl::TurnLeft,EKeys::ThumbMouseButton,Error));
 	TestTrue(TEXT("Mouse rotation modifier configurable"),Settings->TrySetKey(EInventoryControl::RotateWithMouse,EKeys::Z,Error));
 	TestTrue(TEXT("Open control configurable"),Settings->TrySetKey(EInventoryControl::Toggle,EKeys::K,Error));
-	TestTrue(TEXT("Hidden laboratory binding does not reserve B"),Settings->TrySetKey(EInventoryControl::ToHands,EKeys::B,Error));
+	TestTrue(TEXT("Hidden laboratory binding does not reserve B"),Settings->TrySetKey(EInventoryControl::Grab,EKeys::B,Error));
 	Settings->bToggleGrab = true;
 	Settings->TurnSpeed = 75;
+	TestTrue(TEXT("Second binding defaults empty"),!Settings->GetKey(EInventoryControl::Sprint,1).IsValid());
+	Settings->AssignKey(EInventoryControl::Sprint,1,EKeys::J,false,Error);
+	Settings->TrySetKey(EInventoryControl::Bandage,EKeys::Invalid,Error);
+	TestEqual(TEXT("Unbound action remains in hint text"),Settings->KeyLabel(EInventoryControl::Bandage),FString(TEXT("Unbound")));
 	// Round-trip to an isolated file, never overwrite the player's own preferences.
 	const FString Path = FPaths::ConvertRelativePathToFull(FPaths::ProjectSavedDir() / TEXT("InventoryVerification/input-test.ini"));
 	Settings->SaveConfig(CPF_Config,*Path);
@@ -371,14 +378,17 @@ bool FInventoryInputTest::RunTest(const FString&)
 	TestTrue(TEXT("Mouse binding survives reload"),Reloaded->GetKey(EInventoryControl::TurnLeft)==EKeys::ThumbMouseButton);
 	TestTrue(TEXT("Rotation modifier survives reload"),Reloaded->GetKey(EInventoryControl::RotateWithMouse)==EKeys::Z);
 	TestTrue(TEXT("Grab mode survives reload"),Reloaded->bToggleGrab);
-	TestTrue(TEXT("Reclaimed B assignment survives reload"),Reloaded->GetKey(EInventoryControl::ToHands)==EKeys::B);
+	TestTrue(TEXT("Reclaimed B assignment survives reload"),Reloaded->GetKey(EInventoryControl::Grab)==EKeys::B);
 	TestEqual(TEXT("Speed survives reload"),Reloaded->TurnSpeed,75.f);
+	TestTrue(TEXT("Second binding survives reload"),Reloaded->GetKey(EInventoryControl::Sprint,1)==EKeys::J);
+	TestFalse(TEXT("Explicit unbound survives reload"),Reloaded->GetKey(EInventoryControl::Bandage).IsValid());
 	const TCHAR* Section = TEXT("/Script/prototype3.InventoryInputSettings");
+	GConfig->SetInt(Section,TEXT("ControlsVersion"),0,Path);
 	TArray<FString> LegacyKeys { TEXT("K"), TEXT("LeftMouseButton"), TEXT("Q"), TEXT("E"), TEXT("RightMouseButton"), TEXT("Delete"), TEXT("B") };
 	GConfig->SetArray(Section, TEXT("Keys"), LegacyKeys, Path);
 	Reloaded->ReloadConfig(nullptr, *Path);
 	TestTrue(TEXT("Legacy toggle preserved"),Reloaded->GetKey(EInventoryControl::Toggle)==EKeys::K);
-	TestTrue(TEXT("Legacy cancel moves to middle mouse"),Reloaded->GetKey(EInventoryControl::Cancel)==EKeys::MiddleMouseButton);
+	TestTrue(TEXT("Legacy cancel moves to C"),Reloaded->GetKey(EInventoryControl::Cancel)==EKeys::C);
 	TestTrue(TEXT("Legacy settings gain right-mouse rotation"),Reloaded->GetKey(EInventoryControl::RotateWithMouse)==EKeys::RightMouseButton);
 	TestTrue(TEXT("Legacy grab mode preserved"),Reloaded->bToggleGrab);
 	TestEqual(TEXT("Legacy speed preserved"),Reloaded->TurnSpeed,75.f);
@@ -391,7 +401,7 @@ bool FInventoryInputTest::RunTest(const FString&)
 	GConfig->SetArray(Section, TEXT("Keys"), LegacyKeys, Path);
 	Reloaded->ReloadConfig(nullptr, *Path);
 	TestTrue(TEXT("Custom middle binding preserved"),Reloaded->GetKey(EInventoryControl::TurnLeft)==EKeys::MiddleMouseButton);
-	TestTrue(TEXT("Cancel uses a free non-Escape fallback"),Reloaded->GetKey(EInventoryControl::Cancel)==EKeys::BackSpace);
+	TestTrue(TEXT("Cancel uses C"),Reloaded->GetKey(EInventoryControl::Cancel)==EKeys::C);
 	TestTrue(TEXT("Right mouse still available for rotation"),Reloaded->GetKey(EInventoryControl::RotateWithMouse)==EKeys::RightMouseButton);
 	// Existing wheel turn bindings migrate individually without resetting other preferences.
 	TArray<FString> WheelKeys { TEXT("K"), TEXT("LeftMouseButton"), TEXT("MouseScrollDown"), TEXT("MouseScrollUp"), TEXT("Escape"), TEXT("Delete"), TEXT("B"), TEXT("R") };
@@ -400,15 +410,38 @@ bool FInventoryInputTest::RunTest(const FString&)
 	TestTrue(TEXT("Old wheel-left binding moves to Q"),Reloaded->GetKey(EInventoryControl::TurnLeft)==EKeys::Q);
 	TestTrue(TEXT("Old wheel-right binding moves to E"),Reloaded->GetKey(EInventoryControl::TurnRight)==EKeys::E);
 	TestTrue(TEXT("Unrelated custom bindings survive wheel migration"),Reloaded->GetKey(EInventoryControl::Toggle)==EKeys::K && Reloaded->GetKey(EInventoryControl::RotateWithMouse)==EKeys::R);
-	TestTrue(TEXT("Legacy Escape migrates to cancel without resetting preferences"),Reloaded->GetKey(EInventoryControl::Cancel)==EKeys::MiddleMouseButton && Reloaded->bToggleGrab && Reloaded->TurnSpeed==75.f);
+	TestTrue(TEXT("Legacy Escape migrates to cancel without resetting preferences"),Reloaded->GetKey(EInventoryControl::Cancel)==EKeys::C && Reloaded->bToggleGrab && Reloaded->TurnSpeed==75.f);
 	TestTrue(TEXT("Existing R binding is preserved when backpack control is added"),Reloaded->GetKey(EInventoryControl::OpenBackpack)!=EKeys::R);
-	TSet<FKey> MigratedKeys;
+
 	for (int32 Index = 0; Index < static_cast<int32>(EInventoryControl::Count); ++Index)
 	{
-		const FKey Key = Reloaded->GetKey(static_cast<EInventoryControl>(Index));
-		TestTrue(TEXT("Migrated control is valid and unique"),Key.IsValid() && Key!=EKeys::Escape && !MigratedKeys.Contains(Key));
-		MigratedKeys.Add(Key);
+		const auto Action = static_cast<EInventoryControl>(Index);
+		if (!UInventoryInputSettings::IsBindable(Action)) continue;
+		const FKey Key = Reloaded->GetKey(Action);
+		TestTrue(TEXT("Migrated control has no overlapping conflicts"),Reloaded->Conflicts(Action,Key).IsEmpty());
+
 	}
+	Settings->ResetDefaults();
+	TArray<FString> PreviousKeys;
+	for (int32 Index = 0; Index < static_cast<int32>(EInventoryControl::Count); ++Index)
+		PreviousKeys.Add(Settings->GetKey(static_cast<EInventoryControl>(Index)).GetFName().ToString());
+	PreviousKeys[static_cast<int32>(EInventoryControl::Bandage)] = TEXT("One");
+	GConfig->SetInt(Section,TEXT("ControlsVersion"),2,Path);
+	GConfig->SetArray(Section,TEXT("Keys"),PreviousKeys,Path);
+	Reloaded->ReloadConfig(nullptr,*Path);
+	TestTrue(TEXT("Previous bandage default migrates to G"),Reloaded->GetKey(EInventoryControl::Bandage)==EKeys::G);
+	PreviousKeys[static_cast<int32>(EInventoryControl::Run)] = TEXT("G");
+	GConfig->SetArray(Section,TEXT("Keys"),PreviousKeys,Path);
+	Reloaded->ReloadConfig(nullptr,*Path);
+	TestTrue(TEXT("Migration preserves custom G and chooses free letter"),Reloaded->GetKey(EInventoryControl::Run)==EKeys::G && Reloaded->GetKey(EInventoryControl::Bandage)==EKeys::H);
+	const TCHAR* LegacySection = TEXT("/Script/prototype3.ItemUseSettings");
+	GConfig->SetArray(LegacySection,TEXT("Keys"),{TEXT("One"),TEXT("J"),TEXT("G")},Path);
+	GConfig->SetArray(LegacySection,TEXT("ItemTypes"),{TEXT("CannedBeans"),TEXT("Bandage"),TEXT("WaterBottle")},Path);
+	TStrongObjectPtr<UItemUseSettings> Legacy(NewObject<UItemUseSettings>());
+	Legacy->ReloadConfig(nullptr,*Path);
+	TestTrue(TEXT("Legacy custom bandage key follows item identity"),Legacy->MigrationKey(0)==EKeys::J);
+	TestTrue(TEXT("Legacy custom food key follows item identity"),Legacy->MigrationKey(1)==EKeys::One);
+	TestTrue(TEXT("Legacy water default becomes 3"),Legacy->MigrationKey(2)==EKeys::Three);
 	GConfig->UnloadFile(Path);
 	IFileManager::Get().Delete(*Path);
 	return true;
@@ -471,7 +504,7 @@ bool FInventoryMouseRotationTest::RunTest(const FString&)
 	Begin(FVector2D(10,0)); Move(Pivot+FVector2D(0,70));
 	Up(Pivot+FVector2D(0,70),EKeys::RightMouseButton);
 	Down(Pivot+FVector2D(0,70),EKeys::RightMouseButton); Move(Pivot+FVector2D(-70,0));
-	Down(Pivot+FVector2D(-70,0),EKeys::MiddleMouseButton);
+	Panel->OnKeyDown(G,FKeyEvent(EKeys::C,FModifierKeysState(),0,false,0,0));
 	Up(Pivot,EKeys::LeftMouseButton); Up(Pivot,EKeys::RightMouseButton);
 	Check(TEXT("Middle click cancels repeated rotation"),Center,37);
 	Begin(FVector2D(10,0)); Move(Pivot+FVector2D(0,70));

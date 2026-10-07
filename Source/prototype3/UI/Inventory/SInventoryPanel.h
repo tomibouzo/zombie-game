@@ -64,9 +64,6 @@ private:
 	bool IsWorldDrop() const;
 	bool SourceAvailable() const;
 	TWeakObjectPtr<UPlayerItemUseComponent> ItemUse;
-	bool bRequestedBackpack = false;
-	bool bCloseRequested = false;
-	FGuid PendingTransfer;
 	struct FPocketView
 	{
 		FInventoryPocket Pocket;
@@ -83,6 +80,15 @@ private:
 	FOnDropItem OnDropItem;
 	FGuid SelectedId;
 	bool bDragging = false;
+	bool bPendingDrag = false;
+	bool bCanDoubleClick = false;
+	double LastClickTime = 0;
+	FGuid LastClickItem;
+	FKey LastClickKey;
+	FVector2D GrabStart = FVector2D::ZeroVector;
+	TSet<FKey> PressedKeys;
+	bool IsHeldSelection() const;
+	bool IsActionDown(EInventoryControl Action) const;
 	bool bAdding = false;
 	bool bTurnLeft = false;
 	bool bTurnRight = false;

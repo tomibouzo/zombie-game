@@ -32,7 +32,7 @@ struct FQuickPocketsFixture
 		Vitals->InitializeVitals(100, 100, 50, .25f);
 		Use = NewObject<UPlayerItemUseComponent>(Owner);
 		Use->bSpawnTestSpikes = false;
-		Use->bSavePreferences = false;
+
 		Use->RegisterComponent();
 		Owner->DispatchBeginPlay();
 	}
@@ -47,7 +47,7 @@ bool FThreeQuickPocketsTest::RunTest(const FString&)
 	FQuickPocketsFixture Fixture;
 	auto* Use = Fixture.Use;
 	auto* Inventory = Fixture.Inventory;
-	if (!TestNotNull(TEXT("Player lifecycle initialized shortcuts"), Use->Shortcuts.Get())) return false;
+
 	TestTrue(TEXT("Backpack initialized"), Use->Backpack.IsValid());
 	int32 Count = 0;
 	for (const auto& Pocket : Inventory->GetPockets())
@@ -69,11 +69,10 @@ bool FThreeQuickPocketsTest::RunTest(const FString&)
 	}
 	if (!TestTrue(TEXT("Quick bandage exists"), Bandage.IsValid())) return false;
 	const int32 InitialCount = Inventory->GetEntries().Num();
-	Use->Shortcuts->ItemTypes[0] = TEXT("Bandage");
 	for (int32 Index = 1; Index < 3; ++Index)
 	{
 		TestTrue(TEXT("Transfer to another quick pocket"), Use->Transfer(Bandage, UPlayerItemUseComponent::QuickPocketId(Index)));
-		Use->HandleShortcut(0, 10.0 * Index);
+		Use->PressQuickItem(0); Use->ReleaseQuickItem(0);
 		TestEqual(TEXT("Shortcut finds the same instance in each hidden pocket"), Use->GetHeldId(), Bandage);
 		TestFalse(TEXT("Held item cannot be transferred"), Use->Transfer(Bandage, TEXT("Quick")));
 		Use->Stow();
@@ -85,11 +84,62 @@ bool FThreeQuickPocketsTest::RunTest(const FString&)
 	Use->Advance(.2f);
 	TestTrue(TEXT("Backpack becomes accessible"), Use->CanAccess(TEXT("Backpack")));
 	TestTrue(TEXT("Transfer to open backpack"), Use->Transfer(Bandage, TEXT("Backpack")));
-	Use->HandleShortcut(0, 40);
+	Use->PressQuickItem(0); Use->ReleaseQuickItem(0);
 	TestFalse(TEXT("Shortcut never takes an item from backpack"), Use->HasHeldItem());
 	TestEqual(TEXT("Transfers never duplicate or consume"), Inventory->GetEntries().Num(), InitialCount);
 	Use->CloseBackpack();
 	TestFalse(TEXT("Closing restores the access gate"), Use->CanAccess(TEXT("Backpack")));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FQuickItemHoldTest, "Prototype.Inventory.QuickItemHold",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FQuickItemHoldTest::RunTest(const FString&)
+{
+	FQuickPocketsFixture F;
+	auto* Use = F.Use;
+	auto* Vitals = Use->GetOwner()->FindComponentByClass<UPlayerVitalsComponent>();
+	Vitals->ApplyDamage(50);
+	const int32 Count = F.Inventory->GetEntries().Num();
+	Use->PressQuickItem(0); Use->Advance(.1f); Use->ReleaseQuickItem(0);
+	const FGuid Bandage = Use->GetHeldId();
+	TestTrue(TEXT("Tap takes bandage into hands"),Bandage.IsValid());
+	Use->Advance(5);
+	TestFalse(TEXT("Released tap never begins use"),Use->IsUsing());
+	TestEqual(TEXT("Tap never consumes"),F.Inventory->GetEntries().Num(),Count);
+	Use->PressQuickItem(0); Use->Advance(.4f);
+	TestTrue(TEXT("Holding begins use after the threshold"),Use->IsUsing());
+	Use->Advance(1); Use->ReleaseQuickItem(0);
+	TestFalse(TEXT("Release cancels incomplete use"),Use->IsUsing());
+	TestEqual(TEXT("Release leaves the same item in hands"),Use->GetHeldId(),Bandage);
+	TestEqual(TEXT("Cancelled hold does not heal"),Vitals->GetCurrentHealth(),50.f);
+	Use->Advance(5);
+	TestEqual(TEXT("Cancelled hold never consumes later"),F.Inventory->GetEntries().Num(),Count);
+	Use->PressQuickItem(0); Use->Advance(.5f);
+	Use->ReleaseQuickItem(1);
+	TestTrue(TEXT("Releasing a different key does not cancel active use"),Use->IsUsing());
+	Vitals->ApplyDamage(1); Use->Advance(5);
+	TestFalse(TEXT("Damage cancels held use without auto-restarting"),Use->IsUsing());
+	Use->ReleaseQuickItem(0);
+	Use->PressQuickItem(0); Use->Advance(1);
+	Use->CancelQuickItemHold(); Use->Advance(5);
+	TestFalse(TEXT("Interface/focus cancellation ends held use"),Use->IsUsing());
+	TestEqual(TEXT("Interrupted holds preserve ownership"),F.Inventory->GetEntries().Num(),Count);
+	Use->PressQuickItem(0); Use->Advance(Use->QuickUseHoldSeconds + 3.1f);
+	TestFalse(TEXT("Complete hold spends its held item"),Use->HasHeldItem());
+	TestEqual(TEXT("Complete hold consumes exactly one"),F.Inventory->GetEntries().Num(),Count-1);
+	TestEqual(TEXT("Complete hold heals once"),Vitals->GetCurrentHealth(),74.f);
+	Use->Advance(8);
+	TestEqual(TEXT("Continued hold does not chain another use"),F.Inventory->GetEntries().Num(),Count-1);
+	Use->ReleaseQuickItem(0);
+	Use->PressQuickItem(1); Use->ReleaseQuickItem(1);
+	const FGuid Food = Use->GetHeldId();
+	Use->PressQuickItem(1); Use->Advance(5); Use->ReleaseQuickItem(1);
+	TestEqual(TEXT("Repeated key stays on the named food item"),Use->GetHeldId(),Food);
+	TestEqual(TEXT("Unimplemented food effect cannot consume"),F.Inventory->GetEntries().Num(),Count-1);
+	Use->PressQuickItem(2); Use->ReleaseQuickItem(2);
+	FInventoryEntry Water;
+	TestTrue(TEXT("Water key selects its fixed type"),F.Inventory->GetItem(Use->GetHeldId(),Water) && Water.Item.Definition->ItemId==TEXT("WaterBottle"));
 	return true;
 }
 
@@ -178,7 +228,7 @@ bool FQuickPocketPanelTest::RunTest(const FString&)
 	TestTrue(TEXT("Noninterrupting damage allows opening to finish"),Panel->IsInterfaceReady());
 	Vitals->ApplyDamage(1,false);
 	TestTrue(TEXT("Noninterrupting damage leaves backpack open"),Use->IsBackpackOpen());
-	FString Error; Settings->TrySetKey(EInventoryControl::ShowQuick,EKeys::Z,Error);
+	FString Error; Settings->TrySetKey(EInventoryControl::CyclePocket,EKeys::Z,Error);
 	Key(EKeys::Tab); TestEqual(TEXT("Old cycle binding inert"),Panel->GetVisibleQuickPocket(),FName(TEXT("Quick")));
 	Key(EKeys::Z); TestEqual(TEXT("Rebound cycle key works"),Panel->GetVisibleQuickPocket(),FName(TEXT("Quick2")));
 	TestFalse(TEXT("Rebound cycle preserves full view"),Panel->IsPocketsOnly());
@@ -196,7 +246,7 @@ bool FDamageInterruptionTest::RunTest(const FString&)
 		if (Entry.PocketId==TEXT("Quick") && Entry.Item.Definition->ItemId==TEXT("Bandage")) Bandage=Entry.Item.InstanceId;
 	Vitals->ApplyDamage(40);
 	if (!TestTrue(TEXT("Bandage equipped"),F.Use->EquipToHands(Bandage))) return false;
-	F.Use->HandlePrimaryAction(); F.Use->Advance(.5f);
+	F.Use->PressItemAction(true); F.Use->Advance(.5f);
 	const float Progress=F.Use->GetProgress();
 	Vitals->ApplyDamage(1,false);
 	TestTrue(TEXT("Future damage-over-time can preserve bandage use"),F.Use->IsUsing());
@@ -206,12 +256,112 @@ bool FDamageInterruptionTest::RunTest(const FString&)
 	TestEqual(TEXT("Direct hit clears progress"),F.Use->GetProgress(),0.f);
 	FInventoryEntry Entry;
 	TestTrue(TEXT("Interrupted bandage remains owned"),F.Inventory->GetItem(Bandage,Entry));
-	F.Use->HandlePrimaryAction(); Vitals->ApplyDamage(1,false); F.Use->Advance(10);
+	F.Use->PressItemAction(true); Vitals->ApplyDamage(1,false); F.Use->Advance(10);
 	TestFalse(TEXT("Bandage completes through noninterrupting damage"),F.Inventory->GetItem(Bandage,Entry));
 	F.Use->BeginOpenBackpack(); F.Use->Advance(1);
 	Vitals->ApplyDamage(1000,false);
 	TestFalse(TEXT("Death always interrupts opening"),F.Use->IsOpeningBackpack());
 	TestFalse(TEXT("Death leaves backpack closed"),F.Use->IsBackpackOpen());
+	return true;
+}
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FItemActionContractTest, "Prototype.Inventory.ItemActionContracts",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FItemActionContractTest::RunTest(const FString&)
+{
+	FQuickPocketsFixture F;
+	auto* Vitals = F.Use->GetOwner()->FindComponentByClass<UPlayerVitalsComponent>();
+	Vitals->ApplyDamage(50);
+	F.Use->PressQuickItem(0); F.Use->ReleaseQuickItem(0);
+	const FGuid Bandage = F.Use->GetHeldId();
+	const int32 Count = F.Inventory->GetEntries().Num();
+	TestTrue(TEXT("Held item consumes missing primary without fallback"),F.Use->PressItemAction(false));
+	TestFalse(TEXT("Primary never uses secondary healing contract"),F.Use->IsUsing());
+	F.Use->ReleaseItemAction(false);
+	F.Use->PressItemAction(true); F.Use->Advance(.5f);
+	TestTrue(TEXT("Secondary begins the declared healing action"),F.Use->IsUsing());
+	F.Use->ReleaseItemAction(false);
+	TestTrue(TEXT("Other slot release does not cancel use"),F.Use->IsUsing());
+	F.Use->ReleaseItemAction(true); F.Use->Advance(5);
+	TestFalse(TEXT("Secondary release cancels unfinished use"),F.Use->IsUsing());
+	TestEqual(TEXT("Cancelled action has no healing effect"),Vitals->GetCurrentHealth(),50.f);
+	TestEqual(TEXT("Cancelled action preserves item and reservation"),F.Use->GetHeldId(),Bandage);
+	TestTrue(TEXT("Reservation remains"),F.Inventory->IsReserved(Bandage));
+	F.Use->PressItemAction(true);
+	TestFalse(TEXT("Invalid equip rejected"),F.Use->EquipToHands(FGuid::NewGuid()));
+	TestTrue(TEXT("Failed conflicting request preserves healing"),F.Use->IsUsing());
+	// Remove the only pocket food before requesting its fixed shortcut.
+	for (const auto& Entry : F.Inventory->GetEntries())
+		if (UPlayerItemUseComponent::IsQuickPocket(Entry.PocketId) && Entry.Item.Definition->ItemId == TEXT("CannedBeans"))
+		{ FItemInstance Removed; F.Inventory->RemoveItem(Entry.Item.InstanceId,Removed); }
+	F.Use->PressQuickItem(1);
+	TestTrue(TEXT("Missing quick item leaves healing underway"),F.Use->IsUsing());
+	F.Use->PressQuickItem(2); F.Use->ReleaseQuickItem(2);
+	TestFalse(TEXT("Available different item interrupts healing"),F.Use->IsUsing());
+	TestTrue(TEXT("Valid switch changes hands"),F.Use->GetHeldId() != Bandage);
+	FInventoryEntry Entry;
+	TestTrue(TEXT("Interrupted bandage still owned"),F.Inventory->GetItem(Bandage,Entry));
+	F.Use->Advance(5);
+	TestEqual(TEXT("Interrupted use cannot restart from old hold"),Vitals->GetCurrentHealth(),50.f);
+	TestEqual(TEXT("Only fixture food was removed"),F.Inventory->GetEntries().Num(),Count-1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHeldItemPanelTest, "Prototype.Inventory.HeldItemPanel",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FHeldItemPanelTest::RunTest(const FString&)
+{
+	FQuickPocketsFixture F;
+	FInventoryEntry Original;
+	for (const auto& Entry : F.Inventory->GetEntries())
+		if (Entry.PocketId == TEXT("Quick") && Entry.Item.Definition->ItemId == TEXT("Bandage")) Original = Entry;
+	const FGuid Id = Original.Item.InstanceId;
+	if (!TestTrue(TEXT("Bandage fixture exists"),Id.IsValid())) return false;
+	TStrongObjectPtr<UInventoryInputSettings> Settings(NewObject<UInventoryInputSettings>()); Settings->ResetDefaults();
+	int32 Closed = 0;
+	const auto Panel = SNew(SInventoryPanel).Inventory(F.Inventory).ItemUse(F.Use).Controls(Settings.Get()).SaveControls(false).PocketsOnly(true)
+		.OnClose(FSimpleDelegate::CreateLambda([&](){++Closed;}));
+	const FGeometry G = FGeometry::MakeRoot(FVector2D(1540,940),FSlateLayoutTransform());
+	auto Mouse = [](FVector2D P,FKey K) { return FPointerEvent(0,P,P,TSet<FKey>(),K,0,FModifierKeysState()); };
+	auto Move = [&](FVector2D P) { Panel->OnMouseMove(G,Mouse(P,EKeys::Invalid)); };
+	auto Down = [&](FVector2D P) { Panel->OnMouseButtonDown(G,Mouse(P,EKeys::LeftMouseButton)); };
+	auto Up = [&](FVector2D P) { Panel->OnMouseButtonUp(G,Mouse(P,EKeys::LeftMouseButton)); };
+	auto Key = [&](FKey K) { Panel->OnKeyDown(G,FKeyEvent(K,FModifierKeysState(),0,false,0,0)); };
+	auto KeyUp = [&](FKey K) { Panel->OnKeyUp(G,FKeyEvent(K,FModifierKeysState(),0,false,0,0)); };
+	auto Click = [&](FVector2D P) { Down(P); Up(P); };
+	const FVector2D Start = FVector2D(40,150) + Original.Position;
+	Click(Start);
+	TestFalse(TEXT("Single click selects without taking into hands"),F.Use->HasHeldItem());
+	Click(Start);
+	TestEqual(TEXT("Double click takes selected stored item"),F.Use->GetHeldId(),Id);
+	TestEqual(TEXT("Take leaves inventory open"),Closed,0);
+	Click(Start); Click(Start);
+	TestFalse(TEXT("Double click held item stows"),F.Use->HasHeldItem());
+	TestEqual(TEXT("Stow leaves inventory open"),Closed,0);
+	FString Error;
+	Settings->AssignKey(EInventoryControl::Grab,1,EKeys::J,false,Error);
+	Move(Start); Key(EKeys::J); KeyUp(EKeys::J); Key(EKeys::J); KeyUp(EKeys::J);
+	TestEqual(TEXT("Double tap alternate keyboard bind takes item"),F.Use->GetHeldId(),Id);
+	Down(Start); Move(Start+FVector2D(50,100)); Key(EKeys::C); Up(Start+FVector2D(50,100));
+	FInventoryEntry Entry; F.Inventory->GetItem(Id,Entry);
+	TestEqual(TEXT("Cancel retains hands"),F.Use->GetHeldId(),Id);
+	TestEqual(TEXT("Cancel retains original location"),Entry.Position,Original.Position);
+	TestTrue(TEXT("Cancel retains reservation"),F.Inventory->IsReserved(Id));
+	Down(Start); Up(FVector2D(41,151));
+	F.Inventory->GetItem(Id,Entry);
+	TestEqual(TEXT("Invalid boundary placement retains hands"),F.Use->GetHeldId(),Id);
+	TestEqual(TEXT("Invalid placement retains source"),Entry.Position,Original.Position);
+	Down(Start); Key(EKeys::J); Move(FVector2D(330,230)); Up(FVector2D(330,230));
+	TestEqual(TEXT("Releasing one of two grab keys does not commit"),F.Use->GetHeldId(),Id);
+	KeyUp(EKeys::J);
+	F.Inventory->GetItem(Id,Entry);
+	TestEqual(TEXT("Last grab release places into second pocket"),Entry.PocketId,FName(TEXT("Quick2")));
+	TestFalse(TEXT("Successful manual placement clears hands"),F.Use->HasHeldItem());
+	TestFalse(TEXT("Successful placement clears reservation"),F.Inventory->IsReserved(Id));
+	// Optional click-grab mode obeys the same unmoved double-activation rule.
+	Settings->bToggleGrab = true;
+	Click(FVector2D(330,230)); Click(FVector2D(330,230));
+	TestEqual(TEXT("Click mode double click takes without placing"),F.Use->GetHeldId(),Id);
+	TestEqual(TEXT("No take/stow/drag operation closes UI"),Closed,0);
 	return true;
 }
 #endif

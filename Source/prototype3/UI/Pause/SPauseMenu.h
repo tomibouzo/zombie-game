@@ -3,9 +3,13 @@
 #include "CoreMinimal.h"
 #include "Widgets/SCompoundWidget.h"
 #include "UI/Inventory/InventoryInputSettings.h"
+#include "UObject/StrongObjectPtr.h"
 
 class UPlayerItemUseComponent;
+class UItemUseSettings;
 class SWidgetSwitcher;
+
+enum class EOptionsCategory : uint8 { Controls, Inventory = Controls, Sound, Graphics };
 
 /** Pause and key assignment screens, owned by the local player controller. */
 class SPauseMenu : public SCompoundWidget
@@ -21,6 +25,7 @@ public:
 		SLATE_EVENT(FSimpleDelegate, OnResume)
 		SLATE_EVENT(FSimpleDelegate, OnExitGame)
 		SLATE_EVENT(FSimpleDelegate, OnExitDesktop)
+		SLATE_EVENT(FSimpleDelegate, OnControlsChanged)
 	SLATE_END_ARGS()
 	void Construct(const FArguments& Args);
 	virtual bool SupportsKeyboardFocus() const override { return true; }
@@ -30,20 +35,38 @@ public:
 	virtual FReply OnMouseWheel(const FGeometry&, const FPointerEvent&) override;
 	void HandleEscape();
 	void ShowOptions();
+	void ShowCategory(EOptionsCategory Category);
+	void ShowInventorySection(int32 Section);
 	bool IsOptionsOpen() const { return bOptionsOpen; }
+	EOptionsCategory GetCategory() const { return ActiveCategory; }
+	bool IsCapturing() const { return Rebinding != INDEX_NONE; }
+	bool HasUnsavedChanges() const;
+	bool IsConfirmingExit() const { return bConfirmExit; }
+	const UInventoryInputSettings* GetEditingControls() const { return Controls.Get(); }
 private:
-	TWeakObjectPtr<UInventoryInputSettings> Controls;
+	TStrongObjectPtr<UInventoryInputSettings> Controls;
+	TWeakObjectPtr<UInventoryInputSettings> AppliedControls;
 	TWeakObjectPtr<UPlayerItemUseComponent> ItemUse;
 	TSharedPtr<SWidgetSwitcher> Screens;
-	FSimpleDelegate OnResume, OnExitGame, OnExitDesktop;
+	TSharedPtr<SWidgetSwitcher> Categories;
+	TSharedPtr<SWidgetSwitcher> InventorySections;
+	EOptionsCategory ActiveCategory = EOptionsCategory::Inventory;
+	int32 ActiveSection = 0;
+	FSimpleDelegate OnResume, OnExitGame, OnExitDesktop, OnControlsChanged;
 	bool bOptionsOpen = false;
 	bool bSaveControls = true;
 	int32 Rebinding = INDEX_NONE;
-	int32 ShortcutRebinding = INDEX_NONE;
+	int32 RebindingSlot = 0;
+	FKey PendingKey;
+	bool bConflictPending = false;
+	bool bConfirmReset = false;
+	bool bConfirmExit = false;
 	FString Status;
-	bool IsCapturing() const { return Rebinding != INDEX_NONE || ShortcutRebinding != INDEX_NONE; }
-	void AssignKey(FKey Key);
-	void ResetControls();
-	TSharedRef<SWidget> MakeControlRow(EInventoryControl Action);
-	TSharedRef<SWidget> MakeShortcutRow(int32 Slot);
+	void AssignKey(FKey Key, bool bReplace = false);
+	void ResetControls(bool bAll);
+	void ControlsEdited();
+	void ApplyControls();
+	void FinishOptions();
+	void CancelExit();
+	TSharedRef<SWidget> MakeControlRow(EInventoryControl Action, const FString& Label = FString(), const FString& Detail = FString());
 };

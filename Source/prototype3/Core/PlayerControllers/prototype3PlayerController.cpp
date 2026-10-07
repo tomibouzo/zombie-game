@@ -6,8 +6,10 @@
 #include "Engine/LocalPlayer.h"
 #include "InputMappingContext.h"
 #include "InputAction.h"
+#include "InputModifiers.h"
 #include "InputCoreTypes.h"
 #include "Core/Camera/prototype3CameraManager.h"
+#include "Core/Characters/prototype3Character.h"
 #include "Blueprint/UserWidget.h"
 #include "prototype3.h"
 #include "Widgets/Input/SVirtualJoystick.h"
@@ -54,20 +56,25 @@ public:
 	virtual void Tick(float, FSlateApplication&, TSharedRef<ICursor>) override {}
 	virtual bool HandleKeyDownEvent(FSlateApplication&, const FKeyEvent& Event) override
 	{
-		if (Event.GetKey() != EKeys::Escape || !Controller.IsValid() || !Controller->HasInterfaceFocus(Event.GetUserIndex())) return false;
+		if (!Controller.IsValid() || !Controller->HasInterfaceFocus(Event.GetUserIndex())) return false;
+		const bool bBack = Controller->IsAssigningControls() ? Event.GetKey() == EKeys::Escape
+			: GetDefault<UInventoryInputSettings>()->Matches(EInventoryControl::Back, Event.GetKey());
+		if (!bBack) return false;
 		bConsumedEscape = true;
+		ConsumedKey = Event.GetKey();
 		if (!Event.IsRepeat()) Controller->HandleInterfaceEscape();
 		return true;
 	}
 	virtual bool HandleKeyUpEvent(FSlateApplication&, const FKeyEvent& Event) override
 	{
-		if (Event.GetKey() != EKeys::Escape || !bConsumedEscape) return false;
+		if (Event.GetKey() != ConsumedKey || !bConsumedEscape) return false;
 		bConsumedEscape = false;
 		return true;
 	}
 private:
 	TWeakObjectPtr<Aprototype3PlayerController> Controller;
 	bool bConsumedEscape = false;
+	FKey ConsumedKey;
 };
 }
 
@@ -141,68 +148,71 @@ void Aprototype3PlayerController::BeginPlay()
 void Aprototype3PlayerController::SetupInputComponent()
 {
 	Super::SetupInputComponent();
-
-	// only add IMCs for local player controllers
-	if (IsLocalPlayerController())
-	{
-		// Add Input Mapping Context
-		if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(GetLocalPlayer()))
-		{
-			for (UInputMappingContext* CurrentContext : DefaultMappingContexts)
-			{
-				Subsystem->AddMappingContext(CurrentContext, 0);
-			}
-
-			// Keep movement and primary/secondary actions independent of individual map IMCs.
-			// This is intentionally runtime-only; it does not mutate any .uasset.
-			if (!RuntimeSprintMappingContext)
-			{
-				RuntimeSprintMappingContext = NewObject<UInputMappingContext>(this, TEXT("RuntimeSprintMappingContext"));
-			}
-			else
-			{
-				Subsystem->RemoveMappingContext(RuntimeSprintMappingContext);
-			}
-			// Rebuild even when a context survived input setup or an editor reload.
-			// Never retain mappings to an older action object than the character binds.
-			{
-				RuntimeSprintMappingContext->UnmapAll();
-				// Higher-priority Shift mappings consume any legacy Shift-to-sprint bindings.
-				RuntimeSprintMappingContext->MapKey(RuntimeRunAction, EKeys::LeftShift);
-				RuntimeSprintMappingContext->MapKey(RuntimeRunAction, EKeys::RightShift);
-				RuntimeSprintMappingContext->MapKey(RuntimeCrouchAction, EKeys::LeftControl);
-				RuntimeSprintMappingContext->MapKey(RuntimeCrouchAction, EKeys::RightControl);
-				RuntimeSprintMappingContext->MapKey(GetPrimaryAction(), EKeys::LeftMouseButton);
-				RuntimeSprintMappingContext->MapKey(GetSecondaryAction(), EKeys::RightMouseButton);
-				RuntimeSprintAction = LoadObject<UInputAction>(nullptr, TEXT("/Game/Input/Actions/IA_Sprint.IA_Sprint"));
-				if (RuntimeSprintAction)
-				{
-					RuntimeSprintMappingContext->MapKey(RuntimeSprintAction, EKeys::LeftAlt);
-					RuntimeSprintMappingContext->MapKey(RuntimeSprintAction, EKeys::RightAlt);
-				}
-				else
-				{
-					UE_LOG(Logprototype3, Error, TEXT("Could not load the shared sprint input action."));
-				}
-			}
-
-			if (RuntimeSprintMappingContext)
-			{
-				Subsystem->AddMappingContext(RuntimeSprintMappingContext, 1);
-			}
-
-			// only add these IMCs if we're not using mobile touch input
-			if (!ShouldUseTouchControls())
-			{
-				for (UInputMappingContext* CurrentContext : MobileExcludedMappingContexts)
-				{
-					Subsystem->AddMappingContext(CurrentContext, 0);
-				}
-			}
-		}
-	}
-	
+	RebuildControls();
 }
+
+void Aprototype3PlayerController::RebuildControls()
+{
+	if (!IsLocalPlayerController()) return;
+	auto* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(GetLocalPlayer());
+	if (!Subsystem) return;
+	FlushPressedKeys();
+	for (const auto& Context : FilteredMappingContexts) Subsystem->RemoveMappingContext(Context);
+	FilteredMappingContexts.Empty();
+	TArray<UInputMappingContext*> Contexts = DefaultMappingContexts;
+	if (!ShouldUseTouchControls()) Contexts.Append(MobileExcludedMappingContexts);
+	for (auto* Source : Contexts)
+	{
+		if (!Source) continue;
+		Subsystem->RemoveMappingContext(Source);
+		auto* Copy = DuplicateObject<UInputMappingContext>(Source, this);
+		// Keyboard/mouse buttons are defined exclusively by the saved controls.
+		// Retain analog look and platform/gamepad mappings without modifying assets.
+		const auto Mappings = Copy->GetMappings();
+		for (const auto& Mapping : Mappings)
+			if (Mapping.Key.IsDigital() && !Mapping.Key.IsGamepadKey() && !Mapping.Key.IsTouch())
+				Copy->UnmapKey(Mapping.Action, Mapping.Key);
+		FilteredMappingContexts.Add(Copy);
+		Subsystem->AddMappingContext(Copy, 0);
+	}
+	if (!RuntimeSprintMappingContext) RuntimeSprintMappingContext = NewObject<UInputMappingContext>(this);
+	else Subsystem->RemoveMappingContext(RuntimeSprintMappingContext);
+	RuntimeSprintMappingContext->UnmapAll();
+	RuntimeSprintAction = LoadObject<UInputAction>(nullptr, TEXT("/Game/Input/Actions/IA_Sprint.IA_Sprint"));
+	const auto* Controls = GetDefault<UInventoryInputSettings>();
+	auto Map = [&](EInventoryControl Action, UInputAction* Input)
+	{
+		if (!Input) return;
+		for (int32 Slot = 0; Slot < 2; ++Slot)
+			if (const FKey Key = Controls->GetKey(Action, Slot); Key.IsValid()) RuntimeSprintMappingContext->MapKey(Input, Key);
+	};
+	Map(EInventoryControl::Run, RuntimeRunAction);
+	Map(EInventoryControl::Sprint, RuntimeSprintAction);
+	Map(EInventoryControl::Crouch, RuntimeCrouchAction);
+	Map(EInventoryControl::Primary, GetPrimaryAction());
+	Map(EInventoryControl::Secondary, GetSecondaryAction());
+	if (auto* Move = LoadObject<UInputAction>(nullptr, TEXT("/Game/Input/Actions/IA_Move.IA_Move")))
+	{
+		for (auto Direction : { EInventoryControl::MoveForward, EInventoryControl::MoveBackward, EInventoryControl::MoveLeft, EInventoryControl::MoveRight })
+			for (int32 Slot = 0; Slot < 2; ++Slot)
+			{
+				const FKey Key = Controls->GetKey(Direction, Slot);
+				if (!Key.IsValid()) continue;
+				auto& Mapping = RuntimeSprintMappingContext->MapKey(Move, Key);
+				if (Direction == EInventoryControl::MoveBackward || Direction == EInventoryControl::MoveLeft)
+					Mapping.Modifiers.Add(NewObject<UInputModifierNegate>(RuntimeSprintMappingContext));
+				if (Direction == EInventoryControl::MoveForward || Direction == EInventoryControl::MoveBackward)
+				{
+					auto* Axis = NewObject<UInputModifierSwizzleAxis>(RuntimeSprintMappingContext);
+					Axis->Order = EInputAxisSwizzle::YXZ;
+					Mapping.Modifiers.Add(Axis);
+				}
+			}
+	}
+	Subsystem->AddMappingContext(RuntimeSprintMappingContext, 1);
+}
+
+bool Aprototype3PlayerController::IsAssigningControls() const { return PauseMenu.IsValid() && PauseMenu->IsCapturing(); }
 
 bool Aprototype3PlayerController::ShouldUseTouchControls() const
 {
@@ -210,36 +220,62 @@ bool Aprototype3PlayerController::ShouldUseTouchControls() const
 	return SVirtualJoystick::ShouldDisplayTouchInterface() || bForceTouchControls;
 }
 
+void Aprototype3PlayerController::FlushPressedKeys()
+{
+	QuickKeysDown.Empty();
+	if (auto* Use = ItemUse(this)) Use->CancelUse();
+	if (auto* PlayerCharacter = Cast<Aprototype3Character>(GetPawn())) PlayerCharacter->ClearControlIntents();
+	Super::FlushPressedKeys();
+}
+
 bool Aprototype3PlayerController::InputKey(const FInputKeyEventArgs& Params)
 {
-	if (IsLocalController() && Params.Key == EKeys::Escape)
+	const auto* Controls = GetDefault<UInventoryInputSettings>();
+	if (IsLocalController() && Controls->Matches(EInventoryControl::Back, Params.Key))
 	{
 		if (Params.Event == IE_Pressed) HandleInterfaceEscape();
 		return true;
 	}
 	if (PauseMenu.IsValid()) return true;
-	if (IsLocalController() && Params.Key == GetDefault<UInventoryInputSettings>()->GetKey(EInventoryControl::ShowQuick))
+	if (IsLocalController() && Controls->Matches(EInventoryControl::ShowQuick, Params.Key) && !bInventoryDemoOpen)
 	{
 		if (Params.Event == IE_Pressed)
 		{
-			if (bInventoryDemoOpen && InventoryDemoWidget && !InventoryDemoWidget->IsPocketsOnly()) InventoryDemoWidget->CycleQuickPocket();
-			else ToggleInventoryDemo(false, true);
+			ToggleInventoryDemo(false, true);
 		}
 		return true;
 	}
-	if (IsLocalController() && Params.Key == GetDefault<UInventoryInputSettings>()->GetKey(EInventoryControl::Toggle))
+	if (IsLocalController() && Controls->Matches(EInventoryControl::Toggle, Params.Key))
 	{
 		if (Params.Event == IE_Pressed) ToggleInventoryDemo();
 		return true;
 	}
+	if (bInventoryDemoOpen) return true;
 	if (IsLocalController() && !bInventoryDemoOpen)
-		if (auto* Use = ItemUse(this); Use && Use->Shortcuts)
-			for (int32 Slot=0; Slot<Use->Shortcuts->Keys.Num(); ++Slot)
-				if (Params.Key == Use->Shortcuts->Keys[Slot])
+		if (auto* Use = ItemUse(this))
+		{
+			if (Controls->Matches(EInventoryControl::Stow, Params.Key))
+			{
+				if (Params.Event == IE_Pressed) Use->Stow();
+				return true;
+			}
+			for (int32 Slot = 0; Slot < 3; ++Slot)
+				if (const auto Action = static_cast<EInventoryControl>(static_cast<int32>(EInventoryControl::Bandage) + Slot); Controls->Matches(Action, Params.Key))
 				{
-					if (Params.Event == IE_Pressed || Params.Event == IE_DoubleClick) Use->HandleShortcut(Slot, GetWorld()->GetTimeSeconds());
+					const bool bWasDown = QuickKeysDown.Contains(Controls->GetKey(Action)) || QuickKeysDown.Contains(Controls->GetKey(Action, 1));
+					if (Params.Event == IE_Pressed || Params.Event == IE_DoubleClick)
+					{
+						QuickKeysDown.Add(Params.Key);
+						if (!bWasDown) Use->PressQuickItem(Slot);
+					}
+					else if (Params.Event == IE_Released)
+					{
+						QuickKeysDown.Remove(Params.Key);
+						if (!QuickKeysDown.Contains(Controls->GetKey(Action)) && !QuickKeysDown.Contains(Controls->GetKey(Action, 1))) Use->ReleaseQuickItem(Slot);
+					}
 					return true;
 				}
+		}
 	return Super::InputKey(Params);
 }
 
@@ -263,14 +299,14 @@ void Aprototype3PlayerController::ToggleInventoryDemo(bool bLegacyLab, bool bPoc
 	}
 	if (auto* Use=ItemUse(this))
 	{
-		Use->CancelUse();
-		Use->CloseBackpack();
 		if (!bLegacyLab && !bPocketsOnly && !Use->BeginOpenBackpack()) return;
+		Use->CancelUse();
+		if (bPocketsOnly) Use->CloseBackpack();
 	}
 	InventoryDemoWidget->SetPocketsOnly(bPocketsOnly);
 	bCursorBeforeInventory = bShowMouseCursor;
 	bInventoryDemoOpen = true;
-	if (PlayerInput) PlayerInput->FlushPressedKeys();
+	FlushPressedKeys();
 	// A held attack is driven by the pawn component's tick, independently of UI input.
 	if (APawn* ControlledPawn = GetPawn())
 		if (UPlayerMeleeComponent* Melee = ControlledPawn->FindComponentByClass<UPlayerMeleeComponent>()) Melee->StopAttacking();
@@ -298,7 +334,7 @@ void Aprototype3PlayerController::CloseInventoryDemo()
 	SetIgnoreLookInput(false);
 	bShowMouseCursor = bCursorBeforeInventory;
 	SetInputMode(FInputModeGameOnly());
-	if (PlayerInput) PlayerInput->FlushPressedKeys();
+	FlushPressedKeys();
 }
 
 bool Aprototype3PlayerController::HasInterfaceFocus(int32 UserIndex) const
@@ -332,7 +368,7 @@ void Aprototype3PlayerController::OpenPauseMenu()
 	if (!SetPause(true)) return;
 	const bool bPlayInEditor = GetWorld()->WorldType == EWorldType::PIE;
 	bCursorBeforePause = bShowMouseCursor;
-	if (PlayerInput) PlayerInput->FlushPressedKeys();
+	FlushPressedKeys();
 	if (APawn* ControlledPawn = GetPawn())
 		if (UPlayerMeleeComponent* Melee = ControlledPawn->FindComponentByClass<UPlayerMeleeComponent>()) Melee->StopAttacking();
 	SetIgnoreMoveInput(true);
@@ -341,6 +377,7 @@ void Aprototype3PlayerController::OpenPauseMenu()
 	SAssignNew(PauseMenu, SPauseMenu).ItemUse(ItemUse(this))
 		.CanExitGame(bPlayInEditor).CanExitDesktop(!bPlayInEditor)
 		.OnResume(FSimpleDelegate::CreateUObject(this, &Aprototype3PlayerController::ClosePauseMenu))
+		.OnControlsChanged(FSimpleDelegate::CreateUObject(this, &Aprototype3PlayerController::RebuildControls))
 		.OnExitGame(FSimpleDelegate::CreateUObject(this, &Aprototype3PlayerController::ExitPlaySession))
 		.OnExitDesktop(FSimpleDelegate::CreateUObject(this, &Aprototype3PlayerController::ExitToDesktop));
 	Viewport->AddViewportWidgetContent(PauseMenu.ToSharedRef(), 200);
@@ -360,7 +397,7 @@ void Aprototype3PlayerController::ClosePauseMenu()
 	SetIgnoreLookInput(false);
 	bShowMouseCursor = bCursorBeforePause;
 	SetInputMode(FInputModeGameOnly());
-	if (PlayerInput) PlayerInput->FlushPressedKeys();
+	FlushPressedKeys();
 }
 
 void Aprototype3PlayerController::ExitPlaySession()

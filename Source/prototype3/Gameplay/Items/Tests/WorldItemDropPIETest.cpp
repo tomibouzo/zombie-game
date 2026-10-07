@@ -113,7 +113,7 @@ public:
 			}
 			if (!Test->TestEqual(TEXT("Nine real item types available"), Items.Num(), 9)) return true;
 			InitialCount = Inventory->GetEntries().Num();
-			Key(EKeys::Delete);
+			Key(EKeys::F);
 			Test->TestEqual(TEXT("Drop without selection does not remove an item"), Inventory->GetEntries().Num(), InitialCount);
 			FString Error;
 			Test->TestNull(TEXT("Missing player preserves source"), ADroppedItem::DropFromInventory(Inventory.Get(), Items[0].Item.InstanceId, nullptr, Error));
@@ -131,15 +131,15 @@ public:
 			Player->SetActorRotation(FRotator::ZeroRotator);
 			Settings->bToggleGrab = Index % 2 != 0;
 			FString Error;
-			const FKey DropKey = Settings->bToggleGrab ? EKeys::Z : EKeys::Delete;
+			const FKey DropKey = Settings->bToggleGrab ? EKeys::Z : EKeys::F;
 			Test->TestTrue(TEXT("Drop can be rebound"), Settings->TrySetKey(EInventoryControl::Drop, DropKey, Error));
 			Grab(Entry);
 			if (Settings->bToggleGrab) MouseButton(false);
 			// Alternate selected-only and held drops through the same mapped control.
 			if (Index % 2 == 0) MouseButton(false);
-			if (DropKey != EKeys::Delete)
+			if (DropKey != EKeys::F)
 			{
-				Key(EKeys::Delete);
+				Key(EKeys::F);
 				FInventoryEntry StillHeld;
 				Test->TestTrue(TEXT("Old key does nothing after rebinding"), Inventory->GetItem(Entry.Item.InstanceId, StillHeld));
 			}

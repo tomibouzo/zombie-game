@@ -4,15 +4,20 @@
 #include "UObject/Object.h"
 #include "InventoryInputSettings.generated.h"
 
-// Drop keeps the old Remove slot so saved custom bindings remain valid.
+// Keep retired slots in place so older saved arrays retain their action identities.
 enum class EInventoryControl : uint8
 {
 	Toggle, Grab, TurnLeft, TurnRight, Cancel, Drop, Add, RotateWithMouse,
 	ShowQuick, OpenBackpack, ToggleBackpack, ToHands, ToQuick, ToBackpack, Stow,
-	AssignShortcut1, AssignShortcut2, AssignShortcut3, ToggleGrabMode, Count
+	AssignShortcut1, AssignShortcut2, AssignShortcut3, ToggleGrabMode,
+	MoveForward, MoveBackward, MoveLeft, MoveRight, Run, Sprint, Crouch,
+	Primary, Secondary, Bandage, Food, Water, CyclePocket, FasterRotation,
+	SlowerRotation, ScrollFloorUp, ScrollFloorDown, Back, Count
 };
 
-/** Saved inventory controls. The legacy Add slot is used only by the isolated laboratory. */
+enum class EControlSection : uint8 { Movement, ItemActions, Inventory, Gameplay };
+
+/** Saved keyboard/mouse controls. The legacy Add slot is used only by the isolated laboratory. */
 UCLASS(Config=GameUserSettings)
 class PROTOTYPE3_API UInventoryInputSettings : public UObject
 {
@@ -25,13 +30,31 @@ public:
 	bool bToggleGrab = false;
 	UPROPERTY(Config)
 	float TurnSpeed = 120;
-	FKey GetKey(EInventoryControl Action) const;
+	UPROPERTY(Config) float LookSensitivity = 1.f;
+	UPROPERTY(Config) bool bInvertLookY = false;
+	FKey GetKey(EInventoryControl Action, int32 Slot = 0) const;
+	bool Matches(EInventoryControl Action, FKey Key) const;
+	FString KeyLabel(EInventoryControl Action) const;
+	static FString ShortKeyLabel(FKey Key);
+	void CopySettingsFrom(const UInventoryInputSettings& Other);
+	bool HasSameSettings(const UInventoryInputSettings& Other) const;
 	bool TrySetKey(EInventoryControl Action, FKey Key, FString& Error);
+	bool AssignKey(EInventoryControl Action, int32 Slot, FKey Key, bool bReplace, FString& Error);
+	TArray<EInventoryControl> Conflicts(EInventoryControl Action, FKey Key) const;
 	void ResetDefaults();
+	bool ResetSection(EControlSection Section);
+	void SetTurnSpeed(float Value);
 	static FString Label(EInventoryControl Action);
+	static EControlSection Section(EInventoryControl Action);
+	static uint32 Contexts(EInventoryControl Action);
+	static bool IsBindable(EInventoryControl Action);
+	static bool IsGameplayControl(EInventoryControl Action);
+	static bool IsGameplayReserved(FKey Key);
 	static bool Supports(EInventoryControl Action, FKey Key);
 private:
 	void ValidateSettings();
 	UPROPERTY(Config)
 	TArray<FKey> Keys;
+	UPROPERTY(Config) TArray<FKey> AlternateKeys;
+	UPROPERTY(Config) int32 ControlsVersion = 0;
 };

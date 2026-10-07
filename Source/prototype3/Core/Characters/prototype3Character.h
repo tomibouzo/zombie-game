@@ -267,6 +267,7 @@ protected:
 	void ResolveLocomotionState();
 	void SetActiveGait(EPlayerLocomotionGait NewGait);
 	void ClearSpeedRequests();
+	bool bRequestedGaitInterruptsUse = false;
 	bool CanStartCrouch() const;
 	bool IsCrouchActive() const;
 	bool CanUseStaminaMovement() const;
@@ -308,6 +309,8 @@ protected:
 public:
 
 	/** Returns the first person mesh **/
+	void ClearControlIntents();
+	void PrepareForItemUse();
 	USkeletalMeshComponent* GetFirstPersonMesh() const { return FirstPersonMesh; }
 
 	/** Returns first person camera component **/
