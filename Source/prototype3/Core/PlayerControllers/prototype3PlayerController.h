@@ -49,6 +49,8 @@ public:
 	virtual void FlushPressedKeys() override;
 	void RebuildControls();
 	bool IsAssigningControls() const;
+	/** Routes backpack and locomotion buttons before the focused Slate inventory consumes them. */
+	bool HandleInventoryControlKey(FKey Key, EInputEvent Event);
 
 protected:
 	UPROPERTY(Transient)
@@ -59,6 +61,9 @@ protected:
 	TSharedPtr<class SPauseMenu> PauseMenu;
 	TSharedPtr<class IInputProcessor> InterfaceInputProcessor;
 	TSet<FKey> QuickKeysDown;
+	TSet<FKey> BackpackKeysDown;
+	TArray<FKey> HeldMovementKeys() const;
+	void RestoreMovementKeys(const TArray<FKey>& Keys);
 	UPROPERTY(Transient) TArray<TObjectPtr<UInputMappingContext>> FilteredMappingContexts;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 

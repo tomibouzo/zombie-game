@@ -1,6 +1,6 @@
 # Inventory and controls
 
-Updated: 2026-10-06. Controls redesign on `controls-options-rework`.
+Updated: 2026-10-07. Backpack quick/slow modes on `backpack-opening-modes`.
 Read `Source/prototype3/Gameplay/Items/README.md` before changing item actions.
 
 ## Options
@@ -13,7 +13,10 @@ backpack, item handling, rotation speed, and floor-list controls.
 Every editable action has **two binding buttons**; the second starts **Unbound**. Buttons
 show compact key names (LMC, RMC, Esc, L Ctrl), with full names on hover. Either
 binding activates the action; releasing one while the other is held does not end
-a held action. Gameplay and inventory manipulation bindings are independent.
+a held action. Item-use and inventory manipulation bindings are independent.
+Movement/run/sprint bindings also operate in backpack view and participate in its
+binding conflict checks. Existing conflicting saved bindings follow the same
+custom-key-first normalization as other controls.
 
 Choose a slot, then press a keyboard key or mouse button. **Delete** clears that
 slot; **Escape** cancels capture. Same-context conflicts offer **Replace / Cancel**.
@@ -87,11 +90,37 @@ Taking an item reserves its existing entry; it never creates a second item.
 
 ## Inventory interaction
 
-Tab opens all current pockets plus the floor list immediately. I opens the
-backpack after the existing two-second delay, showing backpack + one pocket +
-floor. Tab cycles pockets in backpack view, including during a drag.
-I or Back closes/cancels the backpack. Reopening requires the delay.
-Inventory/opening blocks movement and looking.
+Tab opens all current pockets plus the floor list immediately; that view blocks
+movement. The rebindable backpack action (default I) selects two opening modes
+using the character's existing run tap/hold threshold (currently 0.25 seconds):
+
+- Tap: quick mode opens 0.5 seconds after the initial press. The character
+  crouches and stays still. Movement/run/sprint closes or cancels the backpack,
+  restores the previous crouch/standing request, and proceeds through normal
+  movement, headroom and stamina rules. Item changes are instant.
+- Hold: walking mode opens after 2.5 seconds of stationary charging, including
+  recognition time. Actual walking accrues progress at 60% speed (about 4.17
+  seconds if continuously walking). Release during charging cancels; release
+  after opening keeps the interface open. Run/sprint closes it and proceeds.
+
+Walking continues during the initial tap/hold selection window. A short tap
+while movement is still held cancels quick opening. Both binding slots form one
+held action; release the last held binding to finish that press. Slow mode keeps
+the previous stance. The mouse controls the UI; camera look stays blocked.
+
+In walking mode, a valid changed arrangement takes 0.3 seconds: moving between
+or within storage, floor pickup/drop, and taking/stowing. Ownership stays at the
+source until the delay ends. Source and destination are shaded previews; they
+are never extra owned items. Invalid/unchanged placement starts no delay.
+Walking stops for the whole transfer. Held walking resumes afterward. Other
+inventory input is blocked during the delay; run/sprint and closing can cancel.
+Closing, focus loss, interrupting damage, changed ownership, lost floor range,
+or a destination that becomes blocked cancels without a partial change. The
+source and destination are validated again at commit. Pockets-only operations
+remain instant.
+
+The full view shows backpack + one pocket + floor. Tab cycles pockets, including
+during a drag. I or Back closes/cancels. Reopening requires the selected delay.
 
 Single grab/select activation selects an item. In default hold mode, moving more
 than five logical pixels starts dragging; release places it. Double activation on
@@ -106,7 +135,8 @@ Wheel changes speed by 15 while manipulating an item, otherwise scrolls the
 hovered floor list. It never does both. Unbind the speed actions and set a numeric
 speed in Options to keep a fixed value; floor scrolling remains independent.
 
-Green placement commits; red placement restores original position/angle.
+Green placement commits immediately or starts the walking-mode arrangement delay;
+red placement restores original position/angle.
 Rendering, hit testing and collision use the same polygons. Holes remain usable;
 edges may touch and every shape part must fit.
 C cancels placement while keeping inventory open. Back cancels and closes it.

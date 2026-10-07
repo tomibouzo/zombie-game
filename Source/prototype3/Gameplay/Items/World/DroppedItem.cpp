@@ -146,6 +146,18 @@ bool ADroppedItem::Initialize(const FItemInstance& InItem, FName ProfileId)
 	return true;
 }
 
+bool ADroppedItem::HasWorldRepresentation(const FItemInstance& Value)
+{
+	return Value.IsValid() && FindPlaceholder(Value.Definition->ItemId) != nullptr;
+}
+
+bool ADroppedItem::WouldMoveAtFeet(APawn* Player) const
+{
+	const FPlaceholder* Spec = Item.IsValid() ? FindPlaceholder(Item.Definition->ItemId) : nullptr;
+	return CanInteract(Player) && Spec && Body->IsSimulatingPhysics()
+		&& !GetActorTransform().Equals(DropTransform(Player, *Spec), .1f);
+}
+
 ADroppedItem* ADroppedItem::DropFromInventory(UInventoryComponent* Inventory, FGuid InstanceId, APawn* Player, FString& Error)
 {
 	Error.Empty();

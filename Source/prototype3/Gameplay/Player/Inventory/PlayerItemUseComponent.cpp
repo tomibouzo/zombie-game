@@ -16,6 +16,9 @@
 #include "Core/Characters/prototype3Character.h"
 #include "GameFramework/PlayerController.h"
 #include "UI/Inventory/InventoryInputSettings.h"
+#include "Gameplay/Items/World/DroppedItem.h"
+#include "GameFramework/CharacterMovementComponent.h"
+#include "HAL/PlatformTime.h"
 
 UPlayerItemUseComponent::UPlayerItemUseComponent() { PrimaryComponentTick.bCanEverTick = true; }
 
@@ -161,7 +164,7 @@ void UPlayerItemUseComponent::ReleaseItemAction(bool bSecondary)
 void UPlayerItemUseComponent::CancelUse()
 {
 	if (bUsing) Status = TEXT("Use cancelled. Item preserved.");
-	bUsing = false; Elapsed = 0;
+	bUsing = false; if (!bOpening) Elapsed = 0;
 	HeldQuickItem = INDEX_NONE;
 	QuickHoldElapsed = 0;
 	bQuickUseAttempted = bUsingFromQuickKey = false;
@@ -210,14 +213,155 @@ void UPlayerItemUseComponent::CancelQuickItemHold()
 	bQuickUseAttempted = bUsingFromQuickKey = false;
 }
 
-bool UPlayerItemUseComponent::BeginOpenBackpack()
+float UPlayerItemUseComponent::BackpackHoldThreshold() const
+{
+	const auto* Character = Cast<Aprototype3Character>(GetOwner());
+	return Character ? FMath::Max(0.f, Character->GetGaitHoldThreshold()) : .25f;
+}
+
+bool UPlayerItemUseComponent::BeginOpenBackpack(bool bSelectMode)
 {
 	if (!Backpack.IsValid() || !bBackpackEquipped || !Vitals || !Vitals->IsAlive()) return false;
+	if (IsBackpackActive()) return true;
 	CancelUse();
-	if (!bBackpackOpen && !bOpening) { bOpening = true; Elapsed = 0; Duration = FMath::Max(0.01f, BackpackOpenSeconds); Status = TEXT("Opening backpack..."); }
+	if (auto* Character = Cast<Aprototype3Character>(GetOwner())) Character->PrepareForItemUse();
+	BackpackMode = bSelectMode ? EBackpackMode::Selecting : EBackpackMode::Quick;
+	bOpening = true;
+	BackpackInputElapsed = Elapsed = 0;
+	BackpackInputStartTime = FPlatformTime::Seconds();
+	Duration = FMath::Max(.01f, QuickBackpackOpenSeconds);
+	Status = TEXT("Opening backpack...");
+	if (!bSelectMode) SelectQuickBackpack();
 	return true;
 }
-void UPlayerItemUseComponent::CloseBackpack() { bOpening = bBackpackOpen = false; if (!bUsing) Elapsed = 0; }
+
+void UPlayerItemUseComponent::StopInventoryMovement()
+{
+	if (auto* Character = Cast<Aprototype3Character>(GetOwner())) Character->StopInventoryMovement();
+	else if (auto* OtherCharacter = Cast<ACharacter>(GetOwner())) OtherCharacter->GetCharacterMovement()->StopMovementImmediately();
+}
+
+void UPlayerItemUseComponent::SelectQuickBackpack()
+{
+	BackpackMode = EBackpackMode::Quick;
+	Duration = FMath::Max(.01f, QuickBackpackOpenSeconds);
+	Elapsed = BackpackInputElapsed;
+	if (auto* Character = Cast<ACharacter>(GetOwner()))
+	{
+		bPreviouslyCrouched = Character->bIsCrouched || Character->GetCharacterMovement()->bWantsToCrouch;
+		bRestoreBackpackStance = true;
+		Character->Crouch();
+	}
+	StopInventoryMovement();
+}
+
+void UPlayerItemUseComponent::ReleaseBackpackInput()
+{
+	if (!bOpening) return; // Releasing after slow mode opens leaves it open.
+	const double HeldSeconds = FMath::Max<double>(BackpackInputElapsed, FPlatformTime::Seconds() - BackpackInputStartTime);
+	if (BackpackMode == EBackpackMode::Slow || (BackpackMode == EBackpackMode::Selecting && HeldSeconds >= BackpackHoldThreshold()))
+	{ CloseBackpack(); return; }
+	if (BackpackMode != EBackpackMode::Selecting) return;
+	if (const auto* Character = Cast<Aprototype3Character>(GetOwner()); Character && !Character->GetMovementIntent().IsNearlyZero())
+	{ CloseBackpack(); return; }
+	SelectQuickBackpack();
+}
+
+void UPlayerItemUseComponent::CloseBackpack()
+{
+	CancelArrangement();
+	bOpening = bBackpackOpen = false;
+	BackpackMode = EBackpackMode::Closed;
+	if (!bUsing) Elapsed = 0;
+	if (bRestoreBackpackStance)
+	{
+		if (auto* Character = Cast<ACharacter>(GetOwner()))
+		{
+			if (bPreviouslyCrouched) Character->Crouch();
+			else Character->UnCrouch(); // Character Movement still owns clearance.
+		}
+		bRestoreBackpackStance = false;
+	}
+}
+
+bool UPlayerItemUseComponent::ValidateArrangement(const FInventoryArrangement& Request, FInventoryEntry& Source) const
+{
+	if (!Inventory || !Vitals || !Vitals->IsAlive()) return false;
+	auto* Player = Cast<APawn>(GetOwner());
+	if (Request.Kind == EInventoryArrangement::PickUp || Request.Kind == EInventoryArrangement::FloorDrop)
+	{
+		auto* Floor = Request.FloorItem.Get();
+		if (!Floor || !Floor->CanInteract(Player) || Floor->GetItem().InstanceId != Request.ItemId) return false;
+		Source.Item = Floor->GetItem(); Source.ProfileId = Floor->GetInventoryProfileId();
+		if (Request.Kind == EInventoryArrangement::FloorDrop) return Floor->WouldMoveAtFeet(Player);
+		FInventoryEntry Existing;
+		return !Inventory->GetItem(Request.ItemId, Existing) && CanAccess(Request.Pocket)
+			&& Inventory->CheckPlacement(Source.ProfileId, Request.Pocket, Request.Position, Request.Angle) == EInventoryResult::Success;
+	}
+	if (!Inventory->GetItem(Request.ItemId, Source) || (Inventory->IsReserved(Request.ItemId) && HeldId != Request.ItemId)) return false;
+	// A held item's reserved home can be in the closed backpack; stowing remains available.
+	if (Request.Kind == EInventoryArrangement::Stow) return HeldId == Request.ItemId;
+	if (!CanAccess(Source.PocketId)) return false;
+	switch (Request.Kind)
+	{
+	case EInventoryArrangement::Move:
+		if (Source.PocketId == Request.Pocket && Source.Position.Equals(Request.Position, .001)
+			&& FMath::Abs(FMath::FindDeltaAngleDegrees(Source.AngleDegrees, Request.Angle)) < .001) return false;
+		return CanAccess(Request.Pocket) && Inventory->CheckMove(Request.ItemId, Request.Pocket, Request.Position, Request.Angle, HeldId == Request.ItemId) == EInventoryResult::Success;
+	case EInventoryArrangement::Take: return HeldId != Request.ItemId && !Inventory->IsReserved(Request.ItemId);
+	case EInventoryArrangement::Drop: return Player && ADroppedItem::HasWorldRepresentation(Source.Item);
+	default: return false;
+	}
+}
+
+bool UPlayerItemUseComponent::CommitArrangement(const FInventoryArrangement& Request)
+{
+	FInventoryEntry Source;
+	if (!ValidateArrangement(Request, Source)) { Status = TEXT("Destination or item changed. Arrangement cancelled."); return false; }
+	auto* Player = Cast<APawn>(GetOwner());
+	bool bSuccess = false;
+	FString Error;
+	switch (Request.Kind)
+	{
+	case EInventoryArrangement::Move:
+		bSuccess = Inventory->MoveItem(Request.ItemId, Request.Pocket, Request.Position, Request.Angle, HeldId == Request.ItemId) == EInventoryResult::Success;
+		if (bSuccess && HeldId == Request.ItemId) Stow();
+		break;
+	case EInventoryArrangement::PickUp:
+		bSuccess = Request.FloorItem->PickUp(Inventory, Player, Request.Pocket, Request.Position, Request.Angle) == EInventoryResult::Success; break;
+	case EInventoryArrangement::Drop:
+		bSuccess = ADroppedItem::DropFromInventory(Inventory, Request.ItemId, Player, Error) != nullptr; break;
+	case EInventoryArrangement::FloorDrop: bSuccess = Request.FloorItem->DropAtFeet(Player, Error); break;
+	case EInventoryArrangement::Take: bSuccess = EquipToHands(Request.ItemId); break;
+	case EInventoryArrangement::Stow: Stow(); bSuccess = true; break;
+	}
+	Status = bSuccess ? TEXT("Arrangement complete.") : Error.IsEmpty() ? TEXT("Arrangement cancelled. Original item preserved.") : Error;
+	return bSuccess;
+}
+
+bool UPlayerItemUseComponent::RequestArrangement(const FInventoryArrangement& Request)
+{
+	if (bArranging || bOpening) return false;
+	FInventoryEntry Source;
+	if (!ValidateArrangement(Request, Source)) { Status = TEXT("Invalid or unchanged arrangement. Item kept in place."); return false; }
+	if (BackpackMode != EBackpackMode::Slow || !bBackpackOpen) return CommitArrangement(Request);
+	Arrangement = Request; ArrangementSource = Source; ArrangementHeldId = HeldId;
+	ArrangementElapsed = 0; bArranging = true;
+	StopInventoryMovement();
+	Status = TEXT("Arranging item...");
+	return true;
+}
+
+void UPlayerItemUseComponent::CancelArrangement()
+{
+	bArranging = false; ArrangementElapsed = 0;
+	Arrangement = FInventoryArrangement(); ArrangementSource = FInventoryEntry(); ArrangementHeldId.Invalidate();
+}
+
+float UPlayerItemUseComponent::GetArrangementProgress() const
+{
+	return bArranging ? FMath::Clamp(ArrangementElapsed / FMath::Max(.01f, ArrangementSeconds), 0.f, 1.f) : 0;
+}
 void UPlayerItemUseComponent::ToggleBackpackEquipment()
 {
 	if (!Backpack.IsValid()) return;
@@ -236,6 +380,25 @@ bool UPlayerItemUseComponent::Transfer(FGuid Id, FName Pocket)
 void UPlayerItemUseComponent::Advance(float Seconds)
 {
 	if (!FMath::IsFinite(Seconds) || Seconds <= 0) return;
+	if (bArranging)
+	{
+		StopInventoryMovement();
+		FInventoryEntry Current;
+		const bool bSameSource = ValidateArrangement(Arrangement, Current)
+			&& Current.Item.InstanceId == ArrangementSource.Item.InstanceId && Current.Item.Quantity == ArrangementSource.Item.Quantity
+			&& Current.Item.Definition == ArrangementSource.Item.Definition && Current.ProfileId == ArrangementSource.ProfileId
+			&& Current.PocketId == ArrangementSource.PocketId && Current.Position.Equals(ArrangementSource.Position, .001)
+			&& Current.AngleDegrees == ArrangementSource.AngleDegrees && HeldId == ArrangementHeldId;
+		if (!bBackpackOpen || !bSameSource) { CancelArrangement(); Status = TEXT("Arrangement cancelled. Source or destination changed."); return; }
+		ArrangementElapsed += Seconds;
+		if (ArrangementElapsed >= FMath::Max(.01f, ArrangementSeconds))
+		{
+			const auto Request = Arrangement;
+			CancelArrangement();
+			CommitArrangement(Request);
+		}
+		return;
+	}
 	if (HeldQuickItem != INDEX_NONE && !bQuickUseAttempted && !bUsing)
 	{
 		QuickHoldElapsed += Seconds;
@@ -249,7 +412,20 @@ void UPlayerItemUseComponent::Advance(float Seconds)
 			Seconds = QuickHoldElapsed - Threshold;
 		}
 	}
-	if (bOpening) { Elapsed += Seconds; if (Elapsed >= Duration) { bOpening = false; bBackpackOpen = true; Status = TEXT("Backpack open. Select an item to move or take in hands."); } }
+	if (bOpening)
+	{
+		BackpackInputElapsed += Seconds;
+		const bool bWalking = GetOwner() && GetOwner()->GetVelocity().SizeSquared2D() > 1.f;
+		Elapsed += Seconds * ((BackpackMode == EBackpackMode::Selecting || BackpackMode == EBackpackMode::Slow) && bWalking ? .6f : 1.f);
+		if (BackpackMode == EBackpackMode::Selecting && BackpackInputElapsed >= BackpackHoldThreshold())
+		{
+			BackpackMode = EBackpackMode::Slow;
+			Duration = FMath::Max(.01f, SlowBackpackOpenSeconds);
+		}
+		if (BackpackMode == EBackpackMode::Quick) StopInventoryMovement();
+		if (BackpackMode != EBackpackMode::Selecting && Elapsed >= Duration)
+		{ bOpening = false; bBackpackOpen = true; Status = TEXT("Backpack open. Select an item to move or take in hands."); }
+	}
 	else if (bUsing)
 	{
 		const auto* Action = HealingAction(bActiveSecondary);
@@ -288,6 +464,7 @@ void UPlayerItemUseComponent::TickComponent(float Delta, ELevelTick Type, FActor
 }
 void UPlayerItemUseComponent::EndPlay(const EEndPlayReason::Type Reason)
 {
+	CloseBackpack();
 	Stow();
 	if (Vitals) Vitals->OnHealthChanged.RemoveDynamic(this, &UPlayerItemUseComponent::HealthChanged);
 	if (Vitals) Vitals->OnDamageApplied.RemoveDynamic(this, &UPlayerItemUseComponent::DamageApplied);

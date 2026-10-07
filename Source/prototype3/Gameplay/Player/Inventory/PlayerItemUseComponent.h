@@ -2,6 +2,7 @@
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include "Gameplay/Items/ItemInstance.h"
+#include "Gameplay/Player/Inventory/InventoryTypes.h"
 #include "PlayerItemUseComponent.generated.h"
 
 class UInventoryComponent;
@@ -9,6 +10,21 @@ class UPlayerVitalsComponent;
 class UStaticMeshComponent;
 class AInventoryTestSpikes;
 class UHealingItemActionData;
+class ADroppedItem;
+
+enum class EBackpackMode : uint8 { Closed, Selecting, Quick, Slow };
+enum class EInventoryArrangement : uint8 { Move, PickUp, Drop, FloorDrop, Take, Stow };
+
+/** A proposed operation only. Ownership stays at the source until commit. */
+struct FInventoryArrangement
+{
+	EInventoryArrangement Kind = EInventoryArrangement::Move;
+	FGuid ItemId;
+	TWeakObjectPtr<ADroppedItem> FloorItem;
+	FName Pocket;
+	FVector2D Position = FVector2D::ZeroVector;
+	double Angle = 0;
+};
 
 /** First playable item slice. Hands reference a reserved owned instance, never a copy. */
 UCLASS(ClassGroup=(Player), meta=(BlueprintSpawnableComponent))
@@ -22,7 +38,9 @@ public:
 	static bool IsQuickPocket(FName Pocket);
 	UPROPERTY(EditAnywhere, Category="Prototype") bool bEnablePrototype = true;
 	UPROPERTY(EditAnywhere, Category="Prototype") bool bSpawnTestSpikes = true;
-	UPROPERTY(EditAnywhere, Category="Prototype", meta=(ClampMin="0.01")) float BackpackOpenSeconds = 2;
+	UPROPERTY(EditAnywhere, Category="Prototype", meta=(ClampMin="0.01")) float QuickBackpackOpenSeconds = .5f;
+	UPROPERTY(EditAnywhere, Category="Prototype", meta=(ClampMin="0.01")) float SlowBackpackOpenSeconds = 2.5f;
+	UPROPERTY(EditAnywhere, Category="Prototype", meta=(ClampMin="0.01")) float ArrangementSeconds = .3f;
 	UPROPERTY(EditAnywhere, Category="Prototype", meta=(ClampMin="0.01")) double QuickMaxItemMassKg = 0.6;
 	UPROPERTY(EditAnywhere, Category="Prototype") FVector2D QuickSize = FVector2D(220,220);
 	UPROPERTY(EditAnywhere, Category="Prototype") FVector2D BackpackSize = FVector2D(420,600);
@@ -38,8 +56,17 @@ public:
 	void PressQuickItem(int32 Slot);
 	void ReleaseQuickItem(int32 Slot);
 	void CancelQuickItemHold();
-	bool BeginOpenBackpack();
+	bool BeginOpenBackpack(bool bSelectMode = false);
+	void ReleaseBackpackInput();
 	void CloseBackpack();
+	EBackpackMode GetBackpackMode() const { return BackpackMode; }
+	bool IsBackpackActive() const { return bOpening || bBackpackOpen; }
+	bool IsArranging() const { return bArranging; }
+	bool RequestArrangement(const FInventoryArrangement& Request);
+	void CancelArrangement();
+	const FInventoryArrangement& GetArrangement() const { return Arrangement; }
+	const FInventoryEntry& GetArrangementSource() const { return ArrangementSource; }
+	float GetArrangementProgress() const;
 	void ToggleBackpackEquipment();
 	bool CanAccess(FName Pocket) const;
 	bool IsUsing() const { return bUsing; }
@@ -65,6 +92,20 @@ private:
 	FGuid HeldId;
 	bool bUsing = false, bOpening = false, bBackpackOpen = false, bBackpackEquipped = true;
 	float Elapsed = 0, Duration = 3;
+	EBackpackMode BackpackMode = EBackpackMode::Closed;
+	float BackpackInputElapsed = 0;
+	double BackpackInputStartTime = 0;
+	bool bRestoreBackpackStance = false, bPreviouslyCrouched = false;
+	bool bArranging = false;
+	float ArrangementElapsed = 0;
+	FInventoryArrangement Arrangement;
+	UPROPERTY(Transient) FInventoryEntry ArrangementSource;
+	FGuid ArrangementHeldId;
+	bool ValidateArrangement(const FInventoryArrangement& Request, FInventoryEntry& Source) const;
+	bool CommitArrangement(const FInventoryArrangement& Request);
+	void SelectQuickBackpack();
+	float BackpackHoldThreshold() const;
+	void StopInventoryMovement();
 	int32 HeldQuickItem = INDEX_NONE;
 	float QuickHoldElapsed = 0;
 	bool bQuickUseAttempted = false;
