@@ -55,8 +55,9 @@ Controls now follow these rules. New action effects still require their own runt
 - Follow the locomotion architecture's separation of input intent, validated
   transitions and resolved state. Keep compatibility/interruption decisions
   explicit instead of spreading input-specific priority checks across handlers.
-  The separate future run/sprint intent-replacement change is outside this
-  inventory pass; preserve locomotion's current combined tap/hold behavior.
+  Run/sprint/crouch now consume prior conflicting movement intents; blocked
+  gaits wait until allowed. Preserve the combined tap/hold behavior. The movement
+  rules and focused verification are documented in the root INVENTORY_GUIDE.md.
 - Cursor interfaces suspend gameplay item actions. Interface mouse interactions
   are independent of gameplay bindings; clicking UI must never also fire/use.
 - Future pocket count/size comes from clothing/wearables, and backpack storage

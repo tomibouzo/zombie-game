@@ -194,6 +194,7 @@ protected:
 
 	/** Called from Input Actions for movement input */
 	friend class FBackpackModesTest;
+	friend class FLocomotionIntentTest;
 	void MoveInput(const FInputActionValue& Value);
 
 	/** Called from Input Actions for looking input */
@@ -248,7 +249,7 @@ protected:
 	void DoSecondaryActionEnd();
 	virtual void DoSecondaryActionEnd_Implementation();
 
-	/** Starts crouching unless run or sprint is actually being performed. */
+	/** Requests crouching and consumes any previous run or sprint press. */
 	UFUNCTION(BlueprintCallable, Category="Input")
 	virtual void DoStartCrouch();
 
@@ -263,13 +264,12 @@ protected:
 	void GaitInputCanceled(EPlayerLocomotionGait RequestedGait);
 	FPlayerGaitInputIntent* FindGaitInputIntent(EPlayerLocomotionGait RequestedGait);
 	const FPlayerGaitInputIntent* FindGaitInputIntent(EPlayerLocomotionGait RequestedGait) const;
-	bool HasHeldGaitInput() const;
 	bool HasRequestedGait() const;
 	void ResolveLocomotionState();
 	void SetActiveGait(EPlayerLocomotionGait NewGait);
 	void ClearSpeedRequests();
+	void ConsumeConflictingGaitRequest(EPlayerLocomotionGait RequestedGait);
 	bool bRequestedGaitInterruptsUse = false;
-	bool CanStartCrouch() const;
 	bool IsCrouchActive() const;
 	bool CanUseStaminaMovement() const;
 
@@ -331,7 +331,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Stamina")
 	bool TryConsumeStamina(float Amount, float RecoveryDelay = 0.0f);
 
-	/** Requests a standing posture without re-arming crouch input. */
+	/** Requests standing and consumes the previous crouch press. */
 	UFUNCTION(BlueprintCallable, Category="Movement")
 	void RequestStandingForAction();
 
