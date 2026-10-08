@@ -1,6 +1,6 @@
 # Inventory and controls
 
-Updated: 2026-10-07. Backpack quick/slow modes on `backpack-opening-modes`.
+Updated: 2026-10-08. Includes movement intent replacement.
 Read `Source/prototype3/Gameplay/Items/README.md` before changing item actions.
 
 ## Options
@@ -37,6 +37,20 @@ All listed actions except Esc are rebindable. The input model for run/sprint/cro
 the existing combined tap-toggle / hold-until-release behavior. No mode setting.
 There is no jumping; Space remains reserved. Delete is reserved for clearing a
 binding during assignment.
+
+Run, sprint and crouch use the newest conflicting request. Run replaces sprint,
+sprint replaces run, and crouch consumes either gait even if its key is still
+held. A gait request consumes crouch and requests standing. Releasing or canceling
+a superseded key cannot restore or toggle its old request; use a fresh press.
+Ending the newest gait returns to walking, without remembering an earlier gait
+or crouch. Tap/hold behavior still uses the existing 0.25-second threshold.
+
+A blocked gait request replaces the previous intent immediately and waits for
+actual movement, a permitted direction, stamina and physical standing clearance.
+Releasing a hold before it can act ends that request; a short tap remains latched.
+Character Movement owns capsule clearance, including when a gait ends under a
+low ceiling. Run still permits sideways/backward movement at its existing speed;
+sprint still requires forward input.
 
 | Context | Action | Default key |
 | --- | --- | --- |
@@ -79,7 +93,8 @@ default 1 migrates to G, or a free letter when G is already assigned.
 
 A valid new conflicting action interrupts healing: switching items or requesting
 applicable run/sprint. Direction, movement, stamina and standing clearance still
-apply. A failed request, such as a missing quick item, preserves the current use.
+apply. A blocked gait waits and interrupts healing when it can actually begin.
+A failed request, such as a missing quick item, preserves the current use.
 Interrupted use needs a fresh press. Walking can coexist with healing.
 Full health prevents wasting a bandage.
 
@@ -199,7 +214,8 @@ without interruption. Death always interrupts. No bleeding/poison system is adde
   press/release, focus, pause and menu changes. Saved keyboard/mouse mappings
   replace legacy digital asset mappings; analog/platform mappings are retained.
 - `prototype3Character`: matching primary/secondary routing and locomotion
-  interruption. Existing gait intent/stance/priority architecture is preserved.
+  interruption. Latest conflicting movement requests consume earlier intents;
+  requested intent, resolved gait and physical stance remain separate.
 - `PlayerItemUseComponent`: hands, reservation, timed use, quick-item delay,
   backpack access and damage interruption.
 - `SInventoryPanel`: contextual gestures and manual transactions.
@@ -217,7 +233,12 @@ double activation, dual-key release, held-item move/drop rollback, storage admis
 floor scrolling, rotation and geometry. Appearance and gameplay feel require the
 user's own playthrough.
 
-Future work stays separate: run/sprint intent replacement; wearable storage;
+The focused `Prototype.Movement.IntentReplacement` check covers replacement in
+both directions, tap/hold combinations, consumed releases/cancellations, crouch,
+pending direction/movement/stamina requests and low-ceiling clearance. Reports
+for this change are under `Saved/MovementVerification`.
+
+Future work stays separate: wearable storage;
 animated backpack/pocket selection; direct floor-to-hands; food/water and other
 item effects; saves/networking. The mixed floor-item test pile is implemented
 independently on `floor-item-test-pile` for scrolling and pickup checks.

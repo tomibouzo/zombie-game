@@ -249,15 +249,8 @@ void Aprototype3Character::DoEndSprint()
 
 void Aprototype3Character::DoStartCrouch()
 {
-	// Resolve first, then let latched gait requests yield to crouch while a
-	// physically held Shift/Alt key keeps crouch blocked until release.
-	ResolveLocomotionState();
-	if (!CanStartCrouch())
-	{
-		return;
-	}
-
 	ClearSpeedRequests();
+	bRequestedGaitInterruptsUse = false;
 	Crouch();
 	SetActiveGait(EPlayerLocomotionGait::Walking);
 	OnSprintStateChanged.Broadcast(false, GetStaminaPercent());
@@ -316,10 +309,10 @@ void Aprototype3Character::DoEndCrouch()
 
 void Aprototype3Character::RequestStandingForAction()
 {
+	// A superseded Ctrl press cannot change the new action on release/cancel.
+	bCrouchInputHeld = false;
 	if (bIsCrouched || GetCharacterMovement()->bWantsToCrouch)
 	{
-		// Keep bCrouchInputHeld intact. If Ctrl is still down, releasing it only
-		// finishes that press; the player must press Ctrl again to crouch again.
 		DoEndCrouch();
 	}
 }
@@ -362,29 +355,10 @@ void Aprototype3Character::ToggleGaitRequest(EPlayerLocomotionGait RequestedGait
 		return;
 	}
 
-	if (IsCrouchActive() && !IsGaitAllowedForMovementInput(RequestedGait))
-	{
-		// Ignore gait inputs that cannot apply in the current direction instead
-		// of latching a request that could unexpectedly stand the character later.
-		return;
-	}
-
+	ConsumeConflictingGaitRequest(RequestedGait);
 	GaitIntent->bToggled = !GaitIntent->bToggled;
-	if (IsCrouchActive())
-	{
-		if (HasRequestedGait())
-		{
-			// Character Movement keeps the crouched capsule if headroom is blocked.
-			// The request remains pending and resolves only after standing succeeds.
-			RequestStandingForAction();
-		}
-		else if (bIsCrouched)
-		{
-			// Cancel a pending stand request if the speed toggle is pressed again
-			// while an overhead obstruction still keeps the character crouched.
-			Crouch();
-		}
-	}
+	bRequestedGaitInterruptsUse = GaitIntent->IsRequested() && ItemUseComponent->IsUsing();
+	RequestStandingForAction();
 
 	ResolveLocomotionState();
 }
@@ -396,28 +370,13 @@ void Aprototype3Character::GaitInputStarted(EPlayerLocomotionGait RequestedGait)
 	{
 		return;
 	}
-	if (ItemUseComponent->IsUsing())
-	{
-		// Check applicability before interrupting. Capsule clearance is resolved below.
-		if (!IsGaitAllowedForMovementInput(RequestedGait) || !CanUseStaminaMovement()) return;
-		bRequestedGaitInterruptsUse = true;
-	}
-
-	if (IsCrouchActive() && !IsGaitAllowedForMovementInput(RequestedGait))
-	{
-		// A disallowed gait key pressed while crouched is ignored completely,
-		// including if the player keeps holding it and changes direction afterward.
-		return;
-	}
-
+	ConsumeConflictingGaitRequest(RequestedGait);
 	GaitIntent->bHeld = true;
 	GaitIntent->bToggledAtPress = GaitIntent->bToggled;
 	GaitIntent->InputStartTime = FPlatformTime::Seconds();
 
-	if (IsCrouchActive())
-	{
-		RequestStandingForAction();
-	}
+	bRequestedGaitInterruptsUse = ItemUseComponent->IsUsing();
+	RequestStandingForAction();
 
 	ResolveLocomotionState();
 }
@@ -437,40 +396,19 @@ void Aprototype3Character::GaitInputCompleted(EPlayerLocomotionGait RequestedGai
 		: false;
 	GaitIntent->bToggledAtPress = false;
 
-	if (bIsCrouched && !HasRequestedGait())
-	{
-		// If standing was blocked for the entire hold, releasing the gait key
-		// cancels that pending stand request and keeps the crouch latched.
-		Crouch();
-	}
-
 	ResolveLocomotionState();
-	if (bCrouchInputHeld && !HasHeldGaitInput())
-	{
-		// Ctrl may have been pressed while this gait key was held. Honor that
-		// still-held crouch request as soon as the final gait key is released.
-		DoStartCrouch();
-	}
 }
 
 void Aprototype3Character::GaitInputCanceled(EPlayerLocomotionGait RequestedGait)
 {
 	FPlayerGaitInputIntent* GaitIntent = FindGaitInputIntent(RequestedGait);
-	if (!GaitIntent)
+	if (!GaitIntent || !GaitIntent->bHeld)
 	{
 		return;
 	}
 
 	*GaitIntent = FPlayerGaitInputIntent();
-	if (bIsCrouched && !HasRequestedGait())
-	{
-		Crouch();
-	}
 	ResolveLocomotionState();
-	if (bCrouchInputHeld && !HasHeldGaitInput())
-	{
-		DoStartCrouch();
-	}
 }
 
 FPlayerGaitInputIntent* Aprototype3Character::FindGaitInputIntent(EPlayerLocomotionGait RequestedGait)
@@ -497,11 +435,6 @@ const FPlayerGaitInputIntent* Aprototype3Character::FindGaitInputIntent(EPlayerL
 		return &LocomotionIntent.Sprint;
 	}
 	return nullptr;
-}
-
-bool Aprototype3Character::HasHeldGaitInput() const
-{
-	return LocomotionIntent.Run.bHeld || LocomotionIntent.Sprint.bHeld;
 }
 
 bool Aprototype3Character::HasRequestedGait() const
@@ -576,11 +509,13 @@ void Aprototype3Character::ClearSpeedRequests()
 	LocomotionIntent.Sprint = FPlayerGaitInputIntent();
 }
 
-bool Aprototype3Character::CanStartCrouch() const
+void Aprototype3Character::ConsumeConflictingGaitRequest(EPlayerLocomotionGait RequestedGait)
 {
-	// Latched gait requests yield to crouch, even while they are actively moving.
-	// A physically held Shift/Alt key blocks crouch until that key is released.
-	return !HasHeldGaitInput();
+	// Consume the entire old press, including its tap/hold timing. Its eventual
+	// release must not toggle it back on or restore it after the new gait ends.
+	FPlayerGaitInputIntent& PreviousIntent = RequestedGait == EPlayerLocomotionGait::Running
+		? LocomotionIntent.Sprint : LocomotionIntent.Run;
+	PreviousIntent = FPlayerGaitInputIntent();
 }
 
 bool Aprototype3Character::IsCrouchActive() const
@@ -656,6 +591,7 @@ void Aprototype3Character::CrouchInputCompleted()
 
 void Aprototype3Character::CrouchInputCanceled()
 {
+	if (!bCrouchInputHeld) return;
 	// A canceled action must never be interpreted as a tap that latches crouch.
 	bCrouchInputHeld = false;
 	DoEndCrouch();
