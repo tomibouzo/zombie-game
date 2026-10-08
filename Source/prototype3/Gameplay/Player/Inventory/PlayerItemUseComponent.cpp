@@ -18,6 +18,7 @@
 #include "UI/Inventory/InventoryInputSettings.h"
 #include "Gameplay/Items/World/DroppedItem.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "Camera/PlayerCameraManager.h"
 #include "HAL/PlatformTime.h"
 
 UPlayerItemUseComponent::UPlayerItemUseComponent() { PrimaryComponentTick.bCanEverTick = true; }
@@ -59,6 +60,9 @@ void UPlayerItemUseComponent::BeginPlay()
 	FInventoryPocket Staging;
 	Staging.Id = TEXT("Setup");
 	Inventory->AddPocket(Bag); Inventory->AddPocket(Staging);
+	FInventoryPocket Hands;
+	Hands.Id = HandsPocketId(); Hands.Size = FVector2D(10000,10000);
+	Inventory->AddPocket(Hands);
 	int32 Bandages = 0;
 	for (const auto& Entry : Catalog->GetEntries())
 	{
@@ -96,7 +100,14 @@ void UPlayerItemUseComponent::BeginPlay()
 
 bool UPlayerItemUseComponent::CanAccess(FName Pocket) const
 {
-	return IsQuickPocket(Pocket) || (Pocket == TEXT("Backpack") && bBackpackEquipped && bBackpackOpen);
+	return Pocket == HandsPocketId() || IsQuickPocket(Pocket) || (Pocket == TEXT("Backpack") && bBackpackEquipped && bBackpackOpen);
+}
+
+bool UPlayerItemUseComponent::HasStowHome() const
+{
+	FInventoryEntry Entry;
+	return HeldId.IsValid() && Inventory && Inventory->IsReserved(HeldId) && Inventory->GetItem(HeldId, Entry)
+		&& (IsQuickPocket(Entry.PocketId) || (Entry.PocketId == TEXT("Backpack") && bBackpackOpen && bBackpackEquipped));
 }
 
 bool UPlayerItemUseComponent::EquipToHands(FGuid Id)
@@ -106,7 +117,8 @@ bool UPlayerItemUseComponent::EquipToHands(FGuid Id)
 	if (HeldId == Id) return true;
 	if (Inventory->IsReserved(Id)) return false;
 	if (!Inventory->ReserveItem(Id)) return false;
-	Stow();
+	if (HeldId.IsValid() && !HasStowHome() && !DropHeld()) { Inventory->ReleaseItem(Id); return false; }
+	ClearHeld();
 	HeldId = Id;
 	if (auto* Melee = GetOwner()->FindComponentByClass<UPlayerMeleeComponent>()) Melee->StopAttacking();
 	Status = GetHeldName() + TEXT(" in hands.");
@@ -114,12 +126,102 @@ bool UPlayerItemUseComponent::EquipToHands(FGuid Id)
 	return true;
 }
 
-void UPlayerItemUseComponent::Stow()
+bool UPlayerItemUseComponent::Stow()
+{
+	if (!HasStowHome()) return false;
+	ClearHeld();
+	return true;
+}
+
+void UPlayerItemUseComponent::ClearHeld()
 {
 	CancelUse();
 	if (Inventory) Inventory->ReleaseItem(HeldId);
 	HeldId.Invalidate();
 	UpdateVisual();
+}
+
+bool UPlayerItemUseComponent::DropHeld()
+{
+	if (!HeldId.IsValid() || !Inventory) return false;
+	FString Error;
+	if (!ADroppedItem::DropFromInventory(Inventory, HeldId, Cast<APawn>(GetOwner()), Error))
+	{ Status = Error; return false; }
+	Status = TEXT("Held item dropped.");
+	return true;
+}
+
+bool UPlayerItemUseComponent::CanReplaceWithFloorItem() const
+{
+	return !HeldId.IsValid() || HasStowHome() || GetDefault<UInventoryInputSettings>()->bAllowItemReplace;
+}
+
+bool UPlayerItemUseComponent::IsPickupBlockedNoticeVisible() const
+{
+	return GetWorld() && GetWorld()->GetTimeSeconds() < PickupBlockedUntil;
+}
+
+ADroppedItem* UPlayerItemUseComponent::GetLookedAtFloorItem() const
+{
+	auto* Pawn = Cast<APawn>(GetOwner());
+	const auto* Controller = Pawn ? Cast<APlayerController>(Pawn->GetController()) : nullptr;
+	if (!Controller || !Controller->PlayerCameraManager || !GetWorld()) return nullptr;
+	const FVector Start = Controller->PlayerCameraManager->GetCameraLocation();
+	const FVector End = Start + Controller->PlayerCameraManager->GetCameraRotation().Vector() * 300.f;
+	FCollisionObjectQueryParams Objects;
+	Objects.AddObjectTypesToQuery(ECC_WorldStatic);
+	Objects.AddObjectTypesToQuery(ECC_PhysicsBody);
+	FCollisionQueryParams Query(SCENE_QUERY_STAT(HandPickup), false, Pawn);
+	FHitResult Hit;
+	if (!GetWorld()->LineTraceSingleByObjectType(Hit, Start, End, Objects, Query)) return nullptr;
+	auto* Floor = Cast<ADroppedItem>(Hit.GetActor());
+	return Floor && Floor->CanInteract(Pawn) ? Floor : nullptr;
+}
+
+bool UPlayerItemUseComponent::PickUpToHands(ADroppedItem* Floor, bool bRequireLook)
+{
+	auto* Pawn = Cast<APawn>(GetOwner());
+	if (!Inventory || !Vitals || !Vitals->IsAlive() || bOpening || bArranging || !Floor || !Floor->CanInteract(Pawn)
+		|| (bRequireLook && GetLookedAtFloorItem() != Floor)) return false;
+	if (!CanReplaceWithFloorItem())
+	{
+		PickupBlockedUntil = GetWorld()->GetTimeSeconds() + 2.f;
+		Status = TEXT("Item replacement is off. Enable it in Settings.");
+		return false;
+	}
+	FInventoryItemProfile Profile;
+	if (!Inventory->GetProfile(Floor->GetInventoryProfileId(), Profile) || Profile.Definition != Floor->GetItem().Definition) return false;
+	FInventoryEntry Existing;
+	const FGuid NewId = Floor->GetItem().InstanceId;
+	if (Inventory->GetItem(NewId, Existing)) return false;
+	FVector2D Position(5000,5000);
+	if (Inventory->CheckPlacement(Floor->GetInventoryProfileId(), HandsPocketId(), Position, 0) != EInventoryResult::Success)
+		Position = FVector2D(6500,5000);
+	const EInventoryResult TransferResult = Floor->StagePickUp(Inventory, Pawn, HandsPocketId(), Position, 0);
+	if (TransferResult != EInventoryResult::Success)
+	{
+		Status = TEXT("Could not take that item into hands. Nothing changed.");
+		return false;
+	}
+	if (!Inventory->ReserveItem(NewId))
+	{
+		Floor->CancelStagedPickUp(Inventory);
+		Status = TEXT("Could not reserve hands for the new item.");
+		return false;
+	}
+	if (HeldId.IsValid() && !HasStowHome() && !DropHeld())
+	{
+		Inventory->ReleaseItem(NewId);
+		Floor->CancelStagedPickUp(Inventory);
+		return false;
+	}
+	ClearHeld();
+	HeldId = NewId;
+	Floor->FinishStagedPickUp();
+	if (auto* Melee = GetOwner()->FindComponentByClass<UPlayerMeleeComponent>()) Melee->StopAttacking();
+	Status = GetHeldName() + TEXT(" in hands.");
+	UpdateVisual();
+	return true;
 }
 
 const UHealingItemActionData* UPlayerItemUseComponent::HealingAction(bool bSecondary) const
@@ -172,7 +274,7 @@ void UPlayerItemUseComponent::CancelUse()
 
 void UPlayerItemUseComponent::HealthChanged(float Current, float Maximum, float Percentage)
 {
-	if (Current <= 0) { Stow(); CloseBackpack(); }
+	if (Current <= 0) { if (!Stow()) DropHeld(); CloseBackpack(); }
 	if (auto* Character = Cast<Aprototype3Character>(GetOwner())) Character->OnHealthUpdated.Broadcast(Percentage);
 }
 
@@ -270,6 +372,9 @@ void UPlayerItemUseComponent::ReleaseBackpackInput()
 void UPlayerItemUseComponent::CloseBackpack()
 {
 	CancelArrangement();
+	FInventoryEntry HeldEntry;
+	if (bBackpackOpen && Inventory && Inventory->GetItem(HeldId, HeldEntry) && HeldEntry.PocketId == TEXT("Backpack"))
+		Inventory->MoveItem(HeldId, HandsPocketId(), FVector2D(5000,5000), HeldEntry.AngleDegrees, true);
 	bOpening = bBackpackOpen = false;
 	BackpackMode = EBackpackMode::Closed;
 	if (!bUsing) Elapsed = 0;
@@ -288,19 +393,25 @@ bool UPlayerItemUseComponent::ValidateArrangement(const FInventoryArrangement& R
 {
 	if (!Inventory || !Vitals || !Vitals->IsAlive()) return false;
 	auto* Player = Cast<APawn>(GetOwner());
-	if (Request.Kind == EInventoryArrangement::PickUp || Request.Kind == EInventoryArrangement::FloorDrop)
+	if (Request.Kind == EInventoryArrangement::PickUp || Request.Kind == EInventoryArrangement::FloorDrop || Request.Kind == EInventoryArrangement::TakeFloor)
 	{
 		auto* Floor = Request.FloorItem.Get();
 		if (!Floor || !Floor->CanInteract(Player) || Floor->GetItem().InstanceId != Request.ItemId) return false;
 		Source.Item = Floor->GetItem(); Source.ProfileId = Floor->GetInventoryProfileId();
 		if (Request.Kind == EInventoryArrangement::FloorDrop) return Floor->WouldMoveAtFeet(Player);
+		if (Request.Kind == EInventoryArrangement::TakeFloor)
+		{
+			FInventoryItemProfile Profile;
+			FInventoryEntry Existing;
+			return CanReplaceWithFloorItem() && !Inventory->GetItem(Request.ItemId, Existing)
+				&& Inventory->GetProfile(Source.ProfileId, Profile) && Profile.Definition == Source.Item.Definition;
+		}
 		FInventoryEntry Existing;
 		return !Inventory->GetItem(Request.ItemId, Existing) && CanAccess(Request.Pocket)
 			&& Inventory->CheckPlacement(Source.ProfileId, Request.Pocket, Request.Position, Request.Angle) == EInventoryResult::Success;
 	}
 	if (!Inventory->GetItem(Request.ItemId, Source) || (Inventory->IsReserved(Request.ItemId) && HeldId != Request.ItemId)) return false;
-	// A held item's reserved home can be in the closed backpack; stowing remains available.
-	if (Request.Kind == EInventoryArrangement::Stow) return HeldId == Request.ItemId;
+	if (Request.Kind == EInventoryArrangement::Stow) return HeldId == Request.ItemId && HasStowHome();
 	if (!CanAccess(Source.PocketId)) return false;
 	switch (Request.Kind)
 	{
@@ -308,7 +419,7 @@ bool UPlayerItemUseComponent::ValidateArrangement(const FInventoryArrangement& R
 		if (Source.PocketId == Request.Pocket && Source.Position.Equals(Request.Position, .001)
 			&& FMath::Abs(FMath::FindDeltaAngleDegrees(Source.AngleDegrees, Request.Angle)) < .001) return false;
 		return CanAccess(Request.Pocket) && Inventory->CheckMove(Request.ItemId, Request.Pocket, Request.Position, Request.Angle, HeldId == Request.ItemId) == EInventoryResult::Success;
-	case EInventoryArrangement::Take: return HeldId != Request.ItemId && !Inventory->IsReserved(Request.ItemId);
+	case EInventoryArrangement::Take: return HeldId != Request.ItemId && !Inventory->IsReserved(Request.ItemId) && Source.PocketId != HandsPocketId();
 	case EInventoryArrangement::Drop: return Player && ADroppedItem::HasWorldRepresentation(Source.Item);
 	default: return false;
 	}
@@ -325,15 +436,16 @@ bool UPlayerItemUseComponent::CommitArrangement(const FInventoryArrangement& Req
 	{
 	case EInventoryArrangement::Move:
 		bSuccess = Inventory->MoveItem(Request.ItemId, Request.Pocket, Request.Position, Request.Angle, HeldId == Request.ItemId) == EInventoryResult::Success;
-		if (bSuccess && HeldId == Request.ItemId) Stow();
+		if (bSuccess && HeldId == Request.ItemId) ClearHeld();
 		break;
 	case EInventoryArrangement::PickUp:
 		bSuccess = Request.FloorItem->PickUp(Inventory, Player, Request.Pocket, Request.Position, Request.Angle) == EInventoryResult::Success; break;
+	case EInventoryArrangement::TakeFloor: bSuccess = PickUpToHands(Request.FloorItem.Get()); break;
 	case EInventoryArrangement::Drop:
 		bSuccess = ADroppedItem::DropFromInventory(Inventory, Request.ItemId, Player, Error) != nullptr; break;
 	case EInventoryArrangement::FloorDrop: bSuccess = Request.FloorItem->DropAtFeet(Player, Error); break;
 	case EInventoryArrangement::Take: bSuccess = EquipToHands(Request.ItemId); break;
-	case EInventoryArrangement::Stow: Stow(); bSuccess = true; break;
+	case EInventoryArrangement::Stow: bSuccess = Stow(); break;
 	}
 	Status = bSuccess ? TEXT("Arrangement complete.") : Error.IsEmpty() ? TEXT("Arrangement cancelled. Original item preserved.") : Error;
 	return bSuccess;
@@ -343,7 +455,16 @@ bool UPlayerItemUseComponent::RequestArrangement(const FInventoryArrangement& Re
 {
 	if (bArranging || bOpening) return false;
 	FInventoryEntry Source;
-	if (!ValidateArrangement(Request, Source)) { Status = TEXT("Invalid or unchanged arrangement. Item kept in place."); return false; }
+	if (!ValidateArrangement(Request, Source))
+	{
+		if (Request.Kind == EInventoryArrangement::TakeFloor && !CanReplaceWithFloorItem() && GetWorld())
+		{
+			PickupBlockedUntil = GetWorld()->GetTimeSeconds() + 2.f;
+			Status = TEXT("Item replacement is off. Enable it in Settings.");
+		}
+		else Status = TEXT("Invalid or unchanged arrangement. Item kept in place.");
+		return false;
+	}
 	if (BackpackMode != EBackpackMode::Slow || !bBackpackOpen) return CommitArrangement(Request);
 	Arrangement = Request; ArrangementSource = Source; ArrangementHeldId = HeldId;
 	ArrangementElapsed = 0; bArranging = true;

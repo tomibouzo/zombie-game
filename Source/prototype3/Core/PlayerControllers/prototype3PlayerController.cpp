@@ -332,6 +332,20 @@ bool Aprototype3PlayerController::InputKey(const FInputKeyEventArgs& Params)
 		return Super::InputKey(Params);
 	}
 	if (IsLocalController() && !bInventoryDemoOpen)
+	{
+		if (Controls->Matches(EInventoryControl::PickUpWorld, Params.Key))
+		{
+			if (Params.Event == IE_Pressed) if (auto* Use = ItemUse(this))
+				Use->PickUpToHands(Use->GetLookedAtFloorItem(), true);
+			return true;
+		}
+		if (Controls->Matches(EInventoryControl::DropHeld, Params.Key))
+		{
+			if (Params.Event == IE_Pressed) if (auto* Use = ItemUse(this)) Use->DropHeld();
+			return true;
+		}
+	}
+	if (IsLocalController() && !bInventoryDemoOpen)
 		if (auto* Use = ItemUse(this))
 		{
 			if (Controls->Matches(EInventoryControl::Stow, Params.Key))

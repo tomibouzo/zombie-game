@@ -187,7 +187,7 @@ bool FQuickPocketPanelTest::RunTest(const FString&)
 	Key(EKeys::I);
 	TestFalse(TEXT("Full inventory begins loading"),Panel->IsInterfaceReady());
 	Use->Advance(.4f); Panel->Tick(G,0,.1f);
-	Down(FVector2D(600,250)); Up(FVector2D(200,350));
+	Down(FVector2D(600,370)); Up(FVector2D(200,350));
 	FInventoryEntry Entry; Inventory->GetItem(Ids[0],Entry);
 	TestEqual(TEXT("All storage input gated during delay"),Entry.PocketId,FName(TEXT("Quick")));
 	Use->Advance(.1f); Panel->Tick(G,0,.1f);
@@ -196,7 +196,7 @@ bool FQuickPocketPanelTest::RunTest(const FString&)
 	for (int32 I=0; I<3; ++I)
 	{
 		TestEqual(TEXT("Full view cycles one pocket at a time"),Panel->GetVisibleQuickPocket(),UPlayerItemUseComponent::QuickPocketId(I));
-		Down(FVector2D(600,250)); Up(FVector2D(600,280));
+		Down(FVector2D(600,370)); Up(FVector2D(600,400));
 		Inventory->GetItem(Ids[I],Entry);
 		TestEqual(TEXT("Visible pocket remains interactive"),Entry.Position,FVector2D(100,130));
 		Key(EKeys::Tab);
@@ -204,12 +204,12 @@ bool FQuickPocketPanelTest::RunTest(const FString&)
 		TestTrue(TEXT("Tab preserves backpack access"),Use->IsBackpackOpen());
 	}
 	TestEqual(TEXT("Third pocket wraps to first"),Panel->GetVisibleQuickPocket(),FName(TEXT("Quick")));
-	Down(FVector2D(600,280)); Up(FVector2D(430,720));
+	Down(FVector2D(600,400)); Up(FVector2D(430,720));
 	Inventory->GetItem(Ids[0],Entry);
 	TestEqual(TEXT("Enlarged backpack fits below former boundary"),Entry.PocketId,FName(TEXT("Backpack")));
 	TestEqual(TEXT("Expanded backpack placement"),Entry.Position,FVector2D(390,570));
 	Key(EKeys::Tab);
-	Down(FVector2D(600,280)); Key(EKeys::Tab); Up(FVector2D(660,330));
+	Down(FVector2D(600,400)); Key(EKeys::Tab); Up(FVector2D(660,450));
 	Inventory->GetItem(Ids[1],Entry);
 	TestEqual(TEXT("Carried item can move across cycling"),Entry.PocketId,FName(TEXT("Quick3")));
 	Panel->SetPocketsOnly(true);

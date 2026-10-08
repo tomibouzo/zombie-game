@@ -12,7 +12,7 @@ enum class EInventoryControl : uint8
 	AssignShortcut1, AssignShortcut2, AssignShortcut3, ToggleGrabMode,
 	MoveForward, MoveBackward, MoveLeft, MoveRight, Run, Sprint, Crouch,
 	Primary, Secondary, Bandage, Food, Water, CyclePocket, FasterRotation,
-	SlowerRotation, ScrollFloorUp, ScrollFloorDown, Back, Count
+	SlowerRotation, ScrollFloorUp, ScrollFloorDown, Back, PickUpWorld, DropHeld, Count
 };
 
 enum class EControlSection : uint8 { Movement, ItemActions, Inventory, Gameplay };
@@ -28,6 +28,8 @@ public:
 	virtual void PostReloadConfig(FProperty* PropertyThatWasLoaded) override;
 	UPROPERTY(Config)
 	bool bToggleGrab = false;
+	UPROPERTY(Config)
+	bool bAllowItemReplace = false;
 	UPROPERTY(Config)
 	float TurnSpeed = 120;
 	UPROPERTY(Config) float LookSensitivity = 1.f;
