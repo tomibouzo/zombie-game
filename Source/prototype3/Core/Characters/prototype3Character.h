@@ -193,6 +193,7 @@ public:
 protected:
 
 	/** Called from Input Actions for movement input */
+	friend class FBackpackModesTest;
 	void MoveInput(const FInputActionValue& Value);
 
 	/** Called from Input Actions for looking input */
@@ -311,6 +312,9 @@ public:
 	/** Returns the first person mesh **/
 	void ClearControlIntents();
 	void PrepareForItemUse();
+	float GetGaitHoldThreshold() const { return GaitHoldThreshold; }
+	FVector2D GetMovementIntent() const { return LocomotionIntent.MovementInput; }
+	void StopInventoryMovement();
 	USkeletalMeshComponent* GetFirstPersonMesh() const { return FirstPersonMesh; }
 
 	/** Returns first person camera component **/

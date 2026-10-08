@@ -145,7 +145,7 @@ bool FFloorPanelTest::RunTest(const FString&)
 	Panel->SetPocketsOnly(false);
 	Down(Floor); Up(Bag);
 	TestFalse(TEXT("Opening full interface blocks floor input"),Present());
-	F.Use->BeginOpenBackpack(); F.Use->Advance(1); Tick();
+	F.Use->BeginOpenBackpack(); F.Use->Advance(.25f); Tick();
 	Down(Floor); Up(Bag);
 	TestFalse(TEXT("Opening delay still rejects pickup"),Present());
 	F.Use->Advance(1); Tick();

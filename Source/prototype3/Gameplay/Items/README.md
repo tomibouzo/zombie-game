@@ -62,7 +62,13 @@ Controls now follow these rules. New action effects still require their own runt
 - Future pocket count/size comes from clothing/wearables, and backpack storage
   from the backpack. Three equal quick pockets are prototype data. The later
   animated backpack/pocket-selection flow is deferred; preserve today's access
-  flow and movement blocking during this controls pass.
+  flow. Backpack access now supports quick stationary crouching and slow walking;
+  pockets-only view still blocks movement. See the root inventory guide.
+
+- Walking backpack mode queues valid arrangements for 0.3 seconds. Keep source
+  ownership and held reservations intact until commit; validate source and
+  destination again. Closing, damage or a conflicting gait cancels the pending
+  operation without a partial move. The panel's shades are presentation only.
 
 When adding an item, specify its slots, activation/completion rules and required
 runtime handler. An intent tag alone does not implement the behavior. Focused

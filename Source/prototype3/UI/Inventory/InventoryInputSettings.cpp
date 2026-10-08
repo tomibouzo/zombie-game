@@ -4,8 +4,11 @@
 namespace
 {
 using A = EInventoryControl;
-constexpr uint32 Game = 1, Pockets = 2, Backpack = 4, PocketDrag = 8, BackpackDrag = 16, Menu = 32;
+namespace InputContexts
+{
+constexpr uint32 Game = 1, Pockets = 2, Backpack = 4, PocketDrag = 8, BackpackDrag = 16, MenuContext = 32;
 constexpr uint32 Inventory = Pockets | Backpack | PocketDrag | BackpackDrag;
+}
 TArray<FKey> DefaultKeys()
 {
 	TArray<FKey> Result;
@@ -174,17 +177,19 @@ bool UInventoryInputSettings::IsBindable(A Action)
 }
 uint32 UInventoryInputSettings::Contexts(A Action)
 {
-	if (Action == A::Back) return Game | Inventory | Menu;
+	using namespace InputContexts;
+	if (Action == A::Back) return Game | Inventory | MenuContext;
 	if (!IsBindable(Action)) return 0;
 	if (Action == A::Toggle || Action == A::Stow) return Game | Inventory;
 	if (Action == A::ShowQuick) return Game | Pockets | PocketDrag;
 	if (Action == A::CyclePocket) return Backpack | BackpackDrag;
 	if (Action == A::FasterRotation || Action == A::SlowerRotation) return PocketDrag | BackpackDrag;
 	if (Action == A::ScrollFloorUp || Action == A::ScrollFloorDown) return Pockets | Backpack;
+	if (Action >= A::MoveForward && Action <= A::Sprint) return Game | Backpack | BackpackDrag;
 	if (Action >= A::MoveForward && Action <= A::Water) return Game;
 	return Inventory;
 }
-bool UInventoryInputSettings::IsGameplayControl(A Action) { return (Contexts(Action) & Game) != 0; }
+bool UInventoryInputSettings::IsGameplayControl(A Action) { return (Contexts(Action) & InputContexts::Game) != 0; }
 bool UInventoryInputSettings::IsGameplayReserved(FKey Key) { return Key == EKeys::SpaceBar || Key == EKeys::Delete || Key == EKeys::Escape; }
 bool UInventoryInputSettings::Supports(A Action, FKey Key)
 {

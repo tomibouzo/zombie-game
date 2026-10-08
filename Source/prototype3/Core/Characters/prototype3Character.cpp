@@ -192,6 +192,12 @@ void Aprototype3Character::DoAim(float Yaw, float Pitch)
 
 void Aprototype3Character::DoMove(float Right, float Forward)
 {
+	if (ItemUseComponent->IsArranging()) { StopInventoryMovement(); return; }
+	if (ItemUseComponent->GetBackpackMode() == EBackpackMode::Quick && !FVector2D(Right, Forward).IsNearlyZero())
+	{
+		if (auto* Player = Cast<Aprototype3PlayerController>(GetController())) Player->CloseInventoryDemo();
+		ItemUseComponent->CloseBackpack();
+	}
 	LocomotionIntent.MovementInput = FVector2D(Right, Forward);
 	if (GetController())
 	{
@@ -285,6 +291,13 @@ void Aprototype3Character::PrepareForItemUse()
 	ClearSpeedRequests();
 	bRequestedGaitInterruptsUse = false;
 	SetActiveGait(EPlayerLocomotionGait::Walking);
+}
+
+void Aprototype3Character::StopInventoryMovement()
+{
+	LocomotionIntent.MovementInput = FVector2D::ZeroVector;
+	ConsumeMovementInputVector();
+	GetCharacterMovement()->StopMovementImmediately();
 }
 
 void Aprototype3Character::ClearControlIntents()
@@ -514,7 +527,7 @@ void Aprototype3Character::ResolveLocomotionState()
 			bRequestedGaitInterruptsUse = false;
 		}
 	}
-	if (ItemUseComponent->IsUsing() || ItemUseComponent->IsOpeningBackpack() || IsCrouchActive() || !bIsMoving || !CanUseStaminaMovement())
+	if (ItemUseComponent->IsUsing() || ItemUseComponent->IsBackpackActive() || IsCrouchActive() || !bIsMoving || !CanUseStaminaMovement())
 	{
 		SetActiveGait(EPlayerLocomotionGait::Walking);
 		return;

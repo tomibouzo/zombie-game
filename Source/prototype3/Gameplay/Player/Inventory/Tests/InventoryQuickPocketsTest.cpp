@@ -79,7 +79,7 @@ bool FThreeQuickPocketsTest::RunTest(const FString&)
 	}
 	TestFalse(TEXT("Closed backpack rejects transfer"), Use->Transfer(Bandage, TEXT("Backpack")));
 	TestTrue(TEXT("Opening starts"), Use->BeginOpenBackpack());
-	Use->Advance(1.9f);
+	Use->Advance(.4f);
 	TestFalse(TEXT("Delay still gates backpack access"), Use->CanAccess(TEXT("Backpack")));
 	Use->Advance(.2f);
 	TestTrue(TEXT("Backpack becomes accessible"), Use->CanAccess(TEXT("Backpack")));
@@ -186,7 +186,7 @@ bool FQuickPocketPanelTest::RunTest(const FString&)
 	}
 	Key(EKeys::I);
 	TestFalse(TEXT("Full inventory begins loading"),Panel->IsInterfaceReady());
-	Use->Advance(1.9f); Panel->Tick(G,0,.1f);
+	Use->Advance(.4f); Panel->Tick(G,0,.1f);
 	Down(FVector2D(600,250)); Up(FVector2D(200,350));
 	FInventoryEntry Entry; Inventory->GetItem(Ids[0],Entry);
 	TestEqual(TEXT("All storage input gated during delay"),Entry.PocketId,FName(TEXT("Quick")));
