@@ -24,6 +24,8 @@ public:
 
 	/** Spawn first; remove from the source only when the world representation is ready. */
 	static ADroppedItem* DropFromInventory(UInventoryComponent* Inventory, FGuid InstanceId, APawn* Player, FString& Error);
+	static bool HasWorldRepresentation(const FItemInstance& Item);
+	bool WouldMoveAtFeet(APawn* Player) const;
 	static TArray<TWeakObjectPtr<ADroppedItem>> FindNearby(APawn* Player);
 	bool CanInteract(APawn* Player) const;
 	EInventoryResult PickUp(UInventoryComponent* Inventory, APawn* Player, FName Pocket, FVector2D Position, double Angle);

@@ -185,6 +185,7 @@ uint32 UInventoryInputSettings::Contexts(A Action)
 	if (Action == A::CyclePocket) return Backpack | BackpackDrag;
 	if (Action == A::FasterRotation || Action == A::SlowerRotation) return PocketDrag | BackpackDrag;
 	if (Action == A::ScrollFloorUp || Action == A::ScrollFloorDown) return Pockets | Backpack;
+	if (Action >= A::MoveForward && Action <= A::Sprint) return Game | Backpack | BackpackDrag;
 	if (Action >= A::MoveForward && Action <= A::Water) return Game;
 	return Inventory;
 }

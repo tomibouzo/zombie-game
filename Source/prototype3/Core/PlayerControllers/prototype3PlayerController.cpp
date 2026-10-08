@@ -59,7 +59,7 @@ public:
 		if (!Controller.IsValid() || !Controller->HasInterfaceFocus(Event.GetUserIndex())) return false;
 		const bool bBack = Controller->IsAssigningControls() ? Event.GetKey() == EKeys::Escape
 			: GetDefault<UInventoryInputSettings>()->Matches(EInventoryControl::Back, Event.GetKey());
-		if (!bBack) return false;
+		if (!bBack) return Controller->HandleInventoryControlKey(Event.GetKey(), Event.IsRepeat() ? IE_Repeat : IE_Pressed);
 		bConsumedEscape = true;
 		ConsumedKey = Event.GetKey();
 		if (!Event.IsRepeat()) Controller->HandleInterfaceEscape();
@@ -67,9 +67,25 @@ public:
 	}
 	virtual bool HandleKeyUpEvent(FSlateApplication&, const FKeyEvent& Event) override
 	{
+		if (Controller.IsValid() && Controller->HasInterfaceFocus(Event.GetUserIndex())
+			&& Controller->HandleInventoryControlKey(Event.GetKey(), IE_Released)) return true;
 		if (Event.GetKey() != ConsumedKey || !bConsumedEscape) return false;
 		bConsumedEscape = false;
 		return true;
+	}
+	virtual bool HandleMouseButtonDownEvent(FSlateApplication&, const FPointerEvent& Event) override
+	{
+		return Controller.IsValid() && Controller->HasInterfaceFocus(Event.GetUserIndex())
+			&& Controller->HandleInventoryControlKey(Event.GetEffectingButton(), IE_Pressed);
+	}
+	virtual bool HandleMouseButtonUpEvent(FSlateApplication&, const FPointerEvent& Event) override
+	{
+		return Controller.IsValid() && Controller->HasInterfaceFocus(Event.GetUserIndex())
+			&& Controller->HandleInventoryControlKey(Event.GetEffectingButton(), IE_Released);
+	}
+	virtual bool HandleMouseButtonDoubleClickEvent(FSlateApplication& App, const FPointerEvent& Event) override
+	{
+		return HandleMouseButtonDownEvent(App, Event);
 	}
 private:
 	TWeakObjectPtr<Aprototype3PlayerController> Controller;
@@ -222,10 +238,50 @@ bool Aprototype3PlayerController::ShouldUseTouchControls() const
 
 void Aprototype3PlayerController::FlushPressedKeys()
 {
+	// SetInputMode queues the Slate focus change. Its later viewport LostFocus
+	// flush must not erase the opener or walking buttons routed into this UI.
+	const auto* Use = ItemUse(this);
+	const bool bEnteringBackpack = bInventoryDemoOpen && Use && Use->IsBackpackActive();
+	TMap<FKey, FKeyState> WalkingStates;
+	if (PlayerInput && (bEnteringBackpack || bPreserveWalkingInput))
+		for (FKey Key : HeldMovementKeys())
+			if (FKeyState* State = PlayerInput->GetKeyState(Key))
+			{
+				WalkingStates.Add(Key, *State);
+				// Keep movement out of Enhanced Input's ignore-until-release list.
+				// Replaying Press after Flush would combine a release and a press in
+				// one frame, which the engine treats as a released key.
+				*State = FKeyState();
+			}
 	QuickKeysDown.Empty();
-	if (auto* Use = ItemUse(this)) Use->CancelUse();
+	if (!bEnteringBackpack) BackpackKeysDown.Empty();
+	if (auto* ActiveUse = ItemUse(this)) ActiveUse->CancelUse();
 	if (auto* PlayerCharacter = Cast<Aprototype3Character>(GetPawn())) PlayerCharacter->ClearControlIntents();
 	Super::FlushPressedKeys();
+	for (const auto& Pair : WalkingStates)
+		if (FKeyState* State = PlayerInput->GetKeyState(Pair.Key)) *State = Pair.Value;
+}
+
+TArray<FKey> Aprototype3PlayerController::HeldMovementKeys() const
+{
+	TArray<FKey> Keys;
+	const auto* Controls = GetDefault<UInventoryInputSettings>();
+	for (auto Action : { EInventoryControl::MoveForward, EInventoryControl::MoveBackward, EInventoryControl::MoveLeft, EInventoryControl::MoveRight })
+		for (int32 Slot = 0; Slot < 2; ++Slot)
+			if (const FKey Key = Controls->GetKey(Action, Slot); Key.IsValid() && IsInputKeyDown(Key)) Keys.AddUnique(Key);
+	return Keys;
+}
+
+bool Aprototype3PlayerController::HandleInventoryControlKey(FKey Key, EInputEvent Event)
+{
+	if (!bInventoryDemoOpen || PauseMenu.IsValid()) return false;
+	const auto* Controls = GetDefault<UInventoryInputSettings>();
+	bool bRoute = Controls->Matches(EInventoryControl::Toggle, Key);
+	if (const auto* Use = ItemUse(this); Use && Use->IsBackpackActive())
+		for (auto Action : { EInventoryControl::MoveForward, EInventoryControl::MoveBackward, EInventoryControl::MoveLeft,
+			EInventoryControl::MoveRight, EInventoryControl::Run, EInventoryControl::Sprint }) bRoute |= Controls->Matches(Action, Key);
+	if (bRoute) InputKey(FInputKeyEventArgs::CreateSimulated(Key, Event, Event == IE_Released ? 0.f : 1.f));
+	return bRoute;
 }
 
 bool Aprototype3PlayerController::InputKey(const FInputKeyEventArgs& Params)
@@ -247,10 +303,34 @@ bool Aprototype3PlayerController::InputKey(const FInputKeyEventArgs& Params)
 	}
 	if (IsLocalController() && Controls->Matches(EInventoryControl::Toggle, Params.Key))
 	{
-		if (Params.Event == IE_Pressed) ToggleInventoryDemo();
+		if (Params.Event == IE_Pressed || Params.Event == IE_DoubleClick)
+		{
+			if (BackpackKeysDown.IsEmpty()) ToggleInventoryDemo();
+			if (auto* Use = ItemUse(this); Use && Use->IsBackpackActive()) BackpackKeysDown.Add(Params.Key);
+		}
+		else if (Params.Event == IE_Released)
+		{
+			const bool bWasDown = BackpackKeysDown.Remove(Params.Key) > 0;
+			if (bWasDown && BackpackKeysDown.IsEmpty()) if (auto* ActiveUse = ItemUse(this))
+			{
+				if (ActiveUse->GetBackpackMode() == EBackpackMode::Selecting && !HeldMovementKeys().IsEmpty()) ActiveUse->CloseBackpack();
+				else ActiveUse->ReleaseBackpackInput();
+			}
+		}
 		return true;
 	}
-	if (bInventoryDemoOpen) return true;
+	if (bInventoryDemoOpen)
+	{
+		auto* Use = ItemUse(this);
+		if (!Use || !Use->IsBackpackActive()) return true;
+		const bool bGait = Controls->Matches(EInventoryControl::Run, Params.Key) || Controls->Matches(EInventoryControl::Sprint, Params.Key);
+		bool bMove = false;
+		for (auto Action : { EInventoryControl::MoveForward, EInventoryControl::MoveBackward, EInventoryControl::MoveLeft, EInventoryControl::MoveRight })
+			bMove |= Controls->Matches(Action, Params.Key);
+		if (!bMove && !bGait) return true;
+		if (Params.Event == IE_Pressed && (bGait || (bMove && Use->GetBackpackMode() == EBackpackMode::Quick))) CloseInventoryDemo();
+		return Super::InputKey(Params);
+	}
 	if (IsLocalController() && !bInventoryDemoOpen)
 		if (auto* Use = ItemUse(this))
 		{
@@ -285,7 +365,12 @@ void Aprototype3PlayerController::ToggleInventoryDemo(bool bLegacyLab, bool bPoc
 	if (bInventoryDemoOpen)
 	{
 		if (InventoryDemoWidget && InventoryDemoWidget->IsPocketsOnly() != bPocketsOnly)
+		{
+			if (!bPocketsOnly) if (auto* Use = ItemUse(this); Use && !Use->BeginOpenBackpack(true)) return;
 			InventoryDemoWidget->SetPocketsOnly(bPocketsOnly);
+			ResetIgnoreMoveInput();
+			if (bPocketsOnly) SetIgnoreMoveInput(true);
+		}
 		else CloseInventoryDemo();
 		return;
 	}
@@ -299,7 +384,7 @@ void Aprototype3PlayerController::ToggleInventoryDemo(bool bLegacyLab, bool bPoc
 	}
 	if (auto* Use=ItemUse(this))
 	{
-		if (!bLegacyLab && !bPocketsOnly && !Use->BeginOpenBackpack()) return;
+		if (!bLegacyLab && !bPocketsOnly && !Use->BeginOpenBackpack(true)) return;
 		Use->CancelUse();
 		if (bPocketsOnly) Use->CloseBackpack();
 	}
@@ -310,7 +395,8 @@ void Aprototype3PlayerController::ToggleInventoryDemo(bool bLegacyLab, bool bPoc
 	// A held attack is driven by the pawn component's tick, independently of UI input.
 	if (APawn* ControlledPawn = GetPawn())
 		if (UPlayerMeleeComponent* Melee = ControlledPawn->FindComponentByClass<UPlayerMeleeComponent>()) Melee->StopAttacking();
-	SetIgnoreMoveInput(true);
+	ResetIgnoreMoveInput();
+	if (bPocketsOnly || bLegacyLab) SetIgnoreMoveInput(true);
 	SetIgnoreLookInput(true);
 	bShowMouseCursor = true;
 	InventoryDemoWidget->AddToViewport(100);
@@ -334,6 +420,7 @@ void Aprototype3PlayerController::CloseInventoryDemo()
 	SetIgnoreLookInput(false);
 	bShowMouseCursor = bCursorBeforeInventory;
 	SetInputMode(FInputModeGameOnly());
+	TGuardValue<bool> PreserveWalking(bPreserveWalkingInput, true);
 	FlushPressedKeys();
 }
 

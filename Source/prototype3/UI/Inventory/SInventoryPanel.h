@@ -58,6 +58,7 @@ private:
 	bool bPocketsOnly = false;
 	int32 QuickPocketIndex = 0;
 	bool bRequestedClose = false;
+	bool bWasArranging = false;
 	FVector2D PanelSize() const { return FVector2D(1040, ItemUse.IsValid() ? (bPocketsOnly ? 620 : 940) : 800); }
 	void RefreshFloor();
 	bool BeginFloorDrag();

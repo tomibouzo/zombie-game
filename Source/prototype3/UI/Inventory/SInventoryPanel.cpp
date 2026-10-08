@@ -3,6 +3,8 @@
 #include "Gameplay/Items/ItemDefinition.h"
 #include "Gameplay/Items/World/DroppedItem.h"
 #include "GameFramework/Pawn.h"
+#include "GameFramework/PlayerController.h"
+#include "Core/PlayerControllers/prototype3PlayerController.h"
 #include "Gameplay/Player/Inventory/PlayerItemUseComponent.h"
 #include "Gameplay/Player/Inventory/ItemUseSettings.h"
 #include "Rendering/DrawElements.h"
@@ -91,6 +93,8 @@ void SInventoryPanel::Tick(const FGeometry& Geometry, double Time, float Delta)
 	}
 	if (ItemUse.IsValid())
 	{
+		if (ItemUse->IsArranging() || bWasArranging) Status = ItemUse->Status;
+		bWasArranging = ItemUse->IsArranging();
 	}
 	if (Controls.IsValid() && Active() && (bTurnLeft || bTurnRight))
 		Turn((static_cast<int32>(bTurnRight) - static_cast<int32>(bTurnLeft)) * Controls->TurnSpeed * Delta);
@@ -244,7 +248,13 @@ void SInventoryPanel::CommitGesture()
 		if (bFromFloor)
 		{
 			FString Error;
-			Status = FloorSource->DropAtFeet(Player.Get(), Error) ? TEXT("Item dropped at your feet.") : Error;
+			if (ItemUse.IsValid())
+			{
+				FInventoryArrangement Request; Request.Kind = EInventoryArrangement::FloorDrop;
+				Request.ItemId = Pending.Item.InstanceId; Request.FloorItem = FloorSource;
+				ItemUse->RequestArrangement(Request); Status = ItemUse->Status;
+			}
+			else Status = FloorSource->DropAtFeet(Player.Get(), Error) ? TEXT("Item dropped at your feet.") : Error;
 			CancelGesture(); RefreshFloor();
 		}
 		else DropSelected();
@@ -255,7 +265,17 @@ void SInventoryPanel::CommitGesture()
 	EInventoryResult Result = Preview(Pocket, Center);
 	if (Result == EInventoryResult::Success)
 	{
-		if (bFromFloor)
+		if (ItemUse.IsValid() && !bAdding)
+		{
+			FInventoryArrangement Request;
+			Request.Kind = bFromFloor ? EInventoryArrangement::PickUp : EInventoryArrangement::Move;
+			Request.ItemId = Pending.Item.InstanceId; Request.FloorItem = FloorSource;
+			Request.Pocket = Pocket; Request.Position = Center; Request.Angle = PreviewAngle;
+			if (ItemUse->RequestArrangement(Request)) SelectedId = Request.ItemId;
+			Status = ItemUse->Status;
+			CancelGesture(); RefreshFloor(); return;
+		}
+		else if (bFromFloor)
 		{
 			Result = FloorSource->PickUp(Inventory.Get(), Player.Get(), Pocket, Center, PreviewAngle);
 			if (Result == EInventoryResult::Success) SelectedId = Pending.Item.InstanceId;
@@ -344,7 +364,12 @@ void SInventoryPanel::DropSelected()
 	if (bAdding || bFromFloor || !SelectedId.IsValid() || !Inventory.IsValid()) return;
 	if (!SourceAvailable()) { Status = TEXT("Item unavailable. Stow it or open its storage first."); CancelGesture(); return; }
 	FString Error;
-	if (OnDropItem.IsBound() && OnDropItem.Execute(SelectedId, Error))
+	if (ItemUse.IsValid() && ItemUse->GetBackpackMode() == EBackpackMode::Slow)
+	{
+		FInventoryArrangement Request; Request.Kind = EInventoryArrangement::Drop; Request.ItemId = SelectedId;
+		ItemUse->RequestArrangement(Request); Status = ItemUse->Status;
+	}
+	else if (OnDropItem.IsBound() && OnDropItem.Execute(SelectedId, Error))
 	{
 		SelectedId.Invalidate();
 		Status = TEXT("Item dropped at your feet.");
@@ -400,6 +425,7 @@ FReply SInventoryPanel::Press(FKey Key)
 		CancelInteraction(); OnClose.ExecuteIfBound();
 		return FReply::Handled().ReleaseMouseCapture();
 	}
+	if (ItemUse.IsValid() && ItemUse->IsArranging()) return Reply();
 	if (ItemUse.IsValid())
 	{
 		if (bPocketsOnly && Is(EInventoryControl::ShowQuick))
@@ -423,7 +449,9 @@ FReply SInventoryPanel::Press(FKey Key)
 		{
 			const FGuid Id = Entry.Item.InstanceId;
 			CancelGesture(); bCanDoubleClick = false; SelectedId = Id;
-			if (ItemUse->GetHeldId() == Id) ItemUse->Stow(); else ItemUse->EquipToHands(Id);
+			FInventoryArrangement Request;
+			Request.Kind = ItemUse->GetHeldId() == Id ? EInventoryArrangement::Stow : EInventoryArrangement::Take;
+			Request.ItemId = Id; ItemUse->RequestArrangement(Request);
 			Status = ItemUse->Status;
 			return Reply();
 		}
@@ -521,10 +549,20 @@ void SInventoryPanel::OnMouseCaptureLost(const FCaptureLostEvent&)
 	if (Active() || bPendingDrag) { bCanDoubleClick = false; PressedKeys.Empty(); }
 	CancelGesture();
 }
-void SInventoryPanel::OnFocusLost(const FFocusEvent&) { CancelInteraction(); }
+void SInventoryPanel::OnFocusLost(const FFocusEvent&)
+{
+	CancelInteraction();
+	if (ItemUse.IsValid() && !bPocketsOnly) ItemUse->CloseBackpack();
+	if (Player.IsValid()) if (auto* Controller = Cast<Aprototype3PlayerController>(Player->GetController()); Controller && Controller->IsInventoryInterfaceOpen())
+		Controller->FlushPressedKeys();
+}
 
 int32 SInventoryPanel::OnPaint(const FPaintArgs&, const FGeometry& G, const FSlateRect&, FSlateWindowElementList& Out, int32 Layer, const FWidgetStyle&, bool) const
 {
+	// Tap/hold recognition is input bookkeeping, not a third loading screen.
+	// Keep the focused input route alive without painting until a mode is chosen.
+	if (!bPocketsOnly && ItemUse.IsValid() && (!ItemUse->IsBackpackActive()
+		|| ItemUse->GetBackpackMode() == EBackpackMode::Selecting)) return Layer;
 	const FSlateBrush* Brush = FCoreStyle::Get().GetBrush(TEXT("WhiteBrush"));
 	auto Box = [&](FVector2D Pos, FVector2D Size, FLinearColor Color)
 	{
@@ -558,12 +596,16 @@ int32 SInventoryPanel::OnPaint(const FPaintArgs&, const FGeometry& G, const FSla
 	if (!Inventory.IsValid() || !Controls.IsValid()) return Layer;
 	Box(FVector2D::ZeroVector, PanelSize(), FLinearColor(0.022f, 0.03f, 0.043f));
 	Text(FVector2D(40, 27), bPocketsOnly ? TEXT("POCKETS") : TEXT("INVENTORY"), 25);
+	if (!bPocketsOnly && ItemUse.IsValid() && ItemUse->IsBackpackOpen())
+		Text(FVector2D(300,35), ItemUse->GetBackpackMode() == EBackpackMode::Slow ? TEXT("WALKING MODE") : TEXT("QUICK MODE"), 14, Muted);
 	if (!IsInterfaceReady())
 	{
 		if (ItemUse.IsValid() && ItemUse->IsOpeningBackpack())
 		{
 			const FVector2D Bar = PanelSize() * .5 - FVector2D(200,6);
-			Text(Bar - FVector2D(0,40), TEXT("Opening inventory..."), 18);
+			const auto Mode = ItemUse->GetBackpackMode();
+			Text(Bar - FVector2D(0,40), Mode == EBackpackMode::Slow ? TEXT("Opening: hold to continue...")
+				: TEXT("Opening inventory..."), 18);
 			Box(Bar, FVector2D(400,12), FLinearColor(.08f,.11f,.14f));
 			Box(Bar, FVector2D(400 * ItemUse->GetProgress(),12), FLinearColor(.35f,.65f,.75f));
 		}
@@ -593,7 +635,8 @@ int32 SInventoryPanel::OnPaint(const FPaintArgs&, const FGeometry& G, const FSla
 			FInventoryItemProfile Profile;
 			if (Inventory->GetProfile(Entry.ProfileId, Profile))
 				Shape(Profile, View.Origin + Entry.Position, Entry.AngleDegrees,
-					Inventory->IsReserved(Entry.Item.InstanceId) ? FLinearColor(0.15f,0.22f,0.25f) : Entry.Item.InstanceId == SelectedId ? FLinearColor(0.43f, 0.62f, 0.73f) : FLinearColor(0.3f, 0.4f, 0.47f));
+					(Inventory->IsReserved(Entry.Item.InstanceId) || (ItemUse.IsValid() && ItemUse->IsArranging() && ItemUse->GetArrangement().ItemId == Entry.Item.InstanceId))
+					? FLinearColor(0.15f,0.22f,0.25f) : Entry.Item.InstanceId == SelectedId ? FLinearColor(0.43f, 0.62f, 0.73f) : FLinearColor(0.3f, 0.4f, 0.47f));
 		}
 	}
 	if (Player.IsValid())
@@ -611,7 +654,9 @@ int32 SInventoryPanel::OnPaint(const FPaintArgs&, const FGeometry& G, const FSla
 			const FVector2D RowOrigin = Origin + FVector2D(0, Row * 36);
 			if (Actor == FloorSource || InRect(Cursor - RowOrigin, 0, 0, 248, 36))
 				Box(RowOrigin, FVector2D(248,36), FLinearColor(.12f,.19f,.23f));
-			Text(RowOrigin + FVector2D(10,8), Actor->GetItem().Definition->DisplayName.ToString(), 12);
+			const bool bPendingSource = ItemUse.IsValid() && ItemUse->IsArranging() && ItemUse->GetArrangement().FloorItem == Actor;
+			if (bPendingSource) Box(RowOrigin, FVector2D(248,36), FLinearColor(.08f,.12f,.14f));
+			Text(RowOrigin + FVector2D(10,8), Actor->GetItem().Definition->DisplayName.ToString(), 12, bPendingSource ? Muted : FLinearColor::White);
 		}
 		if (FloorItems.IsEmpty()) Text(Origin + FVector2D(10,12), TEXT("No nearby items"), 12, Muted);
 		Out.PopClip();
@@ -641,7 +686,7 @@ int32 SInventoryPanel::OnPaint(const FPaintArgs&, const FGeometry& G, const FSla
 		Control(EInventoryControl::ScrollFloorUp, TEXT("scroll floor items up"));
 		Control(EInventoryControl::ScrollFloorDown, TEXT("scroll floor items down"));
 		Control(EInventoryControl::Drop, TEXT("drop selected item at your feet"));
-		Control(EInventoryControl::Toggle, bPocketsOnly ? TEXT("open backpack") : TEXT("close backpack"));
+		Control(EInventoryControl::Toggle, bPocketsOnly ? TEXT("tap: quick / hold: walking backpack") : TEXT("close backpack"));
 		Control(bPocketsOnly ? EInventoryControl::ShowQuick : EInventoryControl::CyclePocket, bPocketsOnly ? TEXT("close pockets") : TEXT("next pocket"));
 		Line(TEXT("Double ") + Key(EInventoryControl::Grab) + TEXT(": take / stow item"));
 		Control(EInventoryControl::Stow, TEXT("stow held item"));
@@ -658,7 +703,33 @@ int32 SInventoryPanel::OnPaint(const FPaintArgs&, const FGeometry& G, const FSla
 		Control(EInventoryControl::Bandage, TEXT("take bandage; hold to use"));
 	}
 	FInventoryEntry Selected;
-	if (Inventory->GetItem(SelectedId, Selected))
+	if (ItemUse.IsValid() && ItemUse->IsArranging())
+	{
+		const auto& Request = ItemUse->GetArrangement();
+		const auto& Source = ItemUse->GetArrangementSource();
+		FInventoryItemProfile Profile;
+		if (Inventory->GetProfile(Source.ProfileId, Profile))
+		{
+			const FLinearColor Shade(.15f,.22f,.25f);
+			if (Request.Kind == EInventoryArrangement::Move || Request.Kind == EInventoryArrangement::PickUp)
+				for (const auto& View : Pockets) if (View.Pocket.Id == Request.Pocket)
+					Shape(Profile, View.Origin + Request.Position, Request.Angle, Shade);
+			if (Request.FloorItem.IsValid())
+				Shape(Profile, FloorOrigin() + FVector2D(130, FloorSize().Y - 70), Source.AngleDegrees, Shade);
+			if (Request.Kind == EInventoryArrangement::Drop || Request.Kind == EInventoryArrangement::FloorDrop)
+			{
+				Box(FloorOrigin() + FVector2D(0, FloorSize().Y - 130), FVector2D(248,130), FLinearColor(.05f,.07f,.09f,.95f));
+				Shape(Profile, FloorOrigin() + FVector2D(130, FloorSize().Y - 70), Source.AngleDegrees, Shade);
+			}
+			if (Request.Kind == EInventoryArrangement::Take || Request.Kind == EInventoryArrangement::Stow || ItemUse->GetHeldId() == Request.ItemId)
+			{
+				Text(FVector2D(500,440), TEXT("HANDS"), 14, Muted);
+				Shape(Profile, FVector2D(610,570), Source.AngleDegrees, Shade);
+			}
+		}
+		Text(FVector2D(40, PanelSize().Y - 80), FString::Printf(TEXT("Arranging... %.0f%%"), ItemUse->GetArrangementProgress() * 100), 13, Muted);
+	}
+	if ((!ItemUse.IsValid() || !ItemUse->IsArranging()) && Inventory->GetItem(SelectedId, Selected))
 		Text(FVector2D(40, PanelSize().Y - 80), Selected.Item.Definition->DisplayName.ToString(), 13);
 	if (Active())
 	{
@@ -710,13 +781,16 @@ TArray<SInventoryPanel::FPocketView> SInventoryPanel::DisplayPockets() const
 
 void SInventoryPanel::CancelInteraction()
 {
+	if (ItemUse.IsValid()) ItemUse->CancelArrangement();
 	CancelGesture(); PressedKeys.Empty(); bCanDoubleClick = false;
 }
 bool SInventoryPanel::HandlePlayerControl(FKey Key)
 {
 	if (Controls->Matches(EInventoryControl::Stow, Key))
 	{
-		CancelInteraction(); ItemUse->Stow(); Status = TEXT("Item stowed in its reserved place."); return true;
+		CancelInteraction();
+		FInventoryArrangement Request; Request.Kind = EInventoryArrangement::Stow; Request.ItemId = ItemUse->GetHeldId();
+		ItemUse->RequestArrangement(Request); Status = ItemUse->Status; return true;
 	}
 	return false;
 }
