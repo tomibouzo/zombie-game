@@ -103,6 +103,8 @@ using the character's existing run tap/hold threshold (currently 0.25 seconds):
   seconds if continuously walking). Release during charging cancels; release
   after opening keeps the interface open. Run/sprint closes it and proceeds.
 
+Tap/hold recognition has no loading screen: the first visible panel belongs to
+the selected quick or walking mode. This adds no extra opening delay.
 Walking continues during the initial tap/hold selection window. A short tap
 while movement is still held cancels quick opening. Both binding slots form one
 held action; release the last held binding to finish that press. Slow mode keeps

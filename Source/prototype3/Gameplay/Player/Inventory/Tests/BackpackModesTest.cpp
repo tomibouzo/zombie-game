@@ -21,6 +21,10 @@
 #include "Gameplay/Items/World/DroppedItem.h"
 #include "UI/Inventory/SInventoryPanel.h"
 #include "UObject/StrongObjectPtr.h"
+#include "Input/HittestGrid.h"
+#include "Types/PaintArgs.h"
+#include "Rendering/DrawElements.h"
+#include "Widgets/SWindow.h"
 
 namespace
 {
@@ -201,6 +205,43 @@ bool FBackpackPanelDelayTest::RunTest(const FString&)
 	Panel->CancelInteraction();
 	TestFalse(TEXT("Interface cancellation clears pending state"),F.Use->IsArranging());
 	TestEqual(TEXT("Canceled gesture keeps committed source"),F.Entry().PocketId,FName(TEXT("Backpack")));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FBackpackPresentationTest, "Prototype.Inventory.BackpackPresentation",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FBackpackPresentationTest::RunTest(const FString&)
+{
+	FBackpackFixture F;
+	TStrongObjectPtr<UInventoryInputSettings> Settings(NewObject<UInventoryInputSettings>()); Settings->ResetDefaults();
+	const auto Panel = SNew(SInventoryPanel).Inventory(F.Inventory).ItemUse(F.Use).Player(F.Player).Controls(Settings.Get()).SaveControls(false);
+	const auto Window = SNew(SWindow).ClientSize(FVector2D(1540,940));
+	const FGeometry G = FGeometry::MakeRoot(FVector2D(1540,940), FSlateLayoutTransform(1.f));
+	FHittestGrid HitTest;
+	auto Paint = [&]()
+	{
+		FSlateWindowElementList Elements(Window);
+		return Panel->OnPaint(FPaintArgs(&Panel.Get(), HitTest, FVector2D::ZeroVector, 0, .016f),
+			G, FSlateRect(0,0,1540,940), Elements, 0, FWidgetStyle(), true);
+	};
+	F.Use->BeginOpenBackpack(true);
+	TestEqual(TEXT("Initial press paints no preliminary screen"), Paint(), 0);
+	F.Use->Advance(.1f);
+	TestEqual(TEXT("Tap/hold recognition remains invisible"), Paint(), 0);
+	F.Use->ReleaseBackpackInput();
+	TestTrue(TEXT("Tap displays only quick opening"), F.Use->GetBackpackMode() == EBackpackMode::Quick && Paint() > 0);
+	F.Use->Advance(.4f);
+	TestTrue(TEXT("Quick inventory opens on its existing timer"), F.Use->IsBackpackOpen() && Paint() > 0);
+	F.Use->CloseBackpack();
+	TestEqual(TEXT("Closing paints no leftover loading panel"), Paint(), 0);
+	F.Use->BeginOpenBackpack(true); F.Use->Advance(.25f);
+	TestTrue(TEXT("Recognized hold displays only slow opening"), F.Use->GetBackpackMode() == EBackpackMode::Slow && Paint() > 0);
+	F.Use->ReleaseBackpackInput();
+	TestEqual(TEXT("Releasing during charge removes the loading panel"), Paint(), 0);
+	F.Slow();
+	TestTrue(TEXT("Releasing after completion keeps loaded inventory visible"), F.Use->IsBackpackOpen() && Paint() > 0);
+	Panel->SetPocketsOnly(true);
+	TestTrue(TEXT("Immediate pockets view remains visible"), Paint() > 0);
 	return true;
 }
 

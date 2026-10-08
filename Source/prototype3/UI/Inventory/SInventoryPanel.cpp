@@ -559,6 +559,10 @@ void SInventoryPanel::OnFocusLost(const FFocusEvent&)
 
 int32 SInventoryPanel::OnPaint(const FPaintArgs&, const FGeometry& G, const FSlateRect&, FSlateWindowElementList& Out, int32 Layer, const FWidgetStyle&, bool) const
 {
+	// Tap/hold recognition is input bookkeeping, not a third loading screen.
+	// Keep the focused input route alive without painting until a mode is chosen.
+	if (!bPocketsOnly && ItemUse.IsValid() && (!ItemUse->IsBackpackActive()
+		|| ItemUse->GetBackpackMode() == EBackpackMode::Selecting)) return Layer;
 	const FSlateBrush* Brush = FCoreStyle::Get().GetBrush(TEXT("WhiteBrush"));
 	auto Box = [&](FVector2D Pos, FVector2D Size, FLinearColor Color)
 	{
@@ -601,7 +605,7 @@ int32 SInventoryPanel::OnPaint(const FPaintArgs&, const FGeometry& G, const FSla
 			const FVector2D Bar = PanelSize() * .5 - FVector2D(200,6);
 			const auto Mode = ItemUse->GetBackpackMode();
 			Text(Bar - FVector2D(0,40), Mode == EBackpackMode::Slow ? TEXT("Opening: hold to continue...")
-				: Mode == EBackpackMode::Selecting ? TEXT("Tap for quick / hold for walking") : TEXT("Opening inventory..."), 18);
+				: TEXT("Opening inventory..."), 18);
 			Box(Bar, FVector2D(400,12), FLinearColor(.08f,.11f,.14f));
 			Box(Bar, FVector2D(400 * ItemUse->GetProgress(),12), FLinearColor(.35f,.65f,.75f));
 		}
