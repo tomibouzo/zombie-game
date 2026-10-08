@@ -208,7 +208,7 @@ ADroppedItem* ADroppedItem::DropFromInventory(UInventoryComponent* Inventory, FG
 		return nullptr;
 	}
 	Dropped->Item = Removed;
-	if (bHeldByPlayer) Use->Stow();
+	if (bHeldByPlayer) Use->ClearHeld();
 	Dropped->bTransferring = false;
 	return Dropped;
 }
@@ -239,16 +239,37 @@ TArray<TWeakObjectPtr<ADroppedItem>> ADroppedItem::FindNearby(APawn* Player)
 
 EInventoryResult ADroppedItem::PickUp(UInventoryComponent* Inventory, APawn* Player, FName Pocket, FVector2D Position, double Angle)
 {
+	const auto Result = StagePickUp(Inventory, Player, Pocket, Position, Angle);
+	if (Result == EInventoryResult::Success) FinishStagedPickUp();
+	return Result;
+}
+
+EInventoryResult ADroppedItem::StagePickUp(UInventoryComponent* Inventory, APawn* Player, FName Pocket, FVector2D Position, double Angle)
+{
 	if (!IsValid(Inventory) || !CanInteract(Player)) return EInventoryResult::InvalidItem;
-	// AddItem broadcasts synchronously. Guard against another pickup during that callback.
-	TGuardValue<bool> TransferGuard(bTransferring, true);
+	bTransferring = true; // AddItem broadcasts synchronously; callbacks cannot claim the actor again.
 	const auto Result = Inventory->AddItem(Item, InventoryProfileId, Pocket, Position, Angle);
-	if (Result != EInventoryResult::Success) return Result;
+	if (Result != EInventoryResult::Success) { bTransferring = false; return Result; }
+	bStagedPickUp = true;
+	return Result;
+}
+
+void ADroppedItem::FinishStagedPickUp()
+{
+	if (!bStagedPickUp) return;
+	bStagedPickUp = false;
 	Item = FItemInstance();
 	SetActorEnableCollision(false);
 	SetActorHiddenInGame(true);
 	Destroy();
-	return EInventoryResult::Success;
+}
+
+void ADroppedItem::CancelStagedPickUp(UInventoryComponent* Inventory)
+{
+	if (!bStagedPickUp || !IsValid(Inventory)) return;
+	FItemInstance Removed;
+	Inventory->RemoveItem(Item.InstanceId, Removed, true);
+	bStagedPickUp = bTransferring = false;
 }
 
 bool ADroppedItem::DropAtFeet(APawn* Player, FString& Error)

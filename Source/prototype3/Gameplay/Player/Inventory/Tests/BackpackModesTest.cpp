@@ -20,6 +20,7 @@
 #include "Gameplay/Items/ItemDefinition.h"
 #include "Gameplay/Items/World/DroppedItem.h"
 #include "UI/Inventory/SInventoryPanel.h"
+#include "UI/Inventory/InventoryInputSettings.h"
 #include "UObject/StrongObjectPtr.h"
 #include "Input/HittestGrid.h"
 #include "Types/PaintArgs.h"
@@ -125,6 +126,115 @@ bool FBackpackModesTest::RunTest(const FString&)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHandPickupRulesTest, "Prototype.Inventory.HandPickupRules",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FHandPickupRulesTest::RunTest(const FString&)
+{
+	FBackpackFixture F;
+	auto* Settings = GetMutableDefault<UInventoryInputSettings>();
+	TGuardValue<bool> ReplaceSetting(Settings->bAllowItemReplace, false);
+	auto MakeFloor = [&]() -> ADroppedItem*
+	{
+		const auto Item = FItemInstance::Create(F.Profile.Definition);
+		if (F.Inventory->AddItem(Item, F.Profile.Id, TEXT("Quick2"), FVector2D(80), 0) != EInventoryResult::Success) return nullptr;
+		FString Error;
+		return ADroppedItem::DropFromInventory(F.Inventory, Item.InstanceId, F.Player, Error);
+	};
+	TestTrue(TEXT("Quick item enters hands"), F.Use->EquipToHands(F.Id));
+	TestTrue(TEXT("Quick item has a stow home"), F.Use->HasStowHome());
+	auto* First = MakeFloor();
+	if (!TestNotNull(TEXT("First floor item exists"), First)) return false;
+	const FGuid FirstId = First->GetItem().InstanceId;
+	TestTrue(TEXT("Ground pickup stows a quick item with replacement disabled"), F.Use->PickUpToHands(First));
+	TestEqual(TEXT("Ground identity reaches hands"), F.Use->GetHeldId(), FirstId);
+	TestFalse(TEXT("Ground item has no stow home"), F.Use->HasStowHome());
+	TestFalse(TEXT("Ground item cannot be stowed with X"), F.Use->Stow());
+	TestFalse(TEXT("Quick item returned to storage"), F.Inventory->IsReserved(F.Id));
+	FInventoryEntry Held;
+	TestTrue(TEXT("Held ground item stays owned"), F.Inventory->GetItem(FirstId, Held));
+	TestEqual(TEXT("Ground item occupies hidden hands storage"), Held.PocketId, UPlayerItemUseComponent::HandsPocketId());
+	auto* Second = MakeFloor();
+	if (!TestNotNull(TEXT("Second floor item exists"), Second)) return false;
+	const FGuid SecondId = Second->GetItem().InstanceId;
+	TestFalse(TEXT("Replacing an unstowable item is blocked by default"), F.Use->PickUpToHands(Second));
+	TestEqual(TEXT("Blocked pickup preserves hands"), F.Use->GetHeldId(), FirstId);
+	TestEqual(TEXT("Blocked pickup preserves floor actor"), Second->GetItem().InstanceId, SecondId);
+	Settings->bAllowItemReplace = true;
+	TestTrue(TEXT("Preference enables replacement"), F.Use->CanReplaceWithFloorItem());
+	TestTrue(TEXT("Second floor item remains interactable"), Second->CanInteract(F.Player));
+	TestFalse(TEXT("Second floor identity is absent from inventory before transfer"), F.Inventory->GetItem(SecondId, Held));
+	const bool bReplaced = F.Use->PickUpToHands(Second);
+	TestTrue(FString::Printf(TEXT("Enabled replacement commits: %s"), *F.Use->Status), bReplaced);
+	TestEqual(TEXT("New item is held"), F.Use->GetHeldId(), SecondId);
+	TestFalse(TEXT("Old item no longer in inventory"), F.Inventory->GetItem(FirstId, Held));
+	const auto Nearby = ADroppedItem::FindNearby(F.Player);
+	TestTrue(TEXT("Old held item is now on the floor"), Nearby.ContainsByPredicate([FirstId](const auto& Actor)
+		{ return Actor.IsValid() && Actor->GetItem().InstanceId == FirstId; }));
+	TestTrue(TEXT("P drops the held item"), F.Use->DropHeld());
+	TestFalse(TEXT("Hands clear after dropping"), F.Use->HasHeldItem());
+
+	F.Use->BeginOpenBackpack(); F.Use->Advance(.5f);
+	const auto BagItem = FItemInstance::Create(F.Profile.Definition);
+	if (!TestEqual(TEXT("Bag fixture added"), F.Inventory->AddItem(BagItem, F.Profile.Id, TEXT("Backpack"), FVector2D(80), 0), EInventoryResult::Success)) return false;
+	TestTrue(TEXT("Bag item can be taken"), F.Use->EquipToHands(BagItem.InstanceId));
+	TestTrue(TEXT("Open bag preserves its stow home"), F.Use->HasStowHome());
+	TestTrue(TEXT("Stow works while bag is open"), F.Use->Stow());
+	F.Use->EquipToHands(BagItem.InstanceId);
+	F.Use->CloseBackpack();
+	TestTrue(TEXT("Closing bag keeps item held"), F.Use->GetHeldId() == BagItem.InstanceId);
+	TestFalse(TEXT("Closing bag clears stow home"), F.Use->HasStowHome());
+	TestFalse(TEXT("X does nothing after closure"), F.Use->Stow());
+	F.Inventory->GetItem(BagItem.InstanceId, Held);
+	TestEqual(TEXT("Closed bag has its former item in hands storage"), Held.PocketId, UPlayerItemUseComponent::HandsPocketId());
+	F.Use->BeginOpenBackpack(); F.Use->Advance(.5f);
+	TestFalse(TEXT("Reopening does not restore old reservation"), F.Use->HasStowHome());
+	FInventoryArrangement Place;
+	Place.Kind = EInventoryArrangement::Move; Place.ItemId = BagItem.InstanceId;
+	Place.Pocket = TEXT("Backpack"); Place.Position = FVector2D(80);
+	TestTrue(TEXT("Manual placement into bag succeeds"), F.Use->RequestArrangement(Place));
+	TestFalse(TEXT("Manual placement clears hands"), F.Use->HasHeldItem());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHandPickupPanelTest, "Prototype.Inventory.HandPickupPanel",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FHandPickupPanelTest::RunTest(const FString&)
+{
+	FBackpackFixture F;
+	F.Use->BeginOpenBackpack(); F.Use->Advance(.5f);
+	TStrongObjectPtr<UInventoryInputSettings> Settings(NewObject<UInventoryInputSettings>()); Settings->ResetDefaults();
+	const auto Panel = SNew(SInventoryPanel).Inventory(F.Inventory).ItemUse(F.Use).Player(F.Player)
+		.Controls(Settings.Get()).SaveControls(false).PocketsOnly(false);
+	const FGeometry G = FGeometry::MakeRoot(FVector2D(1540,940), FSlateLayoutTransform());
+	auto Mouse = [](FVector2D P) { return FPointerEvent(0,P,P,TSet<FKey>(),EKeys::LeftMouseButton,0,FModifierKeysState()); };
+	auto Down = [&](FVector2D P) { Panel->OnMouseButtonDown(G,Mouse(P)); };
+	auto Up = [&](FVector2D P) { Panel->OnMouseButtonUp(G,Mouse(P)); };
+	auto Move = [&](FVector2D P) { Panel->OnMouseMove(G,Mouse(P)); };
+	auto Click = [&](FVector2D P) { Down(P); Up(P); };
+	const FVector2D Pocket(580,350), HeldRow(550,180), Bag(150,260), FloorRow(780,168);
+	Click(Pocket); Click(Pocket);
+	TestEqual(TEXT("Full view takes stored quick item"), F.Use->GetHeldId(), F.Id);
+	Click(HeldRow); Click(HeldRow);
+	TestFalse(TEXT("Held row double-click stows quick item"), F.Use->HasHeldItem());
+	const auto FloorItem = FItemInstance::Create(F.Profile.Definition);
+	if (!TestEqual(TEXT("Floor fixture starts in storage"),
+		F.Inventory->AddItem(FloorItem,F.Profile.Id,TEXT("Quick2"),FVector2D(80),0), EInventoryResult::Success)) return false;
+	FString Error;
+	auto* Floor = ADroppedItem::DropFromInventory(F.Inventory, FloorItem.InstanceId, F.Player, Error);
+	if (!TestNotNull(TEXT("Floor item exists"), Floor)) return false;
+	Panel->Tick(G,0,.21f);
+	Click(FloorRow); Click(FloorRow);
+	TestEqual(TEXT("Floor row double-click takes item into hands"), F.Use->GetHeldId(), FloorItem.InstanceId);
+	Click(HeldRow); Click(HeldRow);
+	TestEqual(TEXT("No-home held row double-click leaves item held"), F.Use->GetHeldId(), FloorItem.InstanceId);
+	Down(HeldRow); Move(Bag); Up(Bag);
+	FInventoryEntry Entry;
+	TestTrue(TEXT("Dragging held item creates a manual bag placement"), F.Inventory->GetItem(FloorItem.InstanceId, Entry));
+	TestEqual(TEXT("Held item reaches chosen bag position"), Entry.PocketId, FName(TEXT("Backpack")));
+	TestFalse(TEXT("Successful manual placement clears hands"), F.Use->HasHeldItem());
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FBackpackArrangementsTest, "Prototype.Inventory.BackpackArrangements",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 bool FBackpackArrangementsTest::RunTest(const FString&)
@@ -192,7 +302,7 @@ bool FBackpackPanelDelayTest::RunTest(const FString&)
 	const auto Panel = SNew(SInventoryPanel).Inventory(F.Inventory).ItemUse(F.Use).Player(F.Player).Controls(Settings.Get()).SaveControls(false);
 	const FGeometry G = FGeometry::MakeRoot(FVector2D(1540,940), FSlateLayoutTransform(1.f));
 	auto Mouse = [&](FVector2D P) { return FPointerEvent(0,P,P,TSet<FKey>(),EKeys::LeftMouseButton,0,FModifierKeysState()); };
-	Panel->OnMouseButtonDown(G,Mouse(FVector2D(580,230)));
+	Panel->OnMouseButtonDown(G,Mouse(FVector2D(580,350)));
 	Panel->OnMouseButtonUp(G,Mouse(FVector2D(140,250)));
 	TestTrue(TEXT("Slate placement queues in walking mode"), F.Use->IsArranging());
 	TestEqual(TEXT("Slate does not mutate source on release"), F.Entry().PocketId,FName(TEXT("Quick")));
@@ -201,7 +311,7 @@ bool FBackpackPanelDelayTest::RunTest(const FString&)
 	F.Use->Advance(.3f);
 	TestEqual(TEXT("Slate placement commits after delay"), F.Entry().PocketId,FName(TEXT("Backpack")));
 	Panel->OnMouseButtonDown(G,Mouse(FVector2D(140,250)));
-	Panel->OnMouseButtonUp(G,Mouse(FVector2D(580,230)));
+	Panel->OnMouseButtonUp(G,Mouse(FVector2D(580,350)));
 	Panel->CancelInteraction();
 	TestFalse(TEXT("Interface cancellation clears pending state"),F.Use->IsArranging());
 	TestEqual(TEXT("Canceled gesture keeps committed source"),F.Entry().PocketId,FName(TEXT("Backpack")));

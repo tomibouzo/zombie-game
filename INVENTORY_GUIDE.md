@@ -59,6 +59,8 @@ sprint still requires forward input.
 | Gameplay | Primary / secondary item action | Left / right mouse |
 | Gameplay | Take / use bandage | G |
 | Gameplay or inventory | Stow held item | X |
+| Gameplay | Pick up looked-at floor item | E |
+| Gameplay or inventory | Drop held item | P |
 | Gameplay or pockets | Open / close pockets | Tab |
 | Gameplay or inventory | Open / close backpack | I |
 | Backpack open | Next pocket | Tab |
@@ -98,10 +100,16 @@ A failed request, such as a missing quick item, preserves the current use.
 Interrupted use needs a fresh press. Walking can coexist with healing.
 Full health prevents wasting a bandage.
 
-X stows to the reserved original storage position. Opening a cursor interface
+X stows to a still-valid reserved storage position. Quick-access reservations
+survive closing interfaces. A backpack item's reservation lasts only while the
+backpack remains open; closing it leaves the item in hands and frees its old
+position. A floor item taken directly into hands has no reserved position.
+X does nothing when there is no valid reservation. Taking another stored item
+stows the previous held item if possible, otherwise drops it before the new
+item reaches hands. Opening a cursor interface
 or losing viewport focus stops item use and clears held input; it preserves the
 item in hands. Interface clicks never also perform gameplay item actions.
-Taking an item reserves its existing entry; it never creates a second item.
+Taking a stored item reserves its existing entry; it never creates a second item.
 
 ## Inventory interaction
 
@@ -173,7 +181,9 @@ prototype equipment toggle is retained for fixtures. This is one bag, without
 world backpack drops, multiple bags or nested containers.
 Direct damage interrupts backpack access and closes its interface.
 
-F drops a selected item at the player's feet, including one in hands.
+F drops a selected item at the player's feet, including one in hands. P drops
+the held item directly during gameplay or inventory, when no placement or
+transfer is underway.
 The world actor must be ready before ownership transfers. Failed drops preserve
 inventory and hands. There is no deletion control. The equipped backpack is not
 an inventory entry and cannot be dropped here.
@@ -194,11 +204,23 @@ defaults to Z=-10,000 cm, configured by `DroppedItem.CleanupZ`.
 The floor list refreshes every 0.2 seconds. Default radius is 250 cm from the
 player's feet in 3D, configured by `DroppedItem.PickupRadius`; no sight trace yet.
 Drag a floor name to reveal its silhouette and place it in a pocket/open backpack.
+In the full backpack view, double-click a floor name to take that item directly
+into hands. The Tab-only pockets view keeps its existing interactions. A small
+Held Item row above the visible pocket shows the name, or Empty. Drag its name
+to manually place the item in any accessible storage; double-click it to attempt
+the same reserved-position stow as X.
 Until placement succeeds, the world actor remains intact. Cancel, invalid fit,
 range loss, actor destruction, focus loss or closing the menu never duplicate it.
 Dragging the silhouette clear of every storage grid may instead move the same
-actor to the player's feet and clear its velocity. Direct floor-to-hands pickup
-and carrying with no reserved storage home remain deferred.
+actor to the player's feet and clear its velocity. During gameplay, look at an
+unobstructed floor item within reach and press E to take one item into hands;
+holding E has the same single-pickup behavior. The prompt reads "pick up (item name)".
+With occupied hands, a current item with a valid stow home returns there. If it
+cannot be stowed, replacement drops it only when **Allow item replace when picking
+up objects** is enabled in Options > Controls > Item actions (default off).
+When blocked, a red notice at the top center points to the setting. Failed or
+canceled pickup leaves the held and floor items unchanged. An item placed
+manually into quick storage gains that location as a stow home when taken again.
 
 TEST SPIKES are an existing optional prototype hazard: 10 damage/second, stopping
 at 1 health. `bSpawnTestSpikes` disables them. Damage normally interrupts healing
@@ -239,6 +261,6 @@ pending direction/movement/stamina requests and low-ceiling clearance. Reports
 for this change are under `Saved/MovementVerification`.
 
 Future work stays separate: wearable storage;
-animated backpack/pocket selection; direct floor-to-hands; food/water and other
+animated backpack/pocket selection; food/water and other
 item effects; saves/networking. The mixed floor-item test pile is implemented
 independently on `floor-item-test-pile` for scrolling and pickup checks.

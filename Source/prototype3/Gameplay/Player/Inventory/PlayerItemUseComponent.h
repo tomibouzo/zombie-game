@@ -13,7 +13,7 @@ class UHealingItemActionData;
 class ADroppedItem;
 
 enum class EBackpackMode : uint8 { Closed, Selecting, Quick, Slow };
-enum class EInventoryArrangement : uint8 { Move, PickUp, Drop, FloorDrop, Take, Stow };
+enum class EInventoryArrangement : uint8 { Move, PickUp, Drop, FloorDrop, Take, Stow, TakeFloor };
 
 /** A proposed operation only. Ownership stays at the source until commit. */
 struct FInventoryArrangement
@@ -47,8 +47,16 @@ public:
 	UPROPERTY(EditAnywhere, Category="Prototype", meta=(ClampMin="0.1", ClampMax="1")) float QuickUseHoldSeconds = 0.3f;
 	UPROPERTY(Transient) TObjectPtr<UInventoryComponent> Inventory;
 	UPROPERTY(Transient) FItemInstance Backpack;
+	static FName HandsPocketId() { return TEXT("Hands"); }
 	bool EquipToHands(FGuid Id);
-	void Stow();
+	bool PickUpToHands(ADroppedItem* Floor, bool bRequireLook = false);
+	ADroppedItem* GetLookedAtFloorItem() const;
+	bool DropHeld();
+	bool Stow();
+	void ClearHeld();
+	bool HasStowHome() const;
+	bool CanReplaceWithFloorItem() const;
+	bool IsPickupBlockedNoticeVisible() const;
 	bool HandlePrimaryAction();
 	bool PressItemAction(bool bSecondary);
 	void ReleaseItemAction(bool bSecondary);
@@ -90,6 +98,7 @@ private:
 	UPROPERTY(Transient) TObjectPtr<UStaticMeshComponent> HeldVisual;
 	UPROPERTY(Transient) TObjectPtr<AInventoryTestSpikes> Spikes;
 	FGuid HeldId;
+	float PickupBlockedUntil = 0;
 	bool bUsing = false, bOpening = false, bBackpackOpen = false, bBackpackEquipped = true;
 	float Elapsed = 0, Duration = 3;
 	EBackpackMode BackpackMode = EBackpackMode::Closed;

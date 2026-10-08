@@ -99,8 +99,8 @@ bool FPauseMenuControlsTest::RunTest(const FString&)
 	Capture(A::Secondary);
 	Menu->OnPreviewMouseButtonDown(G,FPointerEvent(0,FVector2D::ZeroVector,FVector2D::ZeroVector,TSet<FKey>(),EKeys::ThumbMouseButton,0,FModifierKeysState()));
 	TestTrue(TEXT("Mouse action can be rebound"), Draft->GetKey(A::Secondary) == EKeys::ThumbMouseButton);
-	Capture(A::Bandage); Key(EKeys::E);
-	TestTrue(TEXT("Different contexts can reuse a key"), Draft->GetKey(A::Bandage) == EKeys::E && Draft->GetKey(A::TurnRight) == EKeys::E);
+	Capture(A::Bandage); Key(EKeys::Q);
+	TestTrue(TEXT("Different contexts can reuse a key"), Draft->GetKey(A::Bandage) == EKeys::Q && Draft->GetKey(A::TurnLeft) == EKeys::Q);
 	Click(TEXT("Reset all controls"));
 	TestTrue(TEXT("Reset all awaits confirmation"), Draft->GetKey(A::Toggle) == EKeys::K);
 	Click(TEXT("Cancel")); TestTrue(TEXT("Cancelled reset preserves key"), Draft->GetKey(A::Toggle) == EKeys::K);
@@ -179,23 +179,29 @@ bool FQuickItemBindingsTest::RunTest(const FString&)
 	TStrongObjectPtr<UInventoryInputSettings> S(NewObject<UInventoryInputSettings>()); S->ResetDefaults();
 	FString Error;
 		TestTrue(TEXT("Bandage defaults to G"),S->GetKey(A::Bandage) == EKeys::G);
+	TestTrue(TEXT("World pickup and held drop have separate defaults"), S->GetKey(A::PickUpWorld) == EKeys::E && S->GetKey(A::DropHeld) == EKeys::P);
+	TestFalse(TEXT("Replacement starts disabled"), S->bAllowItemReplace);
+	TestFalse(TEXT("Pickup key cannot also activate a quick item"), S->TrySetKey(A::Bandage,EKeys::E,Error));
 	TestFalse(TEXT("Escape action cannot be changed"),S->AssignKey(A::Back,0,EKeys::K,true,Error));
 	TestFalse(TEXT("Escape cannot be claimed"),S->AssignKey(A::Primary,0,EKeys::Escape,true,Error));
 	TestTrue(TEXT("Escape remains fixed"),S->Matches(A::Back,EKeys::Escape));
 	TestTrue(TEXT("Unimplemented bindings unavailable"),!S->IsBindable(A::Food) && !S->IsBindable(A::Water) && !S->IsBindable(A::ToggleBackpack));
 	TestFalse(TEXT("Quick item conflicts with movement"),S->TrySetKey(A::Bandage,EKeys::W,Error));
 	TestFalse(TEXT("Quick item conflicts with primary"),S->TrySetKey(A::Bandage,EKeys::LeftMouseButton,Error));
-	TestTrue(TEXT("Quick item can share inventory rotation key"),S->TrySetKey(A::Bandage,EKeys::E,Error));
+	TestTrue(TEXT("Quick item can share inventory rotation key"),S->TrySetKey(A::Bandage,EKeys::Q,Error));
 	TestTrue(TEXT("Second slot accepts mouse button"),S->AssignKey(A::Bandage,1,EKeys::ThumbMouseButton,false,Error));
-	TestTrue(TEXT("Both slots activate the same fixed action"),S->Matches(A::Bandage,EKeys::E) && S->Matches(A::Bandage,EKeys::ThumbMouseButton));
+	TestTrue(TEXT("Both slots activate the same fixed action"),S->Matches(A::Bandage,EKeys::Q) && S->Matches(A::Bandage,EKeys::ThumbMouseButton));
 	TestTrue(TEXT("Replace can claim other action's second slot"),S->AssignKey(A::Secondary,0,EKeys::ThumbMouseButton,true,Error));
 	TestFalse(TEXT("Only colliding slot cleared"),S->GetKey(A::Bandage,1).IsValid());
-	TestTrue(TEXT("Noncolliding primary remains"),S->GetKey(A::Bandage) == EKeys::E);
+	TestTrue(TEXT("Noncolliding primary remains"),S->GetKey(A::Bandage) == EKeys::Q);
 	TestTrue(TEXT("Old transfer actions retired"),!S->IsBindable(A::ToHands) && !S->IsBindable(A::ToQuick) && !S->IsBindable(A::ToBackpack));
 	S->AssignKey(A::Primary,0,EKeys::I,true,Error);
 	TestFalse(TEXT("Section reset reports a cross-section collision"),S->ResetSection(EControlSection::Gameplay));
 	TestTrue(TEXT("Section reset preserves other section's custom key"),S->GetKey(A::Primary) == EKeys::I);
 	TestFalse(TEXT("Conflicting default left unbound"),S->GetKey(A::Toggle).IsValid());
+	S->bAllowItemReplace = true;
+	S->ResetSection(EControlSection::ItemActions);
+	TestFalse(TEXT("Item actions reset disables optional replacement"), S->bAllowItemReplace);
 	return true;
 }
 #endif

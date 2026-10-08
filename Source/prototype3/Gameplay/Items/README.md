@@ -27,12 +27,18 @@ Controls now follow these rules. New action effects still require their own runt
   independent of the item's PrimaryAction/SecondaryAction slots. Double activation
   of inventory grab/select takes the item into hands and leaves inventory open;
   taking an item never executes its use action.
-- Double activation of the item already in hands stows it. Inventory movement or
+- Double activation of the item already in hands stows it when its original
+  quick-access location or open-backpack reservation is still valid. Inventory movement or
   dropping may target held items directly: success removes the item from hands;
   cancellation/failure preserves the original hands/storage state.
 - Storage placement is manual, including floor-to-storage pickup. T/Y automatic transfers are removed. Taking a stored item into hands
-  reserves its original place; stowing restores that place. Direct floor-to-hands
-  pickup and carrying without a reserved storage home are deferred.
+  reserves its original place. A quick-access reservation persists; a backpack
+  reservation expires when the backpack closes, moving the still-held item to
+  hidden hands storage. A direct floor-to-hands item has no stow home. X only
+  returns to a valid reservation; manual placement can choose any accessible
+  storage. Ground pickup with occupied hands stows the previous item if possible,
+  otherwise drops it only when the replacement setting is enabled. Switching to
+  another stored item stows or drops the previous item as needed.
 - Controls supports clearing a selected binding slot with Delete. Preserve
   intentionally unbound slots when saving/loading; do not treat them as corrupt
   settings or silently repopulate them with defaults.
@@ -44,7 +50,9 @@ Controls now follow these rules. New action effects still require their own runt
   leaves unfinished use uncommitted. Fixed quick-item tap equips; holding invokes
   that item's same use action and releasing stops unfinished use. Do not duplicate
   effect logic in shortcut handlers or restart completed use automatically.
-- Put away (default X) is a separately rebindable stow action.
+- Put away (default X) is a separately rebindable stow action. E picks up the
+  looked-at world item; P drops the held item. E remains inventory rotation while
+  the interface has focus. The optional ground replacement setting defaults off.
 - Define action compatibility and interruption. A new applicable action stops
   conflicting actions and starts: run/sprint or switching items can interrupt
   healing. Compatible actions can coexist. Release also stops unfinished held use.
@@ -197,6 +205,10 @@ Drops fall under gravity, block static level geometry, and ignore pawns, other
 dropped items and movable props. Below-world cleanup defaults to Z=-10,000 cm;
 `CleanupZ` is configurable in the `prototype3.DroppedItem` Game config section.
 There is no expiration timer on landed items. World actors last for the Play
-session. Manual floor-to-storage pickup and drag-out dropping are implemented; direct floor-to-hands remains deferred.
+session. Manual floor-to-storage placement and drag-out dropping remain available.
+E picks up a looked-at floor item directly into hands; double-clicking a floor-list
+name does the same in the full backpack view. A floor item has no stow home until
+it is manually placed into quick access and taken from there again. See the root
+INVENTORY_GUIDE.md for replacement and drop rules.
 `Prototype.Inventory.DropPlayIntegration` verifies actual input, transfer, falling,
 landing, overlap and cleanup in Play. See `INVENTORY_GUIDE.md` for running it.

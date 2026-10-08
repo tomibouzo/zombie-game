@@ -28,6 +28,7 @@ TArray<FKey> DefaultKeys()
 	Set(A::FasterRotation, EKeys::MouseScrollUp); Set(A::SlowerRotation, EKeys::MouseScrollDown);
 	Set(A::ScrollFloorUp, EKeys::MouseScrollUp); Set(A::ScrollFloorDown, EKeys::MouseScrollDown);
 	Set(A::Back, EKeys::Escape);
+	Set(A::PickUpWorld, EKeys::E); Set(A::DropHeld, EKeys::P);
 	return Result;
 }
 }
@@ -106,7 +107,7 @@ void UInventoryInputSettings::ValidateSettings()
 void UInventoryInputSettings::ResetDefaults()
 {
 	Keys = DefaultKeys(); AlternateKeys.Init(EKeys::Invalid, Keys.Num()); ControlsVersion = 3;
-	bToggleGrab = false; TurnSpeed = 120; LookSensitivity = 1; bInvertLookY = false;
+	bToggleGrab = false; bAllowItemReplace = false; TurnSpeed = 120; LookSensitivity = 1; bInvertLookY = false;
 }
 bool UInventoryInputSettings::ResetSection(EControlSection Group)
 {
@@ -122,6 +123,7 @@ bool UInventoryInputSettings::ResetSection(EControlSection Group)
 			bComplete &= AssignKey(static_cast<A>(I), 0, Defaults[I], false, Error);
 		}
 	if (Group == EControlSection::Inventory) { bToggleGrab = false; TurnSpeed = 120; }
+	if (Group == EControlSection::ItemActions) bAllowItemReplace = false;
 	if (Group == EControlSection::Movement) { LookSensitivity = 1; bInvertLookY = false; }
 	return bComplete;
 }
@@ -180,7 +182,8 @@ uint32 UInventoryInputSettings::Contexts(A Action)
 	using namespace InputContexts;
 	if (Action == A::Back) return Game | Inventory | MenuContext;
 	if (!IsBindable(Action)) return 0;
-	if (Action == A::Toggle || Action == A::Stow) return Game | Inventory;
+	if (Action == A::Toggle || Action == A::Stow || Action == A::DropHeld) return Game | Inventory;
+	if (Action == A::PickUpWorld) return Game;
 	if (Action == A::ShowQuick) return Game | Pockets | PocketDrag;
 	if (Action == A::CyclePocket) return Backpack | BackpackDrag;
 	if (Action == A::FasterRotation || Action == A::SlowerRotation) return PocketDrag | BackpackDrag;
@@ -232,20 +235,20 @@ bool UInventoryInputSettings::TrySetKey(A Action, FKey Key, FString& Error) { re
 EControlSection UInventoryInputSettings::Section(A Action)
 {
 	if (Action >= A::MoveForward && Action <= A::Crouch) return EControlSection::Movement;
-	if ((Action >= A::Primary && Action <= A::Water) || Action == A::Stow) return EControlSection::ItemActions;
+	if ((Action >= A::Primary && Action <= A::Water) || Action == A::Stow || Action == A::DropHeld || Action == A::PickUpWorld) return EControlSection::ItemActions;
 	if (Action == A::Toggle || Action == A::ShowQuick) return EControlSection::Gameplay;
 	return EControlSection::Inventory;
 }
 void UInventoryInputSettings::CopySettingsFrom(const UInventoryInputSettings& Other)
 {
 	Keys = Other.Keys; AlternateKeys = Other.AlternateKeys; ControlsVersion = Other.ControlsVersion;
-	bToggleGrab = Other.bToggleGrab; TurnSpeed = Other.TurnSpeed;
+	bToggleGrab = Other.bToggleGrab; bAllowItemReplace = Other.bAllowItemReplace; TurnSpeed = Other.TurnSpeed;
 	LookSensitivity = Other.LookSensitivity; bInvertLookY = Other.bInvertLookY;
 }
 bool UInventoryInputSettings::HasSameSettings(const UInventoryInputSettings& Other) const
 {
 	return Keys == Other.Keys && AlternateKeys == Other.AlternateKeys
-		&& bToggleGrab == Other.bToggleGrab && TurnSpeed == Other.TurnSpeed
+		&& bToggleGrab == Other.bToggleGrab && bAllowItemReplace == Other.bAllowItemReplace && TurnSpeed == Other.TurnSpeed
 		&& LookSensitivity == Other.LookSensitivity && bInvertLookY == Other.bInvertLookY;
 }
 FString UInventoryInputSettings::Label(A Action)
@@ -264,6 +267,8 @@ FString UInventoryInputSettings::Label(A Action)
 	case A::CyclePocket: return TEXT("Next pocket in backpack view");
 	case A::ToggleBackpack: return TEXT("Equip / unequip backpack");
 	case A::Stow: return TEXT("Stow held item");
+	case A::PickUpWorld: return TEXT("Pick up looked-at item");
+	case A::DropHeld: return TEXT("Drop held item");
 	case A::MoveForward: return TEXT("Move forward");
 	case A::MoveBackward: return TEXT("Move backward");
 	case A::MoveLeft: return TEXT("Move left");

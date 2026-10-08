@@ -55,6 +55,7 @@ private:
 	FVector2D FloorSize() const;
 	int32 FloorRows() const { return FMath::Max(1, FMath::FloorToInt(FloorSize().Y / 36)); }
 	static FVector2D FloorOrigin() { return FVector2D(760, 150); }
+	static FVector2D HeldOrigin() { return FVector2D(500, 150); }
 	bool bPocketsOnly = false;
 	int32 QuickPocketIndex = 0;
 	bool bRequestedClose = false;
@@ -62,6 +63,7 @@ private:
 	FVector2D PanelSize() const { return FVector2D(1040, ItemUse.IsValid() ? (bPocketsOnly ? 620 : 940) : 800); }
 	void RefreshFloor();
 	bool BeginFloorDrag();
+	bool BeginHeldDrag(FKey Key, double Now);
 	bool IsWorldDrop() const;
 	bool SourceAvailable() const;
 	TWeakObjectPtr<UPlayerItemUseComponent> ItemUse;
@@ -85,6 +87,7 @@ private:
 	bool bCanDoubleClick = false;
 	double LastClickTime = 0;
 	FGuid LastClickItem;
+	uint8 LastClickArea = 0; // 0 storage grid, 1 floor list, 2 held-item row.
 	FKey LastClickKey;
 	FVector2D GrabStart = FVector2D::ZeroVector;
 	TSet<FKey> PressedKeys;

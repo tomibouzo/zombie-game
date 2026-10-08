@@ -78,7 +78,7 @@ bool FInventoryTestPileTest::RunTest(const FString&)
 	Panel->OnKeyDown(G, FKeyEvent(EKeys::Tab,FModifierKeysState(),0,false,0,0));
 	Panel->OnMouseWheel(G, Mouse(FVector2D(780,708),-100));
 	Panel->OnMouseButtonDown(G, Mouse(FVector2D(780,708)));
-	Panel->OnMouseButtonUp(G, Mouse(FVector2D(580,230)));
+	Panel->OnMouseButtonUp(G, Mouse(FVector2D(580,350)));
 	FInventoryEntry PickedUp;
 	TestTrue(TEXT("Last scrolled mixed item transfers into storage"), Inventory->GetItem(LastId, PickedUp));
 	TestEqual(TEXT("Pickup uses the selected quick pocket"), PickedUp.PocketId, FName(TEXT("Quick2")));

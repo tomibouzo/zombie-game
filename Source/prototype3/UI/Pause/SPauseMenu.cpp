@@ -85,6 +85,14 @@ void SPauseMenu::Construct(const FArguments& Args)
 			if (UInventoryInputSettings::IsBindable(Action) && UInventoryInputSettings::Section(Action) == Group)
 				Page->AddSlot().Padding(0, 3)[MakeControlRow(Action)];
 		}
+		if (Group == EControlSection::ItemActions)
+		{
+			Page->AddSlot().Padding(0, 14)[SNew(SCheckBox)
+				.IsChecked_Lambda([this]() { return Controls->bAllowItemReplace ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; })
+				.OnCheckStateChanged_Lambda([this](ECheckBoxState State) { Controls->bAllowItemReplace = State == ECheckBoxState::Checked; ControlsEdited(); })
+				.ToolTipText(FText::FromString(TEXT("When your hands hold an item with no valid place to stow it, picking up an object from the ground would drop the held item and take the new one. Turn this on to allow that replacement. With this off, ground pickup is blocked in that case. Items with a valid stow place can always be replaced, and inventory item switching is unaffected.")))
+				[Description(TEXT("Allow item replace when picking up objects"))]];
+		}
 		if (Group == EControlSection::Movement)
 		{
 			Page->AddSlot().Padding(0, 14, 0, 4)[Description(TEXT("Mouse look sensitivity"))];

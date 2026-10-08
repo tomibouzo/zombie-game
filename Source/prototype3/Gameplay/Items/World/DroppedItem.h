@@ -29,6 +29,10 @@ public:
 	static TArray<TWeakObjectPtr<ADroppedItem>> FindNearby(APawn* Player);
 	bool CanInteract(APawn* Player) const;
 	EInventoryResult PickUp(UInventoryComponent* Inventory, APawn* Player, FName Pocket, FVector2D Position, double Angle);
+	/** Reserve a floor transfer while another ownership change commits. */
+	EInventoryResult StagePickUp(UInventoryComponent* Inventory, APawn* Player, FName Pocket, FVector2D Position, double Angle);
+	void FinishStagedPickUp();
+	void CancelStagedPickUp(UInventoryComponent* Inventory);
 	bool DropAtFeet(APawn* Player, FString& Error);
 	const FItemInstance& GetItem() const { return Item; }
 	FName GetInventoryProfileId() const { return InventoryProfileId; }
@@ -59,5 +63,6 @@ private:
 	UPROPERTY(VisibleInstanceOnly, Category="Item")
 	FName InventoryProfileId;
 	bool bTransferring = false;
+	bool bStagedPickUp = false;
 	bool Initialize(const FItemInstance& InItem, FName ProfileId);
 };

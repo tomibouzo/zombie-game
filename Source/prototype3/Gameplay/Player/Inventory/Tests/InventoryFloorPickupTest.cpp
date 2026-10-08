@@ -137,7 +137,7 @@ bool FFloorPanelTest::RunTest(const FString&)
 	auto Key = [&](FKey K) { Panel->OnKeyDown(G,FKeyEvent(K,FModifierKeysState(),0,false,0,0)); };
 	auto Tick = [&]() { Panel->Tick(G,0,.21f); };
 	auto Present = [&]() { FInventoryEntry E; return F.Inventory->GetItem(Id,E); };
-	const FVector2D Floor(780,168), Quick(610,250), Bag(150,260);
+	const FVector2D Floor(780,168), Quick(610,370), Bag(150,260);
 	Down(Floor); Panel->OnKeyDown(G,FKeyEvent(EKeys::C,FModifierKeysState(),0,false,0,0)); Up(Quick);
 	TestFalse(TEXT("Cancel never admits floor item"),Present());
 	Down(Floor); Up(FVector2D(750,250));
@@ -169,22 +169,22 @@ bool FFloorPanelTest::RunTest(const FString&)
 	FInventoryEntry Entry;
 	TestTrue(TEXT("Floor pickup into third pocket succeeds"),F.Inventory->GetItem(Id,Entry));
 	TestEqual(TEXT("Uses cycled third pocket"),Entry.PocketId,FName(TEXT("Quick3")));
-	Down(Quick); Up(FVector2D(759,250));
+	Down(Quick); Up(FVector2D(759,370));
 	TestTrue(TEXT("Partial inventory drag retains source"),Present());
 	TestEqual(TEXT("Partial drag never calls drop"),Drops,0);
-	Down(Quick); Up(FVector2D(480,250));
+	Down(Quick); Up(FVector2D(480,370));
 	TestTrue(TEXT("Overlap with either storage container cancels drop"),Present());
 	TestEqual(TEXT("Cross-container overlap never calls drop"),Drops,0);
-	Down(Quick); F.Inventory->ReserveItem(Id); Up(FVector2D(761,250));
+	Down(Quick); F.Inventory->ReserveItem(Id); Up(FVector2D(761,370));
 	TestTrue(TEXT("Reservation acquired mid-drag prevents world drop"),Present());
 	F.Inventory->ReleaseItem(Id);
 	// Rotated footprint is 40 wide: cursor alone cannot decide whether the item cleared the edge.
 	Down(Quick); Key(EKeys::E); Panel->Tick(G,0,.75f);
 	Panel->OnKeyUp(G,FKeyEvent(EKeys::E,FModifierKeysState(),0,false,0,0));
-	Up(FVector2D(739,250));
+	Up(FVector2D(739,370));
 	TestEqual(TEXT("Rotated partial overlap does not drop"),Drops,0);
 	Settings->bToggleGrab=true;
-	Down(Quick); Up(Quick); Down(FVector2D(610,391)); Up(FVector2D(610,391));
+	Down(Quick); Up(Quick); Down(FVector2D(610,511)); Up(FVector2D(610,511));
 	TestEqual(TEXT("Click mode drop below pocket inside panel succeeds once"),Drops,1);
 	TestFalse(TEXT("World drop removes source entry"),Present());
 	Down(Floor); Up(Floor); Down(Bag); Up(Bag);
