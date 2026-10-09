@@ -7,7 +7,7 @@
 #include "HorrorHUD.generated.h"
 
 /**
- * Minimal in-game vitals display for the horror prototype.
+ * In-game vitals, centered aiming dot and pickup prompts for the horror prototype.
  * The bars intentionally live in C++ so they work immediately, while UHorrorUI
  * remains available for a later art-directed UMG replacement.
  */

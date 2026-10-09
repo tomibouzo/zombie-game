@@ -1,7 +1,12 @@
 # Inventory and controls
 
-Updated: 2026-10-08. Includes movement intent replacement.
+Updated: 2026-10-09. Includes movement intent replacement and the crosshair dot.
 Read `Source/prototype3/Gameplay/Items/README.md` before changing item actions.
+
+## Crosshair
+
+A small cyan dot with a dark outline marks the center of the gameplay view.
+It scales with viewport height and hides while inventory or pause menus are open.
 
 ## Options
 
