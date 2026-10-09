@@ -107,7 +107,7 @@ void UInventoryInputSettings::ValidateSettings()
 void UInventoryInputSettings::ResetDefaults()
 {
 	Keys = DefaultKeys(); AlternateKeys.Init(EKeys::Invalid, Keys.Num()); ControlsVersion = 3;
-	bToggleGrab = false; bAllowItemReplace = false; TurnSpeed = 120; LookSensitivity = 1; bInvertLookY = false;
+	bToggleGrab = false; bAllowItemReplace = false; TurnSpeed = 120; LookSensitivity = 1;
 }
 bool UInventoryInputSettings::ResetSection(EControlSection Group)
 {
@@ -124,19 +124,22 @@ bool UInventoryInputSettings::ResetSection(EControlSection Group)
 		}
 	if (Group == EControlSection::Inventory) { bToggleGrab = false; TurnSpeed = 120; }
 	if (Group == EControlSection::ItemActions) bAllowItemReplace = false;
-	if (Group == EControlSection::Movement) { LookSensitivity = 1; bInvertLookY = false; }
+	if (Group == EControlSection::Movement) { LookSensitivity = 1; }
 	return bComplete;
 }
 void UInventoryInputSettings::SetTurnSpeed(float Value) { TurnSpeed = FMath::IsFinite(Value) ? FMath::Clamp(Value, 15.f, 360.f) : 120.f; }
 FKey UInventoryInputSettings::GetKey(A Action, int32 Slot) const
 {
 	if (Action == A::Back) return Slot == 0 ? EKeys::Escape : EKeys::Invalid;
+	if (Action == A::ScrollFloorUp || Action == A::ScrollFloorDown)
+		return Slot == 0 ? (Action == A::ScrollFloorUp ? EKeys::MouseScrollUp : EKeys::MouseScrollDown) : EKeys::Invalid;
 	const auto& List = Slot == 0 ? Keys : AlternateKeys;
 	return Slot >= 0 && Slot < 2 && List.IsValidIndex(static_cast<int32>(Action)) ? List[static_cast<int32>(Action)] : EKeys::Invalid;
 }
 bool UInventoryInputSettings::Matches(A Action, FKey Key) const
 {
 	if (Action == A::Back) return Key == EKeys::Escape;
+	if (Action == A::ScrollFloorUp || Action == A::ScrollFloorDown) return Key.IsValid() && Key == GetKey(Action);
 	return Key.IsValid() && IsBindable(Action) && (GetKey(Action) == Key || GetKey(Action, 1) == Key);
 }
 FString UInventoryInputSettings::KeyLabel(A Action) const
@@ -171,7 +174,7 @@ FString UInventoryInputSettings::ShortKeyLabel(FKey Key)
 }
 bool UInventoryInputSettings::IsBindable(A Action)
 {
-	return Action < A::Count && Action != A::Back && Action != A::Food && Action != A::Water
+	return Action < A::Count && Action != A::Back && Action != A::ScrollFloorUp && Action != A::ScrollFloorDown && Action != A::Food && Action != A::Water
 		&& Action != A::ToggleBackpack && Action != A::Add && Action != A::OpenBackpack
 		&& Action != A::ToHands && Action != A::ToQuick && Action != A::ToBackpack
 		&& Action != A::ToggleGrabMode && Action != A::AssignShortcut1
@@ -181,13 +184,13 @@ uint32 UInventoryInputSettings::Contexts(A Action)
 {
 	using namespace InputContexts;
 	if (Action == A::Back) return Game | Inventory | MenuContext;
+	if (Action == A::ScrollFloorUp || Action == A::ScrollFloorDown) return Pockets | Backpack;
 	if (!IsBindable(Action)) return 0;
 	if (Action == A::Toggle || Action == A::Stow || Action == A::DropHeld) return Game | Inventory;
 	if (Action == A::PickUpWorld) return Game;
 	if (Action == A::ShowQuick) return Game | Pockets | PocketDrag;
 	if (Action == A::CyclePocket) return Backpack | BackpackDrag;
 	if (Action == A::FasterRotation || Action == A::SlowerRotation) return PocketDrag | BackpackDrag;
-	if (Action == A::ScrollFloorUp || Action == A::ScrollFloorDown) return Pockets | Backpack;
 	if (Action >= A::MoveForward && Action <= A::Sprint) return Game | Backpack | BackpackDrag;
 	if (Action >= A::MoveForward && Action <= A::Water) return Game;
 	return Inventory;
@@ -243,13 +246,13 @@ void UInventoryInputSettings::CopySettingsFrom(const UInventoryInputSettings& Ot
 {
 	Keys = Other.Keys; AlternateKeys = Other.AlternateKeys; ControlsVersion = Other.ControlsVersion;
 	bToggleGrab = Other.bToggleGrab; bAllowItemReplace = Other.bAllowItemReplace; TurnSpeed = Other.TurnSpeed;
-	LookSensitivity = Other.LookSensitivity; bInvertLookY = Other.bInvertLookY;
+	LookSensitivity = Other.LookSensitivity;
 }
 bool UInventoryInputSettings::HasSameSettings(const UInventoryInputSettings& Other) const
 {
 	return Keys == Other.Keys && AlternateKeys == Other.AlternateKeys
 		&& bToggleGrab == Other.bToggleGrab && bAllowItemReplace == Other.bAllowItemReplace && TurnSpeed == Other.TurnSpeed
-		&& LookSensitivity == Other.LookSensitivity && bInvertLookY == Other.bInvertLookY;
+		&& LookSensitivity == Other.LookSensitivity;
 }
 FString UInventoryInputSettings::Label(A Action)
 {
@@ -267,7 +270,7 @@ FString UInventoryInputSettings::Label(A Action)
 	case A::CyclePocket: return TEXT("Next pocket in backpack view");
 	case A::ToggleBackpack: return TEXT("Equip / unequip backpack");
 	case A::Stow: return TEXT("Stow held item");
-	case A::PickUpWorld: return TEXT("Pick up looked-at item");
+	case A::PickUpWorld: return TEXT("Pick up item");
 	case A::DropHeld: return TEXT("Drop held item");
 	case A::MoveForward: return TEXT("Move forward");
 	case A::MoveBackward: return TEXT("Move backward");
@@ -287,5 +290,32 @@ FString UInventoryInputSettings::Label(A Action)
 	case A::ScrollFloorDown: return TEXT("Scroll floor items down");
 	case A::Back: return TEXT("Close interface / Back / Pause");
 	default: return TEXT("Retired action");
+	}
+}
+
+FString UInventoryInputSettings::HoverDescription(A Action)
+{
+	switch (Action)
+	{
+	case A::Run: return TEXT("Press or hold to run.");
+	case A::Sprint: return TEXT("Press or hold to sprint.");
+	case A::Crouch: return TEXT("Press or hold to crouch.");
+	case A::Primary: return TEXT("Perform the held item's primary action. The item determines whether to press or hold.");
+	case A::Secondary: return TEXT("Perform the held item's secondary action. The item determines whether to press or hold.");
+	case A::Bandage: return TEXT("Tap to take a bandage from your pockets into your hands. Hold to take it and begin healing. Release early to cancel healing and keep the bandage in your hands.");
+	case A::Stow: return TEXT("Return the held item to the place it was stored. If the item was taken from a backpack, it can only be stowed until the backpack is closed. Does nothing if the item can't be stowed.");
+	case A::PickUpWorld: return TEXT("Takes the item into your hands. Your current item is stowed if possible. Otherwise, replacement requires Allow item replace.");
+	case A::DropHeld: return TEXT("Drop the item in your hands at your feet. Works in inventory too.");
+	case A::Toggle: return TEXT("Two opening modes: tap for quick access while crouched and stationary; hold for slower access that allows walking. Release before the slower opening finishes to cancel. Press again to close.");
+	case A::CyclePocket: return TEXT("Show the next pocket while the backpack is open. Also works while dragging an item.");
+	case A::Grab: return TEXT("Press to select an item. Hold and drag, then release to place it. Enable click mode to grab and click again to place. Double press a stored item to take it into your hands, or the held item to stow it.");
+	case A::RotateWithMouse: return TEXT("While moving an item, hold and move the mouse around the item's center to rotate it. Release to resume dragging.");
+	case A::TurnLeft: return TEXT("While moving an item, hold to rotate it left.");
+	case A::TurnRight: return TEXT("While moving an item, hold to rotate it right.");
+	case A::Cancel: return TEXT("While moving an item, pressing cancels the action and returns the item to where it was.");
+	case A::Drop: return TEXT("Drop the selected item at your feet.");
+	case A::FasterRotation: return TEXT("Increase rotation speed while manipulating an item.");
+	case A::SlowerRotation: return TEXT("Decrease rotation speed while manipulating an item.");
+	default: return FString();
 	}
 }

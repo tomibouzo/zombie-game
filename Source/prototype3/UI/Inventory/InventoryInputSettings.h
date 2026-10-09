@@ -33,7 +33,6 @@ public:
 	UPROPERTY(Config)
 	float TurnSpeed = 120;
 	UPROPERTY(Config) float LookSensitivity = 1.f;
-	UPROPERTY(Config) bool bInvertLookY = false;
 	FKey GetKey(EInventoryControl Action, int32 Slot = 0) const;
 	bool Matches(EInventoryControl Action, FKey Key) const;
 	FString KeyLabel(EInventoryControl Action) const;
@@ -47,6 +46,7 @@ public:
 	bool ResetSection(EControlSection Section);
 	void SetTurnSpeed(float Value);
 	static FString Label(EInventoryControl Action);
+	static FString HoverDescription(EInventoryControl Action);
 	static EControlSection Section(EInventoryControl Action);
 	static uint32 Contexts(EInventoryControl Action);
 	static bool IsBindable(EInventoryControl Action);
