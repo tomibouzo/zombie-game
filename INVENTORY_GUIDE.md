@@ -13,7 +13,13 @@ It scales with viewport height and hides while inventory or pause menus are open
 Pause > Options has **Controls**, **Sound**, and **Graphics**. Sound and Graphics
 are placeholders. Controls uses a horizontal scrollable bar: **Movement**, **Item actions**,
 **Gameplay**, and **Inventory**. Gameplay contains opening keys; Inventory groups
-backpack, item handling, rotation speed, and floor-list controls.
+backpack, item handling, item rotation, and floor-list controls. Rotation speed
+appears at the top of the rotation group. Click mode sits directly below item
+selection; Allow item replace sits directly below Pick up item.
+
+Hover over an action label or its binding buttons for its usage description.
+Obvious single-use controls omit descriptions; controls with multiple usages
+explain them. Pockets currently has no description pending its rework.
 
 Every editable action has **two binding buttons**; the second starts **Unbound**. Buttons
 show compact key names (LMC, RMC, Esc, L Ctrl), with full names on hover. Either
@@ -34,11 +40,12 @@ Hints show current keys, or **Unbound**, including actions with neither slot bou
 **Reset this section** restores that section's keys/preferences. A default used
 by another section stays unbound, with an explanation; other sections are preserved.
 **Reset all controls** requires confirmation. Movement also has look sensitivity
-and vertical inversion. Inventory has hold/click dragging and numeric rotation speed.
+only. Vertical mouse inversion is removed. Inventory has hold/click dragging and numeric rotation speed.
 
 ## Default controls
 
-All listed actions except Esc are rebindable. The input model for run/sprint/crouch remains
+All listed actions except Esc and floor-list scrolling are rebindable. Floor
+scrolling is fixed to wheel up/down, with no rebinding buttons. The input model for run/sprint/crouch remains
 the existing combined tap-toggle / hold-until-release behavior. No mode setting.
 There is no jumping; Space remains reserved. Delete is reserved for clearing a
 binding during assignment.

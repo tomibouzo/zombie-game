@@ -185,6 +185,11 @@ bool FQuickItemBindingsTest::RunTest(const FString&)
 	TestFalse(TEXT("Escape action cannot be changed"),S->AssignKey(A::Back,0,EKeys::K,true,Error));
 	TestFalse(TEXT("Escape cannot be claimed"),S->AssignKey(A::Primary,0,EKeys::Escape,true,Error));
 	TestTrue(TEXT("Escape remains fixed"),S->Matches(A::Back,EKeys::Escape));
+	TestFalse(TEXT("Floor scrolling cannot be rebound"), S->AssignKey(A::ScrollFloorUp,0,EKeys::K,true,Error));
+	TestFalse(TEXT("Floor scrolling cannot be cleared"), S->AssignKey(A::ScrollFloorDown,0,EKeys::Invalid,true,Error));
+	TestTrue(TEXT("Fixed floor wheel controls remain active"), S->Matches(A::ScrollFloorUp,EKeys::MouseScrollUp) && S->Matches(A::ScrollFloorDown,EKeys::MouseScrollDown));
+	TestTrue(TEXT("Wheel speed controls coexist in drag context"), S->Matches(A::FasterRotation,EKeys::MouseScrollUp) && S->Matches(A::SlowerRotation,EKeys::MouseScrollDown));
+	TestTrue(TEXT("Rotation wheel has no idle floor binding conflict"), S->Conflicts(A::FasterRotation,EKeys::MouseScrollUp).IsEmpty());
 	TestTrue(TEXT("Unimplemented bindings unavailable"),!S->IsBindable(A::Food) && !S->IsBindable(A::Water) && !S->IsBindable(A::ToggleBackpack));
 	TestFalse(TEXT("Quick item conflicts with movement"),S->TrySetKey(A::Bandage,EKeys::W,Error));
 	TestFalse(TEXT("Quick item conflicts with primary"),S->TrySetKey(A::Bandage,EKeys::LeftMouseButton,Error));

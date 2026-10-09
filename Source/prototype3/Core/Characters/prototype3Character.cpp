@@ -176,7 +176,7 @@ void Aprototype3Character::LookInput(const FInputActionValue& Value)
 	// pass the axis values to the aim input
 	const auto* Controls = GetDefault<UInventoryInputSettings>();
 	DoAim(LookAxisVector.X * Controls->LookSensitivity,
-		LookAxisVector.Y * Controls->LookSensitivity * (Controls->bInvertLookY ? -1.f : 1.f));
+		LookAxisVector.Y * Controls->LookSensitivity);
 
 }
 

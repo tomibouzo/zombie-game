@@ -75,23 +75,38 @@ void SPauseMenu::Construct(const FArguments& Args)
 				for (auto Action : Actions) Page->AddSlot().Padding(0,3)[MakeControlRow(Action)];
 			};
 			Rows(TEXT("Backpack open"), { A::CyclePocket });
-			Rows(TEXT("Pockets or backpack open — item handling"), { A::Grab, A::RotateWithMouse, A::TurnLeft, A::TurnRight, A::Cancel, A::Drop });
-			Rows(TEXT("While manipulating an item"), { A::FasterRotation, A::SlowerRotation });
+			Rows(TEXT("Pockets or backpack open — item handling"), { A::Grab });
+			Page->AddSlot().Padding(0, 6)[SNew(SCheckBox)
+				.IsChecked_Lambda([this]() { return Controls->bToggleGrab ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; })
+				.OnCheckStateChanged_Lambda([this](ECheckBoxState State) { Controls->bToggleGrab = State == ECheckBoxState::Checked; ControlsEdited(); })
+				.ToolTipText(FText::FromString(TEXT("On: click to grab an item, then click again to place it. Off: hold to drag and release to place. Double press takes or stows an item in either mode.")))
+				[Description(TEXT("Click to grab / click to place (off: hold to drag)"))]];
+			for (auto Action : { A::Cancel, A::Drop }) Page->AddSlot().Padding(0,3)[MakeControlRow(Action)];
+			Rows(TEXT("Item rotation"), {});
+			const FText RotationHelp = FText::FromString(TEXT("Set how quickly items rotate. Unbind Increase and Decrease item rotation speed to keep this value fixed."));
+			Page->AddSlot().Padding(0, 4)[SNew(STextBlock).Text(FText::FromString(TEXT("Item rotation speed"))).Font(Body).ToolTipText(RotationHelp)];
+			Page->AddSlot()[SNew(SSpinBox<float>).MinValue(15.f).MaxValue(360.f).Delta(15.f).ToolTipText(RotationHelp)
+				.Value_Lambda([this]() { return Controls->TurnSpeed; })
+				.OnValueChanged_Lambda([this](float Value) { Controls->SetTurnSpeed(Value); ControlsEdited(); })];
+			for (auto Action : { A::RotateWithMouse, A::TurnLeft, A::TurnRight, A::FasterRotation, A::SlowerRotation })
+				Page->AddSlot().Padding(0,3)[MakeControlRow(Action)];
 			Rows(TEXT("Over the floor list, with no item being manipulated"), { A::ScrollFloorUp, A::ScrollFloorDown });
 		}
 		else for (int32 J = 0; J < static_cast<int32>(EInventoryControl::Count); ++J)
 		{
 			const auto Action = static_cast<EInventoryControl>(J);
 			if (UInventoryInputSettings::IsBindable(Action) && UInventoryInputSettings::Section(Action) == Group)
+			{
 				Page->AddSlot().Padding(0, 3)[MakeControlRow(Action)];
-		}
-		if (Group == EControlSection::ItemActions)
-		{
-			Page->AddSlot().Padding(0, 14)[SNew(SCheckBox)
-				.IsChecked_Lambda([this]() { return Controls->bAllowItemReplace ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; })
-				.OnCheckStateChanged_Lambda([this](ECheckBoxState State) { Controls->bAllowItemReplace = State == ECheckBoxState::Checked; ControlsEdited(); })
-				.ToolTipText(FText::FromString(TEXT("When your hands hold an item with no valid place to stow it, picking up an object from the ground would drop the held item and take the new one. Turn this on to allow that replacement. With this off, ground pickup is blocked in that case. Items with a valid stow place can always be replaced, and inventory item switching is unaffected.")))
-				[Description(TEXT("Allow item replace when picking up objects"))]];
+				if (Action == EInventoryControl::PickUpWorld)
+				{
+					Page->AddSlot().Padding(0, 6)[SNew(SCheckBox)
+						.IsChecked_Lambda([this]() { return Controls->bAllowItemReplace ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; })
+						.OnCheckStateChanged_Lambda([this](ECheckBoxState State) { Controls->bAllowItemReplace = State == ECheckBoxState::Checked; ControlsEdited(); })
+						.ToolTipText(FText::FromString(TEXT("Allow ground pickup to drop your held item when it cannot be stowed. When off, pickup is blocked in that situation. Items that can be stowed are replaced normally.")))
+						[Description(TEXT("Allow item replace when picking up objects"))]];
+				}
+			}
 		}
 		if (Group == EControlSection::Movement)
 		{
@@ -99,21 +114,6 @@ void SPauseMenu::Construct(const FArguments& Args)
 			Page->AddSlot()[SNew(SSpinBox<float>).MinValue(.1f).MaxValue(5.f).Delta(.1f)
 				.Value_Lambda([this]() { return Controls->LookSensitivity; })
 				.OnValueChanged_Lambda([this](float Value) { Controls->LookSensitivity = Value; ControlsEdited(); })];
-			Page->AddSlot().Padding(0, 10)[SNew(SCheckBox)
-				.IsChecked_Lambda([this]() { return Controls->bInvertLookY ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; })
-				.OnCheckStateChanged_Lambda([this](ECheckBoxState State) { Controls->bInvertLookY = State == ECheckBoxState::Checked; ControlsEdited(); })
-				[Description(TEXT("Invert vertical mouse look"))]];
-		}
-		if (Group == EControlSection::Inventory)
-		{
-			Page->AddSlot().Padding(0, 14)[SNew(SCheckBox)
-				.IsChecked_Lambda([this]() { return Controls->bToggleGrab ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; })
-				.OnCheckStateChanged_Lambda([this](ECheckBoxState State) { Controls->bToggleGrab = State == ECheckBoxState::Checked; ControlsEdited(); })
-				[Description(TEXT("Click to grab / click to place (off: hold to drag)"))]];
-			Page->AddSlot().Padding(0, 4)[Description(TEXT("Item rotation speed — unbind increase/decrease to keep a fixed value. Floor scrolling remains independent."))];
-			Page->AddSlot()[SNew(SSpinBox<float>).MinValue(15.f).MaxValue(360.f).Delta(15.f)
-				.Value_Lambda([this]() { return Controls->TurnSpeed; })
-				.OnValueChanged_Lambda([this](float Value) { Controls->SetTurnSpeed(Value); ControlsEdited(); })];
 		}
 		InventorySections->AddSlot()[Page];
 	}
@@ -175,13 +175,24 @@ TSharedRef<SWidget> SPauseMenu::MakeControlRow(EInventoryControl Action, const F
 {
 	TSharedRef<SHorizontalBox> Row = SNew(SHorizontalBox);
 	Row->AddSlot().FillWidth(1).VAlign(VAlign_Center)[Description(OverrideLabel.IsEmpty() ? UInventoryInputSettings::Label(Action) : OverrideLabel)];
+	const FString Help = UInventoryInputSettings::HoverDescription(Action);
+	if (!Help.IsEmpty()) Row->SetToolTipText(FText::FromString(Help));
+	if (!UInventoryInputSettings::IsBindable(Action))
+	{
+		Row->AddSlot().AutoWidth().Padding(4,0)[SNew(SBox).WidthOverride(180).MinDesiredHeight(44)
+			[SNew(STextBlock).Text(FText::FromString(Controls->KeyLabel(Action))).Font(Body).Justification(ETextJustify::Center)]];
+		return Row;
+	}
 	for (int32 Slot = 0; Slot < 2; ++Slot)
 		Row->AddSlot().AutoWidth().Padding(4, 0)[SNew(SBox).WidthOverride(180).MinDesiredHeight(44)
 			[SNew(SButton).ContentPadding(FMargin(12, 9)).HAlign(HAlign_Center)
 				.ToolTipText_Lambda([this, Action, Slot]()
 				{
 					const FKey Key = Controls->GetKey(Action, Slot);
-					return Key.IsValid() ? Key.GetDisplayName() : FText::FromString(TEXT("Unbound"));
+					FString Text = Key.IsValid() ? Key.GetDisplayName().ToString() : TEXT("Unbound");
+					const FString Help = UInventoryInputSettings::HoverDescription(Action);
+					if (!Help.IsEmpty()) Text += TEXT("\n\n") + Help;
+					return FText::FromString(Text);
 				})
 				.ButtonColorAndOpacity_Lambda([this, Action, Slot]() { return Rebinding == static_cast<int32>(Action) && RebindingSlot == Slot ? Accent : FLinearColor(.13f, .16f, .2f); })
 				.OnClicked_Lambda([this, Action, Slot]() { Rebinding = static_cast<int32>(Action); RebindingSlot = Slot; bConflictPending = bConfirmReset = false; Status = TEXT("Press a replacement key. Delete clears; Escape cancels."); return FReply::Handled().SetUserFocus(SharedThis(this)); })
