@@ -5,7 +5,7 @@
 #include "UObject/Object.h"
 #include "ItemActionData.generated.h"
 
-/** Data describing an item action. Input bindings live on the definition. */
+/** Semantic item action data. Physical key bindings belong to player controls settings. */
 UCLASS(Abstract, BlueprintType, EditInlineNew, DefaultToInstanced)
 class PROTOTYPE3_API UItemActionData : public UObject
 {
@@ -22,6 +22,8 @@ class PROTOTYPE3_API UHealingItemActionData : public UItemActionData
 	GENERATED_BODY()
 
 public:
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Item|Healing", meta=(ClampMin="0.01", Units="s"))
+	float UseSeconds = 3.0f;
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Item|Healing", meta=(ClampMin="0.001"))
 	double HealAmount = 0.0;
 

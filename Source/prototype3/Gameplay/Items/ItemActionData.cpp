@@ -2,7 +2,7 @@
 
 bool UHealingItemActionData::IsValidActionData() const
 {
-	return FMath::IsFinite(HealAmount) && HealAmount > 0.0;
+	return FMath::IsFinite(HealAmount) && HealAmount > 0.0 && FMath::IsFinite(UseSeconds) && UseSeconds > 0;
 }
 
 bool UIntentItemActionData::IsValidActionData() const

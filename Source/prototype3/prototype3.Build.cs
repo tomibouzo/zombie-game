@@ -25,7 +25,7 @@ public class prototype3 : ModuleRules
 		PrivateDependencyModuleNames.AddRange(new string[] { "SlateCore" });
 		if (Target.bBuildEditor)
 		{
-			PrivateDependencyModuleNames.Add("UnrealEd"); // Editor integration tests.
+			PrivateDependencyModuleNames.Add("UnrealEd"); // End Play from the pause menu; editor-only tests.
 			PrivateDependencyModuleNames.Add("PropertyEditor"); // House settings use in-window enum menus on Linux.
 		}
 

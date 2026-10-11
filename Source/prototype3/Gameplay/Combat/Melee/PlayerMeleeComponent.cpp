@@ -1,5 +1,6 @@
 #include "Gameplay/Combat/Melee/PlayerMeleeComponent.h"
 #include "Core/Characters/prototype3Character.h"
+#include "Gameplay/Player/Inventory/PlayerItemUseComponent.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
 #include "Animation/AnimSequence.h"
@@ -52,6 +53,7 @@ void UPlayerMeleeComponent::TickComponent(float DeltaTime, ELevelTick TickType, 
 
 bool UPlayerMeleeComponent::TryAttack()
 {
+	if (auto* Use=GetOwner()->FindComponentByClass<UPlayerItemUseComponent>(); Use && (Use->HasHeldItem() || Use->IsOpeningBackpack())) return false;
 	Aprototype3Character* Character = Cast<Aprototype3Character>(GetOwner());
 	UWorld* World = GetWorld();
 	if (!Character || !World || !Character->HasAuthority() || !Character->IsAlive()
@@ -111,6 +113,7 @@ bool UPlayerMeleeComponent::TryAttack()
 
 void UPlayerMeleeComponent::ResolveAttack()
 {
+	if (auto* Use=GetOwner()->FindComponentByClass<UPlayerItemUseComponent>(); Use && (Use->HasHeldItem() || Use->IsOpeningBackpack())) return;
 	Aprototype3Character* Character = Cast<Aprototype3Character>(GetOwner());
 	UWorld* World = GetWorld();
 	if (!Character || !World || !Character->HasAuthority() || !Character->IsAlive())

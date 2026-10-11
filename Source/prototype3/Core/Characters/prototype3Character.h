@@ -13,6 +13,8 @@ class UCameraComponent;
 class UInputAction;
 class UPlayerMeleeComponent;
 class UPlayerVitalsComponent;
+class UInventoryComponent;
+class UPlayerItemUseComponent;
 struct FInputActionValue;
 
 DECLARE_LOG_CATEGORY_EXTERN(LogTemplateCharacter, Log, All);
@@ -76,6 +78,10 @@ class Aprototype3Character : public ACharacter
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta=(AllowPrivateAccess="true"))
 	TObjectPtr<UPlayerVitalsComponent> VitalsComponent;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta=(AllowPrivateAccess="true"))
+	TObjectPtr<UInventoryComponent> InventoryComponent;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta=(AllowPrivateAccess="true"))
+	TObjectPtr<UPlayerItemUseComponent> ItemUseComponent;
 
 protected:
 	/** Maximum health available to this character. */
@@ -187,6 +193,8 @@ public:
 protected:
 
 	/** Called from Input Actions for movement input */
+	friend class FBackpackModesTest;
+	friend class FLocomotionIntentTest;
 	void MoveInput(const FInputActionValue& Value);
 
 	/** Called from Input Actions for looking input */
@@ -241,7 +249,7 @@ protected:
 	void DoSecondaryActionEnd();
 	virtual void DoSecondaryActionEnd_Implementation();
 
-	/** Starts crouching unless run or sprint is actually being performed. */
+	/** Requests crouching and consumes any previous run or sprint press. */
 	UFUNCTION(BlueprintCallable, Category="Input")
 	virtual void DoStartCrouch();
 
@@ -256,12 +264,12 @@ protected:
 	void GaitInputCanceled(EPlayerLocomotionGait RequestedGait);
 	FPlayerGaitInputIntent* FindGaitInputIntent(EPlayerLocomotionGait RequestedGait);
 	const FPlayerGaitInputIntent* FindGaitInputIntent(EPlayerLocomotionGait RequestedGait) const;
-	bool HasHeldGaitInput() const;
 	bool HasRequestedGait() const;
 	void ResolveLocomotionState();
 	void SetActiveGait(EPlayerLocomotionGait NewGait);
 	void ClearSpeedRequests();
-	bool CanStartCrouch() const;
+	void ConsumeConflictingGaitRequest(EPlayerLocomotionGait RequestedGait);
+	bool bRequestedGaitInterruptsUse = false;
 	bool IsCrouchActive() const;
 	bool CanUseStaminaMovement() const;
 
@@ -302,6 +310,11 @@ protected:
 public:
 
 	/** Returns the first person mesh **/
+	void ClearControlIntents();
+	void PrepareForItemUse();
+	float GetGaitHoldThreshold() const { return GaitHoldThreshold; }
+	FVector2D GetMovementIntent() const { return LocomotionIntent.MovementInput; }
+	void StopInventoryMovement();
 	USkeletalMeshComponent* GetFirstPersonMesh() const { return FirstPersonMesh; }
 
 	/** Returns first person camera component **/
@@ -318,7 +331,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Stamina")
 	bool TryConsumeStamina(float Amount, float RecoveryDelay = 0.0f);
 
-	/** Requests a standing posture without re-arming crouch input. */
+	/** Requests standing and consumes the previous crouch press. */
 	UFUNCTION(BlueprintCallable, Category="Movement")
 	void RequestStandingForAction();
 

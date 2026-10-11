@@ -53,7 +53,7 @@ public:
 			bPreviousBackgroundInput = App.GetHandleDeviceInputWhenApplicationNotActive();
 			// Offscreen verification must still apply input replies, including pointer capture.
 			App.SetHandleDeviceInputWhenApplicationNotActive(true);
-			Controller->ToggleInventoryDemo();
+			Controller->ToggleInventoryDemo(true); // Keep the established 560x560 rotation regression fixture.
 			Phase = 1;
 			return false;
 		}
@@ -131,7 +131,7 @@ public:
 			return false;
 		}
 		if (FPlatformTime::Seconds() < WaitUntil) return false;
-		if (Case == 5) { MouseButton(EKeys::MiddleMouseButton, true); MouseButton(EKeys::MiddleMouseButton, false); }
+		if (Case == 5) { App.ProcessKeyDownEvent(FKeyEvent(EKeys::C,FModifierKeysState(),0,false,0,0)); App.ProcessKeyUpEvent(FKeyEvent(EKeys::C,FModifierKeysState(),0,false,0,0)); }
 		if (Case == 6) App.ReleaseAllPointerCapture();
 		if (Case == 7) { Pointer = FVector2D(45,155); RouteMove(); }
 		if (Case == 8) App.ClearKeyboardFocus();
@@ -165,15 +165,15 @@ private:
 		auto RotationButton = [&](bool Down)
 		{
 			if (Case != 13) MouseButton(EKeys::RightMouseButton, Down);
-			else if (Down) App.ProcessKeyDownEvent(FKeyEvent(EKeys::R,FModifierKeysState(),0,false,0,0));
-			else App.ProcessKeyUpEvent(FKeyEvent(EKeys::R,FModifierKeysState(),0,false,0,0));
+			else if (Down) App.ProcessKeyDownEvent(FKeyEvent(EKeys::Z,FModifierKeysState(),0,false,0,0));
+			else App.ProcessKeyUpEvent(FKeyEvent(EKeys::Z,FModifierKeysState(),0,false,0,0));
 		};
 		if (Phase == 2)
 		{
 			Settings->ResetDefaults();
 			Settings->bToggleGrab = Case == 14;
 			FString Error;
-			if (Case == 13) Test->TestTrue(Label(TEXT("rebind mouse rotation")),Settings->TrySetKey(EInventoryControl::RotateWithMouse,EKeys::R,Error));
+			if (Case == 13) Test->TestTrue(Label(TEXT("rebind mouse rotation")),Settings->TrySetKey(EInventoryControl::RotateWithMouse,EKeys::Z,Error));
 			Test->TestTrue(Label(TEXT("reset placement")),Inventory->MoveItem(ItemId,TEXT("Main"),Center,350)==EInventoryResult::Success);
 			Inventory->GetItem(ItemId, Before);
 			Pointer = Pivot + (Case == 11 ? FVector2D::ZeroVector : FVector2D(10,0));
@@ -193,7 +193,7 @@ private:
 			FInventoryEntry Preview;
 			Inventory->GetItem(ItemId,Preview);
 			Test->TestEqual(Label(TEXT("rotation preview preserves stored angle")),Preview.AngleDegrees,Before.AngleDegrees);
-			if (Case == 12) { MouseButton(EKeys::MiddleMouseButton,true); MouseButton(EKeys::MiddleMouseButton,false); }
+			if (Case == 12) { App.ProcessKeyDownEvent(FKeyEvent(EKeys::C,FModifierKeysState(),0,false,0,0)); App.ProcessKeyUpEvent(FKeyEvent(EKeys::C,FModifierKeysState(),0,false,0,0)); }
 			else if (Case == 15) App.ClearKeyboardFocus();
 			else if (Case == 16) App.ReleaseAllPointerCapture();
 			else if (Case != 10)

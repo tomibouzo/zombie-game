@@ -23,6 +23,10 @@ public:
 	 * class defaults.
 	 */
 	virtual void InitGame(const FString& MapName, const FString& Options, FString& ErrorMessage) override;
+	virtual void BeginPlay() override;
+	/** Mixed pickup/scrolling fixture, only auto-created in Lvl_FirstPerson. */
+	UPROPERTY(EditDefaultsOnly, Category="Prototype")
+	bool bSpawnInventoryTestPile = true;
 };
 
 

@@ -4,6 +4,9 @@
 #include "Core/PlayerControllers/prototype3PlayerController.h"
 #include "Gameplay/Combat/Melee/PlayerMeleeComponent.h"
 #include "Gameplay/Player/Vitals/PlayerVitalsComponent.h"
+#include "Gameplay/Player/Inventory/InventoryComponent.h"
+#include "Gameplay/Player/Inventory/PlayerItemUseComponent.h"
+#include "UI/Inventory/InventoryInputSettings.h"
 #include "Animation/AnimInstance.h"
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
@@ -20,6 +23,8 @@
 Aprototype3Character::Aprototype3Character()
 {
 	VitalsComponent = CreateDefaultSubobject<UPlayerVitalsComponent>(TEXT("Vitals"));
+	InventoryComponent = CreateDefaultSubobject<UInventoryComponent>(TEXT("Inventory"));
+	ItemUseComponent = CreateDefaultSubobject<UPlayerItemUseComponent>(TEXT("ItemUse"));
 	MeleeComponent = CreateDefaultSubobject<UPlayerMeleeComponent>(TEXT("Melee"));
 	// Set size for collision capsule
 	GetCapsuleComponent()->InitCapsuleSize(55.f, 96.0f);
@@ -96,9 +101,7 @@ void Aprototype3Character::SetupPlayerInputComponent(UInputComponent* PlayerInpu
 	// Set up action bindings
 	if (UEnhancedInputComponent* EnhancedInputComponent = Cast<UEnhancedInputComponent>(PlayerInputComponent))
 	{
-		// Jumping
-		EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Started, this, &Aprototype3Character::DoJumpStart);
-		EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Completed, this, &Aprototype3Character::DoJumpEnd);
+		// Jump is intentionally unavailable; Space remains reserved.
 
 		// Moving
 		EnhancedInputComponent->BindAction(MoveAction, ETriggerEvent::Triggered, this, &Aprototype3Character::MoveInput);
@@ -171,7 +174,9 @@ void Aprototype3Character::LookInput(const FInputActionValue& Value)
 	FVector2D LookAxisVector = Value.Get<FVector2D>();
 
 	// pass the axis values to the aim input
-	DoAim(LookAxisVector.X, LookAxisVector.Y);
+	const auto* Controls = GetDefault<UInventoryInputSettings>();
+	DoAim(LookAxisVector.X * Controls->LookSensitivity,
+		LookAxisVector.Y * Controls->LookSensitivity);
 
 }
 
@@ -187,6 +192,12 @@ void Aprototype3Character::DoAim(float Yaw, float Pitch)
 
 void Aprototype3Character::DoMove(float Right, float Forward)
 {
+	if (ItemUseComponent->IsArranging()) { StopInventoryMovement(); return; }
+	if (ItemUseComponent->GetBackpackMode() == EBackpackMode::Quick && !FVector2D(Right, Forward).IsNearlyZero())
+	{
+		if (auto* Player = Cast<Aprototype3PlayerController>(GetController())) Player->CloseInventoryDemo();
+		ItemUseComponent->CloseBackpack();
+	}
 	LocomotionIntent.MovementInput = FVector2D(Right, Forward);
 	if (GetController())
 	{
@@ -198,6 +209,7 @@ void Aprototype3Character::DoMove(float Right, float Forward)
 
 void Aprototype3Character::DoJumpStart()
 {
+	if (ItemUseComponent->IsUsing() || ItemUseComponent->IsOpeningBackpack()) return;
 	// pass Jump to the character
 	Jump();
 }
@@ -237,15 +249,8 @@ void Aprototype3Character::DoEndSprint()
 
 void Aprototype3Character::DoStartCrouch()
 {
-	// Resolve first, then let latched gait requests yield to crouch while a
-	// physically held Shift/Alt key keeps crouch blocked until release.
-	ResolveLocomotionState();
-	if (!CanStartCrouch())
-	{
-		return;
-	}
-
 	ClearSpeedRequests();
+	bRequestedGaitInterruptsUse = false;
 	Crouch();
 	SetActiveGait(EPlayerLocomotionGait::Walking);
 	OnSprintStateChanged.Broadcast(false, GetStaminaPercent());
@@ -253,22 +258,48 @@ void Aprototype3Character::DoStartCrouch()
 
 void Aprototype3Character::DoPrimaryActionStart_Implementation()
 {
+	if (ItemUseComponent->HandlePrimaryAction()) return;
 	RequestStandingForAction();
 	MeleeComponent->StartAttacking();
 }
 
 void Aprototype3Character::DoPrimaryActionEnd_Implementation()
 {
+	ItemUseComponent->ReleaseItemAction(false);
 	MeleeComponent->StopAttacking();
 }
 
 void Aprototype3Character::DoSecondaryActionStart_Implementation()
 {
-	// Reserved for future use, aim, block, or interaction behavior.
+	ItemUseComponent->PressItemAction(true);
 }
 
 void Aprototype3Character::DoSecondaryActionEnd_Implementation()
 {
+	ItemUseComponent->ReleaseItemAction(true);
+}
+
+void Aprototype3Character::PrepareForItemUse()
+{
+	ClearSpeedRequests();
+	bRequestedGaitInterruptsUse = false;
+	SetActiveGait(EPlayerLocomotionGait::Walking);
+}
+
+void Aprototype3Character::StopInventoryMovement()
+{
+	LocomotionIntent.MovementInput = FVector2D::ZeroVector;
+	ConsumeMovementInputVector();
+	GetCharacterMovement()->StopMovementImmediately();
+}
+
+void Aprototype3Character::ClearControlIntents()
+{
+	ClearSpeedRequests();
+	bRequestedGaitInterruptsUse = false;
+	bCrouchInputHeld = false;
+	LocomotionIntent.MovementInput = FVector2D::ZeroVector;
+	MeleeComponent->StopAttacking();
 }
 
 void Aprototype3Character::DoEndCrouch()
@@ -278,10 +309,10 @@ void Aprototype3Character::DoEndCrouch()
 
 void Aprototype3Character::RequestStandingForAction()
 {
+	// A superseded Ctrl press cannot change the new action on release/cancel.
+	bCrouchInputHeld = false;
 	if (bIsCrouched || GetCharacterMovement()->bWantsToCrouch)
 	{
-		// Keep bCrouchInputHeld intact. If Ctrl is still down, releasing it only
-		// finishes that press; the player must press Ctrl again to crouch again.
 		DoEndCrouch();
 	}
 }
@@ -324,29 +355,10 @@ void Aprototype3Character::ToggleGaitRequest(EPlayerLocomotionGait RequestedGait
 		return;
 	}
 
-	if (IsCrouchActive() && !IsGaitAllowedForMovementInput(RequestedGait))
-	{
-		// Ignore gait inputs that cannot apply in the current direction instead
-		// of latching a request that could unexpectedly stand the character later.
-		return;
-	}
-
+	ConsumeConflictingGaitRequest(RequestedGait);
 	GaitIntent->bToggled = !GaitIntent->bToggled;
-	if (IsCrouchActive())
-	{
-		if (HasRequestedGait())
-		{
-			// Character Movement keeps the crouched capsule if headroom is blocked.
-			// The request remains pending and resolves only after standing succeeds.
-			RequestStandingForAction();
-		}
-		else if (bIsCrouched)
-		{
-			// Cancel a pending stand request if the speed toggle is pressed again
-			// while an overhead obstruction still keeps the character crouched.
-			Crouch();
-		}
-	}
+	bRequestedGaitInterruptsUse = GaitIntent->IsRequested() && ItemUseComponent->IsUsing();
+	RequestStandingForAction();
 
 	ResolveLocomotionState();
 }
@@ -358,22 +370,13 @@ void Aprototype3Character::GaitInputStarted(EPlayerLocomotionGait RequestedGait)
 	{
 		return;
 	}
-
-	if (IsCrouchActive() && !IsGaitAllowedForMovementInput(RequestedGait))
-	{
-		// A disallowed gait key pressed while crouched is ignored completely,
-		// including if the player keeps holding it and changes direction afterward.
-		return;
-	}
-
+	ConsumeConflictingGaitRequest(RequestedGait);
 	GaitIntent->bHeld = true;
 	GaitIntent->bToggledAtPress = GaitIntent->bToggled;
 	GaitIntent->InputStartTime = FPlatformTime::Seconds();
 
-	if (IsCrouchActive())
-	{
-		RequestStandingForAction();
-	}
+	bRequestedGaitInterruptsUse = ItemUseComponent->IsUsing();
+	RequestStandingForAction();
 
 	ResolveLocomotionState();
 }
@@ -393,40 +396,19 @@ void Aprototype3Character::GaitInputCompleted(EPlayerLocomotionGait RequestedGai
 		: false;
 	GaitIntent->bToggledAtPress = false;
 
-	if (bIsCrouched && !HasRequestedGait())
-	{
-		// If standing was blocked for the entire hold, releasing the gait key
-		// cancels that pending stand request and keeps the crouch latched.
-		Crouch();
-	}
-
 	ResolveLocomotionState();
-	if (bCrouchInputHeld && !HasHeldGaitInput())
-	{
-		// Ctrl may have been pressed while this gait key was held. Honor that
-		// still-held crouch request as soon as the final gait key is released.
-		DoStartCrouch();
-	}
 }
 
 void Aprototype3Character::GaitInputCanceled(EPlayerLocomotionGait RequestedGait)
 {
 	FPlayerGaitInputIntent* GaitIntent = FindGaitInputIntent(RequestedGait);
-	if (!GaitIntent)
+	if (!GaitIntent || !GaitIntent->bHeld)
 	{
 		return;
 	}
 
 	*GaitIntent = FPlayerGaitInputIntent();
-	if (bIsCrouched && !HasRequestedGait())
-	{
-		Crouch();
-	}
 	ResolveLocomotionState();
-	if (bCrouchInputHeld && !HasHeldGaitInput())
-	{
-		DoStartCrouch();
-	}
 }
 
 FPlayerGaitInputIntent* Aprototype3Character::FindGaitInputIntent(EPlayerLocomotionGait RequestedGait)
@@ -455,11 +437,6 @@ const FPlayerGaitInputIntent* Aprototype3Character::FindGaitInputIntent(EPlayerL
 	return nullptr;
 }
 
-bool Aprototype3Character::HasHeldGaitInput() const
-{
-	return LocomotionIntent.Run.bHeld || LocomotionIntent.Sprint.bHeld;
-}
-
 bool Aprototype3Character::HasRequestedGait() const
 {
 	return LocomotionIntent.Run.IsRequested() || LocomotionIntent.Sprint.IsRequested();
@@ -472,7 +449,18 @@ void Aprototype3Character::ResolveLocomotionState()
 		: EPlayerLocomotionStance::Standing;
 
 	const bool bIsMoving = GetVelocity().SizeSquared2D() > FMath::Square(1.0f);
-	if (IsCrouchActive() || !bIsMoving || !CanUseStaminaMovement())
+	if (bRequestedGaitInterruptsUse)
+	{
+		if (!HasRequestedGait()) bRequestedGaitInterruptsUse = false;
+		else if (!IsCrouchActive() && bIsMoving && CanUseStaminaMovement()
+			&& ((LocomotionIntent.Sprint.IsRequested() && IsGaitAllowedForMovementInput(EPlayerLocomotionGait::Sprinting))
+				|| (LocomotionIntent.Run.IsRequested() && IsGaitAllowedForMovementInput(EPlayerLocomotionGait::Running))))
+		{
+			ItemUseComponent->CancelUse();
+			bRequestedGaitInterruptsUse = false;
+		}
+	}
+	if (ItemUseComponent->IsUsing() || ItemUseComponent->IsBackpackActive() || IsCrouchActive() || !bIsMoving || !CanUseStaminaMovement())
 	{
 		SetActiveGait(EPlayerLocomotionGait::Walking);
 		return;
@@ -521,11 +509,13 @@ void Aprototype3Character::ClearSpeedRequests()
 	LocomotionIntent.Sprint = FPlayerGaitInputIntent();
 }
 
-bool Aprototype3Character::CanStartCrouch() const
+void Aprototype3Character::ConsumeConflictingGaitRequest(EPlayerLocomotionGait RequestedGait)
 {
-	// Latched gait requests yield to crouch, even while they are actively moving.
-	// A physically held Shift/Alt key blocks crouch until that key is released.
-	return !HasHeldGaitInput();
+	// Consume the entire old press, including its tap/hold timing. Its eventual
+	// release must not toggle it back on or restore it after the new gait ends.
+	FPlayerGaitInputIntent& PreviousIntent = RequestedGait == EPlayerLocomotionGait::Running
+		? LocomotionIntent.Sprint : LocomotionIntent.Run;
+	PreviousIntent = FPlayerGaitInputIntent();
 }
 
 bool Aprototype3Character::IsCrouchActive() const
@@ -601,6 +591,7 @@ void Aprototype3Character::CrouchInputCompleted()
 
 void Aprototype3Character::CrouchInputCanceled()
 {
+	if (!bCrouchInputHeld) return;
 	// A canceled action must never be interpreted as a tap that latches crouch.
 	bCrouchInputHeld = false;
 	DoEndCrouch();

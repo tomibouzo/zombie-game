@@ -2,6 +2,8 @@
 
 #include "Core/GameModes/prototype3GameMode.h"
 #include "UI/HUD/HorrorHUD.h"
+#include "Gameplay/Player/Inventory/InventoryTestPile.h"
+#include "Engine/World.h"
 
 Aprototype3GameMode::Aprototype3GameMode()
 {
@@ -15,4 +17,11 @@ void Aprototype3GameMode::InitGame(const FString& MapName, const FString& Option
 	// shared HUD again before the game mode begins initializing its players.
 	HUDClass = AHorrorHUD::StaticClass();
 	Super::InitGame(MapName, Options, ErrorMessage);
+}
+
+void Aprototype3GameMode::BeginPlay()
+{
+	Super::BeginPlay();
+	if (bSpawnInventoryTestPile && GetWorld()->GetMapName().EndsWith(TEXT("Lvl_FirstPerson")))
+		GetWorld()->SpawnActor<AInventoryTestPile>();
 }
