@@ -12,6 +12,7 @@ class UStaticMesh;
 class UMaterialInterface;
 class UTextRenderComponent;
 class APawn;
+class UItemDefinition;
 
 /** Temporary physical representation of one owned item, with guarded local transfers. */
 UCLASS(Config=Game)
@@ -25,6 +26,9 @@ public:
 	/** Spawn first; remove from the source only when the world representation is ready. */
 	static ADroppedItem* DropFromInventory(UInventoryComponent* Inventory, FGuid InstanceId, APawn* Player, FString& Error);
 	static bool HasWorldRepresentation(const FItemInstance& Item);
+	/** Creates one NEW world-owned instance; never copies an existing inventory identity. */
+	static ADroppedItem* SpawnWorldItem(UWorld* World, const FInventoryItemProfile& Profile, const FTransform& Transform);
+	static bool GetWorldHalfExtent(const UItemDefinition* Definition, FVector& OutExtent);
 	bool WouldMoveAtFeet(APawn* Player) const;
 	static TArray<TWeakObjectPtr<ADroppedItem>> FindNearby(APawn* Player);
 	bool CanInteract(APawn* Player) const;
