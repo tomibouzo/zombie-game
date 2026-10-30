@@ -1,5 +1,9 @@
 # Procedural house blockout
 
+For the playable encounter map, seeded NPC/collectible placement, runtime navigation
+and one-time exit choices, see [HOUSE_ENCOUNTER.md](../../../../HOUSE_ENCOUNTER.md).
+The builder example below remains a standalone authoring map.
+
 The first milestone is a deterministic, single-storey house with a rectangular footprint,
 connected typed rooms, matching furniture blockouts, one entrance on the local south edge, variable window openings, and a flat roof.
 All geometry uses collision-enabled instanced boxes. No PCG plugin is required.

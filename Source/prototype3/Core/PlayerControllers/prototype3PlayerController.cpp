@@ -32,6 +32,9 @@
 #include "Widgets/Layout/SBox.h"
 #include "Styling/CoreStyle.h"
 #include "UI/Pause/SPauseMenu.h"
+#include "Gameplay/Procedural/Encounter/HouseEncounter.h"
+#include "Widgets/Input/SButton.h"
+#include "GameFramework/CharacterMovementComponent.h"
 #include "Framework/Application/IInputProcessor.h"
 #include "Framework/Application/SlateApplication.h"
 #include "Widgets/SViewport.h"
@@ -286,6 +289,7 @@ bool Aprototype3PlayerController::HandleInventoryControlKey(FKey Key, EInputEven
 
 bool Aprototype3PlayerController::InputKey(const FInputKeyEventArgs& Params)
 {
+	if (HouseExitMenu.IsValid()) return true;
 	const auto* Controls = GetDefault<UInventoryInputSettings>();
 	if (IsLocalController() && Controls->Matches(EInventoryControl::Back, Params.Key))
 	{
@@ -375,6 +379,7 @@ bool Aprototype3PlayerController::InputKey(const FInputKeyEventArgs& Params)
 
 void Aprototype3PlayerController::ToggleInventoryDemo(bool bLegacyLab, bool bPocketsOnly)
 {
+	if (HouseExitMenu.IsValid()) return;
 	if (PauseMenu.IsValid()) return;
 	if (bInventoryDemoOpen)
 	{
@@ -446,6 +451,7 @@ bool Aprototype3PlayerController::HasInterfaceFocus(int32 UserIndex) const
 		return Widget.IsValid() && (Widget->HasUserFocus(UserIndex).IsSet() || Widget->HasUserFocusedDescendants(UserIndex));
 	};
 	if (Focused(PauseMenu)) return true;
+	if (Focused(HouseExitMenu)) return true;
 	if (bInventoryDemoOpen && InventoryDemoWidget && Focused(InventoryDemoWidget->GetInventoryFocusTarget())) return true;
 	UGameViewportClient* Viewport = GetWorld()->GetGameViewport();
 	return Viewport && Focused(Viewport->GetGameViewportWidget());
@@ -454,6 +460,7 @@ bool Aprototype3PlayerController::HasInterfaceFocus(int32 UserIndex) const
 void Aprototype3PlayerController::HandleInterfaceEscape()
 {
 	if (!IsLocalController()) return;
+	if (HouseExitMenu.IsValid()) return;
 	// Hold a local reference because Resume removes the controller's menu reference.
 	if (const TSharedPtr<SPauseMenu> Menu = PauseMenu) Menu->HandleEscape();
 	else if (bInventoryDemoOpen) CloseInventoryDemo();
@@ -462,6 +469,7 @@ void Aprototype3PlayerController::HandleInterfaceEscape()
 
 void Aprototype3PlayerController::OpenPauseMenu()
 {
+	if (HouseExitMenu.IsValid()) return;
 	if (!IsLocalController() || PauseMenu.IsValid() || !GetWorld()) return;
 	UGameViewportClient* Viewport = GetWorld()->GetGameViewport();
 	if (!Viewport) return;
@@ -520,7 +528,67 @@ void Aprototype3PlayerController::EndPlay(const EEndPlayReason::Type EndPlayReas
 	if (InterfaceInputProcessor.IsValid() && FSlateApplication::IsInitialized())
 		FSlateApplication::Get().UnregisterInputPreProcessor(InterfaceInputProcessor);
 	InterfaceInputProcessor.Reset();
+	CloseHouseExitChoice();
 	ClosePauseMenu();
 	CloseInventoryDemo();
 	Super::EndPlay(EndPlayReason);
+}
+
+void Aprototype3PlayerController::ShowHouseExitChoice(AHouseEncounter* Encounter)
+{
+	if (!IsValid(Encounter) || Encounter->State != EHouseEncounterState::Choosing || !IsLocalController()
+		|| HouseExitMenu.IsValid() || !GetWorld() || !GetWorld()->GetGameViewport()) return;
+	ClosePauseMenu();
+	CloseInventoryDemo();
+	if (auto* Use = ItemUse(this)) { Use->CloseBackpack(); Use->CancelUse(); Use->CancelQuickItemHold(); }
+	if (GetPawn())
+	{
+		if (auto* Melee = GetPawn()->FindComponentByClass<UPlayerMeleeComponent>()) Melee->StopAttacking();
+		if (auto* ControlledCharacter = Cast<ACharacter>(GetPawn())) ControlledCharacter->GetCharacterMovement()->StopMovementImmediately();
+	}
+	bCursorBeforeHouseExit = bShowMouseCursor;
+	FlushPressedKeys();
+	SetIgnoreMoveInput(true);
+	SetIgnoreLookInput(true);
+	bShowMouseCursor = true;
+	const TWeakObjectPtr<AHouseEncounter> Weak = Encounter;
+	TSharedRef<SVerticalBox> Choices = SNew(SVerticalBox);
+	TSharedPtr<SButton> FirstChoice;
+	Choices->AddSlot().AutoHeight().Padding(8)[SNew(STextBlock).Text(FText::FromString(TEXT("You left the house. Choose the next section.")))];
+	Choices->AddSlot().AutoHeight().Padding(8)[SNew(STextBlock).Text(FText::FromString(TEXT("This choice is final for this encounter. Travel is not implemented yet.")))];
+	for (FName Choice : Encounter->ExitDecision.Options)
+	{
+		TSharedRef<SButton> Button = SNew(SButton)
+			.Text(FText::FromName(Choice))
+			.IsEnabled_Lambda([Weak, Choice] { return Weak.IsValid() && Weak->ExitDecision.IsAvailable(Choice); })
+			.OnClicked_Lambda([Weak, Choice] { if (Weak.IsValid()) Weak->ChooseNextSection(Choice); return FReply::Handled(); });
+		if (!FirstChoice.IsValid()) FirstChoice = Button;
+		Choices->AddSlot().AutoHeight().Padding(8)[Button];
+	}
+	Choices->AddSlot().AutoHeight().Padding(8)[SNew(STextBlock).Text_Lambda([Weak]
+	{
+		return FText::FromString(Weak.IsValid() && !Weak->ExitDecision.Selected.IsNone()
+			? TEXT("Selected: ") + Weak->ExitDecision.Selected.ToString() + TEXT(". Other sections are unavailable.") : TEXT(""));
+	})];
+	Choices->AddSlot().AutoHeight().Padding(8)[SNew(SButton).Text(FText::FromString(TEXT("Close")))
+		.IsEnabled_Lambda([Weak] { return !Weak.IsValid() || !Weak->ExitDecision.Selected.IsNone(); })
+		.OnClicked_Lambda([this] { CloseHouseExitChoice(); return FReply::Handled(); })];
+	HouseExitMenu = SNew(SOverlay) + SOverlay::Slot().HAlign(HAlign_Center).VAlign(VAlign_Center)
+		[SNew(SBorder).Padding(24)[Choices]];
+	GetWorld()->GetGameViewport()->AddViewportWidgetContent(HouseExitMenu.ToSharedRef(), 210);
+	FInputModeUIOnly Mode;
+	Mode.SetWidgetToFocus(FirstChoice);
+	SetInputMode(Mode);
+}
+
+void Aprototype3PlayerController::CloseHouseExitChoice()
+{
+	if (!HouseExitMenu.IsValid()) return;
+	if (GetWorld() && GetWorld()->GetGameViewport()) GetWorld()->GetGameViewport()->RemoveViewportWidgetContent(HouseExitMenu.ToSharedRef());
+	HouseExitMenu.Reset();
+	SetIgnoreMoveInput(false);
+	SetIgnoreLookInput(false);
+	bShowMouseCursor = bCursorBeforeHouseExit;
+	SetInputMode(FInputModeGameOnly());
+	FlushPressedKeys();
 }

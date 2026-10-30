@@ -151,6 +151,30 @@ bool ADroppedItem::HasWorldRepresentation(const FItemInstance& Value)
 	return Value.IsValid() && FindPlaceholder(Value.Definition->ItemId) != nullptr;
 }
 
+bool ADroppedItem::GetWorldHalfExtent(const UItemDefinition* Definition, FVector& OutExtent)
+{
+	const FPlaceholder* Spec = Definition ? FindPlaceholder(Definition->ItemId) : nullptr;
+	OutExtent = Spec ? Spec->RestingSize() * .5 : FVector::ZeroVector;
+	return Spec != nullptr;
+}
+
+ADroppedItem* ADroppedItem::SpawnWorldItem(UWorld* World, const FInventoryItemProfile& Profile, const FTransform& Transform)
+{
+	if (!World || Profile.Id.IsNone() || !Profile.Definition || !Profile.Definition->IsValidDefinition()) return nullptr;
+	const FItemInstance NewItem = FItemInstance::Create(Profile.Definition);
+	if (!HasWorldRepresentation(NewItem)) return nullptr;
+	auto* Dropped = World->SpawnActorDeferred<ADroppedItem>(StaticClass(), Transform,
+		nullptr, nullptr, ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
+	if (!Dropped) return nullptr;
+	if (!Dropped->Initialize(NewItem, Profile.Id)) { Dropped->Destroy(); return nullptr; }
+	Dropped->FinishSpawning(Transform);
+	if (!IsValid(Dropped)) return nullptr;
+	Dropped->Body->SetMassOverrideInKg(NAME_None, FMath::Max(.01f, Profile.Definition->MassKg));
+	Dropped->Body->SetSimulatePhysics(true);
+	if (!Dropped->Body->IsSimulatingPhysics()) { Dropped->Destroy(); return nullptr; }
+	return Dropped;
+}
+
 bool ADroppedItem::WouldMoveAtFeet(APawn* Player) const
 {
 	const FPlaceholder* Spec = Item.IsValid() ? FindPlaceholder(Item.Definition->ItemId) : nullptr;
