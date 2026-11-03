@@ -24,6 +24,10 @@
 			"Enabled": true
 		},
 		{
+			"Name": "PropertyBindingUtils",
+			"Enabled": true
+		},
+		{
 			"Name": "VisualStudioTools",
 			"Enabled": true,
 			"SupportedTargetPlatforms": [

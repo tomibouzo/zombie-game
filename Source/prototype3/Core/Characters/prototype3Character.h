@@ -15,6 +15,7 @@ class UPlayerMeleeComponent;
 class UPlayerVitalsComponent;
 class UInventoryComponent;
 class UPlayerItemUseComponent;
+class UPlayerNoiseComponent;
 struct FInputActionValue;
 
 DECLARE_LOG_CATEGORY_EXTERN(LogTemplateCharacter, Log, All);
@@ -82,6 +83,8 @@ class Aprototype3Character : public ACharacter
 	TObjectPtr<UInventoryComponent> InventoryComponent;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta=(AllowPrivateAccess="true"))
 	TObjectPtr<UPlayerItemUseComponent> ItemUseComponent;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta=(AllowPrivateAccess="true"))
+	TObjectPtr<UPlayerNoiseComponent> NoiseComponent;
 
 protected:
 	/** Maximum health available to this character. */
