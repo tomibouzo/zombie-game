@@ -3,6 +3,7 @@
 #include "Core/Characters/prototype3Character.h"
 #include "Core/PlayerControllers/prototype3PlayerController.h"
 #include "Gameplay/Combat/Melee/PlayerMeleeComponent.h"
+#include "Gameplay/Player/PlayerNoiseComponent.h"
 #include "Gameplay/Player/Vitals/PlayerVitalsComponent.h"
 #include "Gameplay/Player/Inventory/InventoryComponent.h"
 #include "Gameplay/Player/Inventory/PlayerItemUseComponent.h"
@@ -26,6 +27,7 @@ Aprototype3Character::Aprototype3Character()
 	InventoryComponent = CreateDefaultSubobject<UInventoryComponent>(TEXT("Inventory"));
 	ItemUseComponent = CreateDefaultSubobject<UPlayerItemUseComponent>(TEXT("ItemUse"));
 	MeleeComponent = CreateDefaultSubobject<UPlayerMeleeComponent>(TEXT("Melee"));
+	NoiseComponent = CreateDefaultSubobject<UPlayerNoiseComponent>(TEXT("FootstepNoise"));
 	// Set size for collision capsule
 	GetCapsuleComponent()->InitCapsuleSize(55.f, 96.0f);
 	

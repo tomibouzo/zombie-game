@@ -36,6 +36,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Melee", meta=(ClampMin="0"))
 	float UnarmedDamage = 10.0f;
 
+	/** Interruption strength, independent of health damage. Compare with the enemy threshold. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Melee", meta=(ClampMin="0"))
+	float ImpactStrength = 10.0f;
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Melee", meta=(ClampMin="0"))
 	float StaminaCost = 10.0f;
 

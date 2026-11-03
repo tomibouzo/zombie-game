@@ -8,6 +8,9 @@
 #include "Gameplay/Items/ItemDefinition.h"
 #include "Engine/Canvas.h"
 #include "Engine/Engine.h"
+#include "Gameplay/AI/Zombies/ZombieCharacter.h"
+#include "Gameplay/AI/Zombies/ZombieAIController.h"
+#include "EngineUtils.h"
 
 void AHorrorHUD::DrawHUD()
 {
@@ -48,6 +51,35 @@ void AHorrorHUD::DrawHUD()
 		Canvas->K2_DrawPolygon(nullptr, Center, FVector2D(2.5f * Scale), 32, FLinearColor(0.f, 1.f, 1.f, 1.f));
 	}
 	const auto* Use = PlayerCharacter->FindComponentByClass<UPlayerItemUseComponent>();
+	if (bGameplayAimVisible)
+	{
+		FVector Eye; FRotator View;
+		PlayerOwner->GetPlayerViewPoint(Eye,View);
+		for (TActorIterator<AZombieCharacter> It(GetWorld()); It; ++It)
+		{
+			const auto* Z = *It;
+			const FVector Head = Z->GetActorLocation()+FVector(0,0,115);
+			if (!Z->IsAlive() || FVector::DistSquared(Eye,Head)>2200*2200 || FVector::DotProduct(View.Vector(),Head-Eye)<=0) continue;
+			FHitResult Hit;
+			FCollisionQueryParams Params(SCENE_QUERY_STAT(ZombieIndicator),false,PlayerCharacter);
+			Params.AddIgnoredActor(Z);
+			if (GetWorld()->LineTraceSingleByChannel(Hit,Eye,Head,ECC_Visibility,Params)) continue;
+			FVector2D Screen;
+			if (!PlayerOwner->ProjectWorldLocationToScreen(Head,Screen)) continue;
+			const auto* AI = Cast<AZombieAIController>(Z->GetController());
+			const bool Alert = AI && AI->IsAlerted();
+			const bool Contact = AI && AI->HasVisualContact();
+			const FLinearColor Color = Alert && Contact ? FLinearColor(.95f,.08f,.06f) : FLinearColor(1.f,.65f,.1f);
+			const float Fill = Alert ? 1.f : Z->Suspicion;
+			DrawRect(FLinearColor(.03f,.03f,.03f,.9f),Screen.X-42,Screen.Y,84,9);
+			DrawRect(Color,Screen.X-40,Screen.Y+2,80*Fill,5);
+			FString Label = Alert ? (Contact ? TEXT("DETECTADO") : TEXT("BUSCANDO")) : (Fill>0 ? TEXT("SOSPECHA") : TEXT("CALMA"));
+			if (!Alert && Z->Behavior==EZombieBehavior::Investigate && !Contact) Label=TEXT("INVESTIGANDO");
+			if (Z->IsAttacking()) Label = Z->GetAttackKind()==EZombieAttackKind::Bite ? TEXT("MORDIDA") : TEXT("GOLPE");
+			if (Z->IsStaggered()) Label = TEXT("INTERRUMPIDO");
+			DrawText(Label,FLinearColor::White,Screen.X-40,Screen.Y-18,GEngine->GetSmallFont(),1);
+		}
+	}
 	if (!Use || !bGameplayAimVisible) return;
 	if (Use->IsPickupBlockedNoticeVisible())
 	{

@@ -1,4 +1,5 @@
 #include "Gameplay/Combat/Melee/PlayerMeleeComponent.h"
+#include "Gameplay/Combat/CombatImpact.h"
 #include "Core/Characters/prototype3Character.h"
 #include "Gameplay/Player/Inventory/PlayerItemUseComponent.h"
 #include "Animation/AnimInstance.h"
@@ -136,9 +137,13 @@ void UPlayerMeleeComponent::ResolveAttack()
 		: World->LineTraceSingleByChannel(Hit, Start, End, HitTraceChannel, QueryParams);
 	if (bHit && Hit.GetActor())
 	{
-		const float AppliedDamage = UGameplayStatics::ApplyPointDamage(Hit.GetActor(),
-			FMath::Max(UnarmedDamage, 0.0f), Direction, Hit, Character->GetController(), Character,
-			UDamageType::StaticClass());
+		FCombatImpactDamageEvent Event;
+		Event.Damage = FMath::Max(UnarmedDamage, 0.f);
+		Event.HitInfo = Hit;
+		Event.ShotDirection = Direction;
+		Event.DamageTypeClass = UDamageType::StaticClass();
+		Event.ImpactStrength = FMath::Max(0.f, ImpactStrength);
+		const float AppliedDamage = Hit.GetActor()->TakeDamage(Event.Damage, Event, Character->GetController(), Character);
 		OnMeleeHit.Broadcast(Hit, AppliedDamage);
 	}
 }

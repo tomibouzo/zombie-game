@@ -16,6 +16,7 @@ public class prototype3 : ModuleRules
 			"EnhancedInput",
 			"GameplayTags",
 			"AIModule",
+			"NavigationSystem",
 			"StateTreeModule",
 			"GameplayStateTreeModule",
 			"UMG",
@@ -26,6 +27,7 @@ public class prototype3 : ModuleRules
 		if (Target.bBuildEditor)
 		{
 			PrivateDependencyModuleNames.Add("UnrealEd"); // End Play from the pause menu; editor-only tests.
+			PrivateDependencyModuleNames.AddRange(new string[] { "StateTreeEditorModule", "PropertyBindingUtils", "AssetRegistry" });
 		}
 
 		PublicIncludePaths.AddRange(new string[] { "prototype3" });
