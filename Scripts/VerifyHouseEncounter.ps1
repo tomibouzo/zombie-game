@@ -33,7 +33,7 @@ $EditorArguments = @(
 if ($LASTEXITCODE -ne 0) { throw "Encounter checks failed: $LASTEXITCODE. See $RunDirectory.log" }
 $Report = Get-Content -Raw (Join-Path $RunDirectory 'index.json') | ConvertFrom-Json
 $Passed = [int]$Report.succeeded + [int]$Report.succeededWithWarnings
-if ($Report.failed -gt 0 -or $Report.notRun -gt 0 -or $Passed -lt 19) {
+if ($Report.failed -gt 0 -or $Report.notRun -gt 0 -or $Passed -lt 21) {
     throw "Incomplete or failing encounter report: passed=$Passed failed=$($Report.failed) notRun=$($Report.notRun). See $RunDirectory"
 }
 if ($Report.succeededWithWarnings -gt 0) { Write-Warning 'Checks passed with warnings; inspect the report entries.' }

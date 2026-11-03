@@ -42,4 +42,5 @@ class PROTOTYPE3_API AHouseEncounterNavBounds : public ANavMeshBoundsVolume
 	GENERATED_BODY()
 public:
 	AHouseEncounterNavBounds();
+	void SetExtent(FVector Extent);
 };

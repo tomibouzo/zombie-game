@@ -2,6 +2,7 @@
 
 #if WITH_DEV_AUTOMATION_TESTS && WITH_EDITOR
 #include "Gameplay/Procedural/Encounter/HouseEncounter.h"
+#include "Gameplay/AI/Zombies/ZombieCharacter.h"
 #include "Gameplay/Procedural/Encounter/HouseEncounterPlacement.h"
 #include "Gameplay/Procedural/Encounter/HouseEncounterSupport.h"
 #include "Gameplay/Procedural/Encounter/HouseEncounterGameMode.h"
@@ -333,9 +334,23 @@ bool FHouseEncounterMapTest::RunTest(const FString&)
 	if (!FPackageName::DoesPackageExist(MapPath)) { AddError(TEXT("Missing encounter map. Create with -CreateHouseEncounterMap.")); return false; }
 	UWorld* World = UEditorLoadingAndSavingUtils::LoadMap(MapPath);
 	if (!TestNotNull(TEXT("Encounter map reloads"), World)) return false;
+	if (FParse::Param(FCommandLine::Get(), TEXT("UpgradeHouseEncounterZombies")))
+	{
+		// Explicit opt-in: change only the legacy spawn class, preserving seed/counts and all other authored settings.
+		for (TActorIterator<AHouseEncounter> It(World); It; ++It)
+			if (It->ZombieClass == AHouseZombiePlaceholder::StaticClass())
+			{ It->Modify(); It->ZombieClass = AZombieCharacter::StaticClass(); }
+		if (!TestTrue(TEXT("Upgraded map saves"), UEditorLoadingAndSavingUtils::SaveMap(World, MapPath))) return false;
+		World = UEditorLoadingAndSavingUtils::LoadMap(MapPath);
+	}
 	TestEqual(TEXT("Dedicated game mode"), World->GetWorldSettings()->DefaultGameMode.Get(), AHouseEncounterGameMode::StaticClass());
 	int32 Encounters = 0, DynamicMeshes = 0, Bounds = 0;
-	for (TActorIterator<AHouseEncounter> It(World); It; ++It) { ++Encounters; TestTrue(TEXT("Runtime start enabled"),It->bStartOnBeginPlay); }
+	for (TActorIterator<AHouseEncounter> It(World); It; ++It)
+	{
+		++Encounters;
+		TestTrue(TEXT("Runtime start enabled"),It->bStartOnBeginPlay);
+		TestTrue(TEXT("Saved encounter uses real zombie class"),It->ZombieClass && It->ZombieClass->IsChildOf(AZombieCharacter::StaticClass()));
+	}
 	for (TActorIterator<AHouseEncounterNavMesh> It(World); It; ++It)
 	{ ++DynamicMeshes; TestEqual(TEXT("Dynamic navigation survives save/reload"),It->GetRuntimeGenerationMode(),ERuntimeGenerationType::Dynamic); }
 	for (TActorIterator<AHouseEncounterNavBounds> It(World); It; ++It) ++Bounds;

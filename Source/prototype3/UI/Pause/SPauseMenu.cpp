@@ -1,4 +1,5 @@
 #include "UI/Pause/SPauseMenu.h"
+#include "Core/Characters/prototype3Character.h"
 #include "Gameplay/Player/Inventory/PlayerItemUseComponent.h"
 #include "Framework/Application/SlateApplication.h"
 #include "Widgets/Input/SButton.h"
@@ -29,6 +30,7 @@ void SPauseMenu::Construct(const FArguments& Args)
 	AppliedControls = Args._Controls ? Args._Controls : GetMutableDefault<UInventoryInputSettings>();
 	Controls.Reset(DuplicateObject<UInventoryInputSettings>(AppliedControls.Get(), GetTransientPackage()));
 	ItemUse = Args._ItemUse; bSaveControls = Args._SaveControls;
+	DebugPlayer = Args._DebugPlayer;
 	OnResume = Args._OnResume; OnExitGame = Args._OnExitGame; OnExitDesktop = Args._OnExitDesktop;
 	OnControlsChanged = Args._OnControlsChanged;
 	auto Button = [](const FString& Text, FOnClicked Click)
@@ -47,8 +49,8 @@ void SPauseMenu::Construct(const FArguments& Args)
 	ExitDesktop->SetEnabled(Args._CanExitDesktop);
 	Pause->AddSlot().AutoHeight().Padding(0, 5)[ExitDesktop];
 	TSharedRef<SVerticalBox> Navigation = SNew(SVerticalBox);
-	const TCHAR* CategoryNames[] = { TEXT("Controls"), TEXT("Sound"), TEXT("Graphics") };
-	for (int32 I = 0; I < 3; ++I)
+	const TCHAR* CategoryNames[] = { TEXT("Controls"), TEXT("Sound"), TEXT("Graphics"), TEXT("Debug") };
+	for (int32 I = 0; I < UE_ARRAY_COUNT(CategoryNames); ++I)
 		Navigation->AddSlot().AutoHeight().Padding(0, 4)[Button(CategoryNames[I], FOnClicked::CreateLambda([this, I]() { ShowCategory(static_cast<EOptionsCategory>(I)); return FReply::Handled(); }))];
 	TSharedRef<SScrollBox> Tabs = SNew(SScrollBox).Orientation(Orient_Horizontal).ScrollBarAlwaysVisible(true);
 	const TCHAR* SectionNames[] = { TEXT("Movement"), TEXT("Item actions"), TEXT("Inventory"), TEXT("Gameplay") };
@@ -120,6 +122,14 @@ void SPauseMenu::Construct(const FArguments& Args)
 	TSharedRef<SVerticalBox> ControlsPage = SNew(SVerticalBox)
 		+SVerticalBox::Slot().AutoHeight()[Tabs]
 		+SVerticalBox::Slot().FillHeight(1)[InventorySections.ToSharedRef()];
+	TSharedRef<SVerticalBox> DebugPage = SNew(SVerticalBox)
+		+SVerticalBox::Slot().AutoHeight().Padding(0,12)[Description(TEXT("Debug tools apply immediately for this Play session. They reset when a new session starts."))]
+		+SVerticalBox::Slot().AutoHeight().Padding(0,12)[SNew(SCheckBox)
+			.IsEnabled_Lambda([this] { return DebugPlayer.IsValid(); })
+			.IsChecked_Lambda([this] { return DebugPlayer.IsValid() && DebugPlayer->IsDebugInvisibleToZombies() ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; })
+			.OnCheckStateChanged_Lambda([this](ECheckBoxState State) { if (DebugPlayer.IsValid()) DebugPlayer->SetDebugInvisibleToZombies(State == ECheckBoxState::Checked); })
+			[Description(TEXT("Invisible to zombies"))]]
+		+SVerticalBox::Slot().AutoHeight()[Description(TEXT("Zombies ignore your sight and footsteps, abandon pursuit and attacks, and cannot damage you. You remain visible on screen."))];
 	ChildSlot[SNew(SBorder).BorderImage(FCoreStyle::Get().GetBrush(TEXT("WhiteBrush")))
 		.BorderBackgroundColor(FLinearColor(.015f, .02f, .03f, 1.f)).Padding(24)
 		[SNew(SScaleBox).Stretch(EStretch::ScaleToFit)
@@ -137,7 +147,8 @@ void SPauseMenu::Construct(const FArguments& Args)
 					+SHorizontalBox::Slot().FillWidth(1)[SAssignNew(Categories, SWidgetSwitcher)
 						+SWidgetSwitcher::Slot()[ControlsPage]
 						+SWidgetSwitcher::Slot()[Description(TEXT("Sound settings coming later."))]
-						+SWidgetSwitcher::Slot()[Description(TEXT("Graphics settings coming later."))]]]
+						+SWidgetSwitcher::Slot()[Description(TEXT("Graphics settings coming later."))]
+						+SWidgetSwitcher::Slot()[DebugPage]]]
 				+SVerticalBox::Slot().AutoHeight().Padding(168, 12, 0, 8)[SNew(STextBlock).Text_Lambda([this]() { return FText::FromString(Status); }).Font(Body).AutoWrapText(true)]
 				+SVerticalBox::Slot().AutoHeight().Padding(168, 0)[SNew(SHorizontalBox)
 					.Visibility_Lambda([this]() { return bConflictPending || bConfirmReset ? EVisibility::Visible : EVisibility::Collapsed; })

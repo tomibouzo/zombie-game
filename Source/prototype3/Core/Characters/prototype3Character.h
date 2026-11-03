@@ -330,6 +330,11 @@ public:
 	UFUNCTION(BlueprintPure, Category="Health")
 	bool IsAlive() const;
 
+	/** Session-only testing aid; never saved as a player preference. */
+	UFUNCTION(BlueprintCallable, Category="Debug") void SetDebugInvisibleToZombies(bool bEnabled);
+	UFUNCTION(BlueprintPure, Category="Debug") bool IsDebugInvisibleToZombies() const { return bDebugInvisibleToZombies; }
+	UPROPERTY(Transient, VisibleInstanceOnly, BlueprintReadOnly, Category="Debug") bool bDebugInvisibleToZombies = false;
+
 	/** Pays a one-off action cost atomically; rejected actions spend no stamina. */
 	UFUNCTION(BlueprintCallable, Category="Stamina")
 	bool TryConsumeStamina(float Amount, float RecoveryDelay = 0.0f);

@@ -484,6 +484,7 @@ void Aprototype3PlayerController::OpenPauseMenu()
 	SetIgnoreLookInput(true);
 	bShowMouseCursor = true;
 	SAssignNew(PauseMenu, SPauseMenu).ItemUse(ItemUse(this))
+		.DebugPlayer(Cast<Aprototype3Character>(GetPawn()))
 		.CanExitGame(bPlayInEditor).CanExitDesktop(!bPlayInEditor)
 		.OnResume(FSimpleDelegate::CreateUObject(this, &Aprototype3PlayerController::ClosePauseMenu))
 		.OnControlsChanged(FSimpleDelegate::CreateUObject(this, &Aprototype3PlayerController::RebuildControls))

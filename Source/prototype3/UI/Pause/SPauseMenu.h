@@ -8,17 +8,19 @@
 class UPlayerItemUseComponent;
 class UItemUseSettings;
 class SWidgetSwitcher;
+class Aprototype3Character;
 
-enum class EOptionsCategory : uint8 { Controls, Inventory = Controls, Sound, Graphics };
+enum class EOptionsCategory : uint8 { Controls, Inventory = Controls, Sound, Graphics, Debug };
 
 /** Pause and key assignment screens, owned by the local player controller. */
 class SPauseMenu : public SCompoundWidget
 {
 public:
 	SLATE_BEGIN_ARGS(SPauseMenu)
-		: _Controls(nullptr), _ItemUse(nullptr), _CanExitGame(false), _CanExitDesktop(false), _SaveControls(true) {}
+		: _Controls(nullptr), _ItemUse(nullptr), _DebugPlayer(nullptr), _CanExitGame(false), _CanExitDesktop(false), _SaveControls(true) {}
 		SLATE_ARGUMENT(UInventoryInputSettings*, Controls)
 		SLATE_ARGUMENT(UPlayerItemUseComponent*, ItemUse)
+		SLATE_ARGUMENT(Aprototype3Character*, DebugPlayer)
 		SLATE_ARGUMENT(bool, CanExitGame)
 		SLATE_ARGUMENT(bool, CanExitDesktop)
 		SLATE_ARGUMENT(bool, SaveControls)
@@ -47,6 +49,7 @@ private:
 	TStrongObjectPtr<UInventoryInputSettings> Controls;
 	TWeakObjectPtr<UInventoryInputSettings> AppliedControls;
 	TWeakObjectPtr<UPlayerItemUseComponent> ItemUse;
+	TWeakObjectPtr<Aprototype3Character> DebugPlayer;
 	TSharedPtr<SWidgetSwitcher> Screens;
 	TSharedPtr<SWidgetSwitcher> Categories;
 	TSharedPtr<SWidgetSwitcher> InventorySections;

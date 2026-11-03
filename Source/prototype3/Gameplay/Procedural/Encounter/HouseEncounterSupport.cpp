@@ -58,3 +58,8 @@ AHouseEncounterNavBounds::AHouseEncounterNavBounds()
 	Bounds->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	Bounds->SetCanEverAffectNavigation(false);
 }
+
+void AHouseEncounterNavBounds::SetExtent(FVector Extent)
+{
+	FindComponentByClass<UBoxComponent>()->SetBoxExtent(Extent);
+}

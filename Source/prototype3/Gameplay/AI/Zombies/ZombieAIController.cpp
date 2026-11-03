@@ -68,7 +68,7 @@ void AZombieAIController::RefreshSenses()
 
 bool AZombieAIController::CanSee(const Aprototype3Character* Candidate) const
 {
-	if (!Zombie.IsValid() || !IsValid(Candidate) || !Candidate->IsAlive()) return false;
+	if (!Zombie.IsValid() || !IsValid(Candidate) || !Candidate->IsAlive() || Candidate->IsDebugInvisibleToZombies()) return false;
 	const auto& T = Zombie->Tuning;
 	const FVector Eye = Zombie->GetActorLocation() + FVector(0,0,60);
 	const FVector Offset = Candidate->GetActorLocation() - Eye;
@@ -88,7 +88,7 @@ bool AZombieAIController::CanSee(const Aprototype3Character* Candidate) const
 void AZombieAIController::PerceptionUpdated(AActor* Actor, FAIStimulus Stimulus)
 {
 	auto* Player = Cast<Aprototype3Character>(Actor);
-	if (!Zombie.IsValid() || !Zombie->IsAlive() || !Player || !Player->IsPlayerControlled() || !Player->IsAlive()) return;
+	if (!Zombie.IsValid() || !Zombie->IsAlive() || !Player || !Player->IsPlayerControlled() || !Player->IsAlive() || Player->IsDebugInvisibleToZombies()) return;
 	if (Stimulus.Type == UAISense::GetSenseID<UAISense_Sight>())
 	{
 		if (Stimulus.WasSuccessfullySensed() && (!bVisualContact || Target.Get() == Player)) Target = Player;
@@ -132,7 +132,7 @@ void AZombieAIController::Tick(float DeltaSeconds)
 			if (auto* P = Cast<Aprototype3Character>(Actor); P && P->IsPlayerControlled() && CanSee(P))
 			{ Target = P; bVisualContact = true; break; }
 	}
-	if (Target.IsValid() && !Target->IsAlive()) ForgetEncounter();
+	if (Target.IsValid() && (!Target->IsAlive() || Target->IsDebugInvisibleToZombies())) { ForgetEncounter(); StopMovement(); }
 	if (bVisualContact)
 	{
 		LastKnownLocation = SearchOrigin = Target->GetActorLocation();
@@ -173,6 +173,7 @@ void AZombieAIController::ForgetEncounter()
 void AZombieAIController::NotifyDamaged(AActor* Causer)
 {
 	if (!Zombie.IsValid() || !Zombie->IsAlive()) return;
+	if (const auto* Player = Cast<Aprototype3Character>(Causer); Player && Player->IsDebugInvisibleToZombies()) return;
 	// An unseen impact is a clue at the victim, not knowledge of the shooter's position.
 	LastKnownLocation = SearchOrigin = Destination = Zombie->GetActorLocation();
 	bHasClue = true; bReachedLastClue = false;
@@ -181,6 +182,15 @@ void AZombieAIController::NotifyDamaged(AActor* Causer)
 	{
 		Target = Player; Zombie->Suspicion = 1;
 	}
+}
+
+void AZombieAIController::ForgetDebugPlayer(Aprototype3Character* Player)
+{
+	if (!Zombie.IsValid() || !Player || !Player->IsDebugInvisibleToZombies()) return;
+	GetPerceptionComponent()->ForgetActor(Player);
+	ForgetEncounter();
+	StopMovement();
+	DesiredBehavior = Zombie->IsAlive() ? EZombieBehavior::Idle : EZombieBehavior::Dead;
 }
 
 void AZombieAIController::EnterBehavior(EZombieBehavior State)

@@ -1,6 +1,7 @@
 #include "Gameplay/Procedural/Encounter/HouseEncounter.h"
 #include "Gameplay/Procedural/Encounter/HouseEncounterPlacement.h"
 #include "Gameplay/Procedural/Encounter/HouseEncounterSupport.h"
+#include "Gameplay/AI/Zombies/ZombieCharacter.h"
 #include "Gameplay/Procedural/HouseGenerator.h"
 #include "Gameplay/Items/ItemDefinition.h"
 #include "Gameplay/Items/World/DroppedItem.h"
@@ -26,7 +27,7 @@ AHouseEncounter::AHouseEncounter()
 	PrimaryActorTick.bCanEverTick = true;
 	PrimaryActorTick.TickInterval = .1f;
 	SetRootComponent(CreateDefaultSubobject<USceneComponent>(TEXT("Root")));
-	ZombieClass = AHouseZombiePlaceholder::StaticClass();
+	ZombieClass = AZombieCharacter::StaticClass();
 	ItemSelection = {TEXT("Bandage"), TEXT("CannedBeans"), TEXT("WaterBottle"), TEXT("Knife"),
 		TEXT("Pistol"), TEXT("Flashlight"), TEXT("Jacket"), TEXT("SmallBackpack"), TEXT("ScrapMetal")};
 	NextSections = {TEXT("Street"), TEXT("Another house"), TEXT("Shelter")};
@@ -102,6 +103,14 @@ bool AHouseEncounter::Prepare(ACharacter* InPlayer)
 	Landing->SetActorScale3D(FVector(5, 4, .2));
 	Landing->GetStaticMeshComponent()->SetCollisionProfileName(TEXT("BlockAll"));
 	Landing->SetActorHiddenInGame(true);
+	// Editor bounds may no longer cover an enlarged or rotated generated house.
+	// Own a runtime volume covering the actual geometry, rather than restricting AI to the old map envelope.
+	const FBox NavigationBounds = House->GetComponentsBoundingBox(true) + Landing->GetComponentsBoundingBox(true);
+	auto* Bounds = GetWorld()->SpawnActor<AHouseEncounterNavBounds>(NavigationBounds.GetCenter(), FRotator::ZeroRotator, Spawn);
+	if (!Bounds) return Fail(TEXT("Could not create navigation bounds for the generated house."));
+	OwnedActors.Add(Bounds);
+	Bounds->SetExtent(NavigationBounds.GetExtent()+FVector(150,150,250));
+	Nav->OnNavigationBoundsUpdated(Bounds);
 	NavigationWait = 0;
 	// Include this frame's generated meshes and removed actors before requesting the full rebuild.
 	Nav->ProcessPendingOctreeUpdates();
