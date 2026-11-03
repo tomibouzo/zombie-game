@@ -10,6 +10,7 @@ class UInputMappingContext;
 class UInputAction;
 class UUserWidget;
 class UInventoryDemoWidget;
+class AHouseEncounter;
 
 /**
  *  Simple first person Player Controller
@@ -43,6 +44,8 @@ public:
 	bool HasInterfaceFocus(int32 UserIndex) const;
 	void OpenPauseMenu();
 	void ClosePauseMenu();
+	void ShowHouseExitChoice(AHouseEncounter* Encounter);
+	void CloseHouseExitChoice();
 	void ExitPlaySession();
 	void ExitToDesktop();
 	virtual bool InputKey(const FInputKeyEventArgs& Params) override;
@@ -61,6 +64,8 @@ protected:
 	bool bCursorBeforeInventory = false;
 	bool bCursorBeforePause = false;
 	TSharedPtr<class SPauseMenu> PauseMenu;
+	TSharedPtr<class SWidget> HouseExitMenu;
+	bool bCursorBeforeHouseExit = false;
 	TSharedPtr<class IInputProcessor> InterfaceInputProcessor;
 	TSet<FKey> QuickKeysDown;
 	TSet<FKey> BackpackKeysDown;

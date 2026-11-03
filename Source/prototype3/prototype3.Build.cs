@@ -28,6 +28,7 @@ public class prototype3 : ModuleRules
 		{
 			PrivateDependencyModuleNames.Add("UnrealEd"); // End Play from the pause menu; editor-only tests.
 			PrivateDependencyModuleNames.AddRange(new string[] { "StateTreeEditorModule", "PropertyBindingUtils", "AssetRegistry" });
+			PrivateDependencyModuleNames.Add("PropertyEditor"); // House settings use in-window enum menus on Linux.
 		}
 
 		PublicIncludePaths.AddRange(new string[] { "prototype3" });
