@@ -1,6 +1,7 @@
 #include "Gameplay/Procedural/HouseGenerator.h"
 #include "Gameplay/Procedural/HouseHousehold.h"
 #include "Gameplay/Procedural/HouseSizing.h"
+#include "Gameplay/Procedural/HouseSpatial.h"
 
 #include "Components/InstancedStaticMeshComponent.h"
 #include "Components/SceneComponent.h"
@@ -175,9 +176,12 @@ void AHouseGenerator::GenerateHouse()
 	GeneratedSeed = EffectiveSettings.Seed;
 	NavigationSummary = Layout.Navigation.Summary;
 	GenerationSummary = FString::Printf(TEXT("Input seed %d -> generated seed %d; %d attempt(s)."), Settings.Seed, GeneratedSeed, Attempts);
-	if (RequestedRoomCount != GeneratedSettings.RoomCount)
+	if (Settings.bUseGenerationRanges)
+		GenerationSummary += FString::Printf(TEXT(" Resolved exact footprint %d x %d cells and %d rooms from the input seed; retries keep these values."),
+			GeneratedSettings.WidthCells, GeneratedSettings.DepthCells, GeneratedSettings.RoomCount);
+	if (!Settings.bUseGenerationRanges && RequestedRoomCount != GeneratedSettings.RoomCount)
 		GenerationSummary += FString::Printf(TEXT(" Used %d rooms (requested %d) to satisfy difficulty/household."), GeneratedSettings.RoomCount, RequestedRoomCount);
-	if (Settings.WidthCells != GeneratedSettings.WidthCells || Settings.DepthCells != GeneratedSettings.DepthCells)
+	if (!Settings.bUseGenerationRanges && (Settings.WidthCells != GeneratedSettings.WidthCells || Settings.DepthCells != GeneratedSettings.DepthCells))
 		GenerationSummary += FString::Printf(TEXT(" Expanded envelope from %d x %d to %d x %d cells; disable Allow Larger Footprint for strict limits."),
 			Settings.WidthCells, Settings.DepthCells, GeneratedSettings.WidthCells, GeneratedSettings.DepthCells);
 	GenerationSummary += TEXT(" Your input controls are unchanged.");
@@ -328,6 +332,28 @@ void AHouseGenerator::DrawLayoutDebug()
 	if (!GetWorld()) return;
 	const FTransform Transform = GetActorTransform();
 	const FHouseNavigationReport Report = FHouseNavigation::Measure(Layout);
+	auto DrawRegion = [&](const FBox2D& Region, float Bottom, float Height, FColor Color)
+	{
+		const FVector2D Center = Region.GetCenter(), Half = Region.GetExtent();
+		DrawDebugBox(GetWorld(), Transform.TransformPosition(FVector(Center.X, Center.Y, Bottom + Height * .5)),
+			FVector(Half.X, Half.Y, Height * .5) * Transform.GetScale3D().GetAbs(), Transform.GetRotation(),
+			Color, false, 30.f, 0, 3.f);
+	};
+	// Draw exactly the regions used by furnishing and encounter placement, including both sides of an internal door.
+	for (const FHouseFurniturePlacement& Item : Layout.Furniture)
+	{
+		if (!GeneratedSettings.FurnitureRules.IsValidIndex(Item.RuleIndex)) continue;
+		DrawRegion(FHouseSpatial::FurnitureBody(GeneratedSettings, Item), 0,
+			GeneratedSettings.FurnitureRules[Item.RuleIndex].Size.Z, FColor::Red);
+		DrawRegion(FHouseSpatial::FurnitureAccess(GeneratedSettings, Item), 5, 8, FColor::Orange);
+	}
+	for (const FHouseWall& Wall : Layout.Walls)
+	{
+		if (Wall.Opening != EHouseOpening::Door) continue;
+		for (int32 RoomIndex : {Wall.RoomA, Wall.RoomB})
+			if (Layout.Rooms.IsValidIndex(RoomIndex))
+				DrawRegion(FHouseSpatial::DoorAccess(GeneratedSettings, Layout.Rooms[RoomIndex], Wall), 15, 8, FColor::Green);
+	}
 	auto CenterOf = [&](int32 ID)
 	{
 		const FHouseRoom& Room = Layout.Rooms[ID];
@@ -368,5 +394,6 @@ void AHouseGenerator::DrawLayoutDebug()
 	}
 	if (Layout.Rooms.Num())
 		DrawDebugString(GetWorld(), Transform.TransformPosition(FVector(0, -80, 100)),
-			FHouseNavigation::Describe(GeneratedSettings, Report) + TEXT(" Cyan: main door route. Red: dead ends."), nullptr, FColor::White, 30);
+			FHouseNavigation::Describe(GeneratedSettings, Report) + TEXT(" Cyan: main door route. Red labels: dead ends.\nBoxes: red = furniture body, orange = furniture access, green = doorway approach."),
+			nullptr, FColor::White, 30);
 }

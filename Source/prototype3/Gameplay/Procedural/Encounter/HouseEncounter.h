@@ -31,6 +31,7 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Encounter|Result") EHouseEncounterState State = EHouseEncounterState::Idle;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Encounter|Result") FString LastError;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Encounter|Result") FHouseEncounterPlacement Placement;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Encounter|Result") FHouseEncounterPlacementReport PlacementReport;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Encounter|Result") FHouseExitDecision ExitDecision;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Encounter|Result") TObjectPtr<AHouseGenerator> House;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Encounter|Result") TArray<TObjectPtr<ACharacter>> Zombies;

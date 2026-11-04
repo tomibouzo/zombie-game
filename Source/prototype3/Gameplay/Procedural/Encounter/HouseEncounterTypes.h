@@ -23,6 +23,19 @@ struct PROTOTYPE3_API FHouseExitDecision
 };
 
 USTRUCT(BlueprintType)
+struct PROTOTYPE3_API FHouseEncounterPlacementReport
+{
+	GENERATED_BODY()
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) int32 Attempts = 0;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) int32 BestZombies = 0;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) int32 BestItems = 0;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) int32 GeometryRejections = 0;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) int32 AccessRejections = 0;
+	/** Search results describe attempts, not the theoretical capacity of a building. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) FString Summary;
+};
+
+USTRUCT(BlueprintType)
 struct PROTOTYPE3_API FHouseEncounterPlacement
 {
 	GENERATED_BODY()
@@ -30,5 +43,7 @@ struct PROTOTYPE3_API FHouseEncounterPlacement
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) FVector ExitFeet = FVector::ZeroVector;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) TArray<FVector> ZombieFeet;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) TArray<FVector> ItemFeet;
+	/** Clear, reachable standing positions within pickup range, one per item. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) TArray<FVector> ItemAccessFeet;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) TArray<FName> ItemTypes;
 };

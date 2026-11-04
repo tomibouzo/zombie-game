@@ -241,6 +241,35 @@ struct PROTOTYPE3_API FHouseSizingSettings
 	float MaxHallwayLength = 10.0f;
 };
 
+/** Inclusive integer bounds. Equal bounds select a fixed value. */
+USTRUCT(BlueprintType)
+struct PROTOTYPE3_API FHouseIntegerRange
+{
+	GENERATED_BODY()
+	FHouseIntegerRange() = default;
+	FHouseIntegerRange(int32 InMin, int32 InMax) : Min(InMin), Max(InMax) {}
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Range", meta=(ClampMin="1", ClampMax="64"))
+	int32 Min = 1;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Range", meta=(ClampMin="1", ClampMax="64"))
+	int32 Max = 1;
+};
+
+/** Width/depth bound the actual footprint, not an envelope. Room count includes hallways. */
+USTRUCT(BlueprintType)
+struct PROTOTYPE3_API FHouseGenerationRanges
+{
+	GENERATED_BODY()
+	/** Actual footprint width in cells (3..64). One cell is Cell Size centimetres. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Ranges")
+	FHouseIntegerRange WidthCells = FHouseIntegerRange(12, 12);
+	/** Actual footprint depth in cells (3..64). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Ranges")
+	FHouseIntegerRange DepthCells = FHouseIntegerRange(10, 10);
+	/** Exact total room count, including hallways (1..32). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Ranges")
+	FHouseIntegerRange RoomCount = FHouseIntegerRange(4, 4);
+};
+
 USTRUCT(BlueprintType)
 struct PROTOTYPE3_API FHouseGenerationSettings
 {
@@ -249,6 +278,18 @@ struct PROTOTYPE3_API FHouseGenerationSettings
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="House Controls|Layout")
 	int32 Seed = 12345;
+
+	/** Resolve actual width, depth and room count once from Seed. Equal bounds are fixed.
+	 * Incompatible combinations fail; retries never enlarge the footprint or raise the count. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="House Controls|Layout")
+	bool bUseGenerationRanges = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="House Controls|Layout", meta=(EditCondition="bUseGenerationRanges", EditConditionHides))
+	FHouseGenerationRanges GenerationRanges;
+
+	/** Internal resolved-setting contract. Serialized so the successful settings reproduce directly. */
+	UPROPERTY()
+	bool bRequireExactFootprint = false;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="House Controls|Layout")
 	FHouseNavigationSettings Navigation;
@@ -263,16 +304,16 @@ struct PROTOTYPE3_API FHouseGenerationSettings
 
 	/** Planned houses may grow beyond Width/Depth Cells when necessary, up to a 24 x 24 envelope.
 	 * Disable to enforce strict footprint limits. Your input dimensions are never overwritten. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="House Controls|Layout", meta=(DisplayName="Allow Larger Footprint"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="House Controls|Layout", meta=(DisplayName="Allow Larger Footprint", EditCondition="!bUseGenerationRanges", EditConditionHides))
 	bool bAllowLargerFootprint = true;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="House Controls|Layout", meta=(ClampMin="3", ClampMax="64"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="House Controls|Layout", meta=(ClampMin="3", ClampMax="64", EditCondition="!bUseGenerationRanges", EditConditionHides))
 	int32 WidthCells = 12;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="House Controls|Layout", meta=(ClampMin="3", ClampMax="64"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="House Controls|Layout", meta=(ClampMin="3", ClampMax="64", EditCondition="!bUseGenerationRanges", EditConditionHides))
 	int32 DepthCells = 10;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="House Controls|Layout", meta=(ClampMin="1", ClampMax="32"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="House Controls|Layout", meta=(ClampMin="1", ClampMax="32", EditCondition="!bUseGenerationRanges", EditConditionHides))
 	int32 RoomCount = 4;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="House Controls|Layout", meta=(ClampMin="3", ClampMax="32"))
@@ -464,8 +505,12 @@ struct PROTOTYPE3_API FHouseLayout
 class PROTOTYPE3_API FHouseLayoutGenerator
 {
 public:
+	/** Resolve inclusive ranges from the requested seed without mutating inputs. Does not validate
+	 * the remaining generation rules. Resolved output does not reroll when retry seeds change. */
+	static bool ResolveRanges(const FHouseGenerationSettings& Requested, FHouseGenerationSettings& Resolved, FString& OutError);
 	/** Editor-friendly generation: raise undersized room counts, then try up to 16 deterministic seeds.
-	 * EffectiveSettings records the successful seed/count; original request is never mutated. */
+	 * Range mode instead keeps its resolved footprint/count exact. EffectiveSettings records the
+	 * successful seed/count; original request is never mutated. */
 	static bool GenerateWithRetries(const FHouseGenerationSettings& Requested, FHouseGenerationSettings& EffectiveSettings,
 		FHouseLayout& OutLayout, int32& Attempts, FString& OutError);
 	static bool ValidateSettings(const FHouseGenerationSettings& Settings, FString& OutError);

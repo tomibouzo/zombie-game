@@ -127,14 +127,26 @@ bool AHouseEncounter::Activate()
 	const float ZombieHeight = ZombieDefaults->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
 	FHouseEncounterPlacement Candidate;
 	FString Error;
-	if (!HouseEncounterPlacement::Plan(House, Player, ZombieRadius, ZombieHeight, PreparedZombieCount, PreparedItemCount,
-		PreparedSeed, Candidate, Error)) return Fail(Error);
+	TArray<FName> SelectedTypes;
+	TArray<FVector> ItemExtents;
+	FRandomStream Random(static_cast<int32>(static_cast<uint32>(PreparedSeed) ^ 0x91e10da5u));
+	for (int32 Index=0; Index<PreparedItemCount; ++Index)
+	{
+		const FName Type=PreparedItemSelection[Random.RandRange(0,PreparedItemSelection.Num()-1)];
+		FInventoryItemProfile Profile;
+		FVector Extent;
+		if (!Catalog->GetProfile(FName(Type.ToString()+TEXT("_TestOnly")),Profile)
+			|| !ADroppedItem::GetWorldHalfExtent(Profile.Definition,Extent)) return Fail(TEXT("Collectible profile became unavailable."));
+		SelectedTypes.Add(Type); ItemExtents.Add(Extent);
+	}
+	if (!HouseEncounterPlacement::Plan(House, Player, ZombieRadius, ZombieHeight, PreparedZombieCount, ItemExtents,
+		PreparedSeed, Candidate, Error, &PlacementReport)) return Fail(Error);
 	UInventoryComponent* Inventory = Player->FindComponentByClass<UInventoryComponent>();
 	if (!Inventory) return Fail(TEXT("Player inventory became unavailable."));
-	FRandomStream Random(static_cast<int32>(static_cast<uint32>(PreparedSeed) ^ 0x91e10da5u));
-	for (const FVector& Feet : Candidate.ItemFeet)
+	for (int32 ItemIndex=0; ItemIndex<Candidate.ItemFeet.Num(); ++ItemIndex)
 	{
-		const FName Type = PreparedItemSelection[Random.RandRange(0,PreparedItemSelection.Num()-1)];
+		const FVector Feet=Candidate.ItemFeet[ItemIndex];
+		const FName Type = SelectedTypes[ItemIndex];
 		FInventoryItemProfile Profile, Existing;
 		Catalog->GetProfile(FName(Type.ToString() + TEXT("_TestOnly")), Profile);
 		if (!Inventory->GetProfile(Profile.Id, Existing))

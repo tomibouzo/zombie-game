@@ -42,22 +42,53 @@ floor inventory or direct hand pickup controls. No new item actions are added.
 
 ## Placement and failure contract
 
+### Generation ranges and placement rework
+
+Enable **House Settings > Use Generation Ranges**, then expand **Generation
+Ranges** for Width Cells, Depth Cells and Room Count minimum/maximum values.
+Equal bounds mean a fixed value. A cell is **Cell Size** centimetres (100 cm by
+default). Width/depth describe the actual house footprint between exterior wall
+centre lines, not individual room dimensions or merely a maximum envelope.
+Hallways count as rooms. Room Sizing continues to constrain planned room interiors.
+
+The seed resolves all three ranges once. Generation retries keep those dimensions
+and count; they cannot silently grow, shrink or raise the requested count. An
+incompatible sampled combination fails with its resolved values. Existing maps
+keep their previous controls until range mode is enabled. Planned layouts retain
+their residential hallway topology; arbitrary building types and room tags remain
+future work.
+
+Loot now uses each selected type's actual oriented box, supported at its centre
+and corners, plus a separate reachable player standing position within pickup
+range and with a clear view. Furniture bodies, front access and door approaches
+remain reserved. Loot uses a 50 cm candidate lattice; zombies retain 75 cm.
+Four deterministic arrangement attempts alternate zombie/loot priority without
+changing the building or counts. Larger items are placed first. Pickup approaches
+stay clear of other initial occupants. Result > Placement includes Item Access Feet;
+Placement Report records attempts and best counts. These are search results,
+not a measurement of the building's theoretical capacity.
+
+On a generated House Builder, **Draw Layout Debug** shows red furniture bodies,
+orange furniture access and green doorway approaches for 30 seconds. These shared
+clearance regions are mathematical rules, not extra physical obstacles.
+
 - The house uses the current builder, including furniture and deterministic builder
   retries. `House.GeneratedSettings` records the effective house settings.
-- A fixed 75 cm candidate lattice is shuffled by the requested seed. Candidates
+- The zombie candidate lattice is shuffled by the requested seed. Candidates
   must have supported floors, capsule clearance from static/dynamic/pawn/physics
   geometry, a complete Recast path to the entrance, and a capsule sweep along that
-  path. NPC and player dimensions are both considered. Loot uses conservatively
-  cleared standing space and a separate actual body check.
+  path. NPC and player dimensions are both considered. Loot uses the separate
+  body and pickup-access checks described above.
 - Player and exit positions reserve the doorway. Spawn centres stay at least
-  250 cm from the player and are separated by at least 110 cm (increased for
-  larger capsules). Loot, NPCs and player never share a spawn position.
+  250 cm from the player. Zombies are separated by at least 110 cm (increased for
+  larger capsules); loot spacing follows its physical size and pickup access.
+  Loot, NPCs and player never share a spawn position.
 - Zombies cannot initially spawn anywhere in the player's starting room. The
   exclusion includes a zombie capsule margin at doorways and supports translated
   and rotated houses. Zombies can enter that room afterward through normal AI
   navigation. Loot remains eligible there, subject to the existing clearance and
-  250 cm player-distance checks. Zombie and loot passes revisit the same seeded
-  candidates, so the zombie-only room exclusion does not discard loot positions.
+  250 cm player-distance checks. Loot has its own candidates, so the zombie-only
+  room exclusion does not discard loot positions.
 - A single-room house with any requested zombies cannot satisfy this rule and
   fails safely. Counts remain exact; no zombie is placed in the starting room as
   a fallback.
@@ -107,6 +138,36 @@ walking through the exit again cannot reopen the decision. This is local,
 single-player state for the lifetime of that encounter.
 
 ## Verification
+
+### Verified November 3, 2026 — generation rework first pass
+
+Win64 Development Editor build passed with zero compiler warnings. All **32/32**
+checks passed: `Prototype.House`, `Prototype.Encounter`,
+`Prototype.Inventory.PauseMenu`, `Prototype.Inventory.InputPreferences`.
+Coverage includes 128 range-resolution seeds, 24 reproducible furnished ranged
+layouts, exact planned footprints across both residential patterns/difficulties,
+range serialization and invalid/incompatible settings, shared clearance geometry,
+existing generator regressions, rollback, starting-room exclusion, ownership,
+exit choices, actual zombie movement and saved Debug preferences.
+
+Compact DeepBranches seed 217 now passes at the full 3 zombies/6 items, including
+pickup from each recorded approach. All nine collectible bodies pass rotated-house
+placement, reproducibility, approach clearance, failed/successful pickup and unique
+ownership checks. This replaces the historical compact-house limitation below.
+
+Reports: `Saved/GenerationReworkVerification/Build.log`, `Checks/index.json`,
+`Checks.log`; repeat with adjacent `RunChecks.ps1`. The first run had one stale
+test assertion checking provisional positions instead of actual typed placements;
+it was corrected and the full suite rerun. Eleven tests passed with warnings:
+13 existing crowd-manager teardown messages and one Recast tile recreation.
+Startup also lists unavailable non-Windows SDKs; Win64 is valid. No warnings were
+suppressed. Actual local map and user settings hashes remained unchanged.
+No manual Play/visual or packaged-build check was performed.
+
+This remains a bounded search: some feasible placements may still be missed,
+incompatible range samples fail, and furnishing/topology are not redesigned.
+Physics motion after spawning is outside seed reproducibility. Initial pickup
+positions are validated; dynamic zombie movement can subsequently occupy them.
 
 ### Verified November 3, 2026 — saved Debug preferences
 

@@ -3,58 +3,43 @@
 #include "Math/RandomStream.h"
 #include "Gameplay/Procedural/HouseSizing.h"
 #include "Gameplay/Procedural/HouseNavigation.h"
+#include "Gameplay/Procedural/HouseSpatial.h"
 
 namespace
 {
 	FVector2D Facing(int32 Turns)
 	{
-		switch (Turns)
-		{
-		case 1: return FVector2D(-1, 0);
-		case 2: return FVector2D(0, -1);
-		case 3: return FVector2D(1, 0);
-		default: return FVector2D(0, 1);
-		}
+		return FHouseSpatial::FurnitureFacing(Turns);
 	}
 
 	FBox2D RoomBounds(const FHouseGenerationSettings& S, const FHouseRoom& Room)
 	{
-		const double Inset = S.WallThickness * 0.5 + 5.0;
-		return FBox2D(FVector2D(Room.Min) * S.CellSize + FVector2D(Inset),
-			FVector2D(Room.Max) * S.CellSize - FVector2D(Inset));
+		return FHouseSpatial::RoomBounds(S, Room, S.WallThickness * 0.5 + 5.0);
 	}
 
 	bool Overlaps(const FBox2D& A, const FBox2D& B)
 	{
-		return A.Min.X < B.Max.X && A.Max.X > B.Min.X && A.Min.Y < B.Max.Y && A.Max.Y > B.Min.Y;
+		return FHouseSpatial::Overlaps(A, B);
 	}
 
 	bool Contains(const FBox2D& Outer, const FBox2D& Inner)
 	{
-		return Inner.Min.X >= Outer.Min.X && Inner.Min.Y >= Outer.Min.Y &&
-			Inner.Max.X <= Outer.Max.X && Inner.Max.Y <= Outer.Max.Y;
+		return FHouseSpatial::Contains(Outer, Inner);
 	}
 
 	FBox2D AccessArea(const FHouseGenerationSettings& S, const FHouseFurniturePlacement& Item)
 	{
-		const FBox2D Body = FHouseFurnishing::Footprint(S, Item);
-		const FVector2D Front = Facing(Item.QuarterTurns);
-		const FVector2D Face = Item.Center + Front * Body.GetExtent();
-		const double Depth = S.FurnitureRules[Item.RuleIndex].FrontClearance;
-		const FVector2D Size = Item.QuarterTurns % 2 ? FVector2D(Depth, Body.GetSize().Y) : FVector2D(Body.GetSize().X, Depth);
-		const FVector2D Center = Face + Front * (Depth * 0.5);
-		return FBox2D(Center - Size * 0.5, Center + Size * 0.5);
+		return FHouseSpatial::FurnitureAccess(S, Item);
 	}
 
 	FVector2D DoorCenter(const FHouseGenerationSettings& S, const FHouseWall& Wall)
 	{
-		return (FVector2D(Wall.Start) + FVector2D(Wall.End)) * (S.CellSize * 0.5);
+		return FHouseSpatial::DoorCenter(S, Wall);
 	}
 
 	FVector2D Inward(const FHouseRoom& Room, const FHouseWall& Wall)
 	{
-		if (Wall.Start.X == Wall.End.X) return FVector2D(Wall.Start.X == Room.Min.X ? 1 : -1, 0);
-		return FVector2D(0, Wall.Start.Y == Room.Min.Y ? 1 : -1);
+		return FHouseSpatial::DoorInward(Room, Wall);
 	}
 
 	bool Fits(const FHouseGenerationSettings& S, const FHouseLayout& L, const FHouseFurniturePlacement& Item, int32 IgnoreIndex = INDEX_NONE)
@@ -76,15 +61,9 @@ namespace
 		{
 			if (Wall.RoomA != Item.RoomIndex && Wall.RoomB != Item.RoomIndex) continue;
 			const bool AlongX = Wall.Start.Y == Wall.End.Y;
-			const FVector2D Normal = Inward(Room, Wall);
 			if (Wall.Opening == EHouseOpening::Door)
 			{
-				// Reserve the swept body as well as its centre's approach to the threshold.
-				// Otherwise a bed just beyond the anchor can clip a player walking through before turning.
-				const double Depth = 1.5 * S.WalkwayWidth + S.WallThickness;
-				const FVector2D Half = AlongX ? FVector2D(S.DoorWidth * 0.5 + 10, Depth * 0.5) : FVector2D(Depth * 0.5, S.DoorWidth * 0.5 + 10);
-				const FVector2D Center = DoorCenter(S, Wall) + Normal * Depth * 0.5;
-				if (Overlaps(Body, FBox2D(Center - Half, Center + Half))) return false;
+				if (Overlaps(Body, FHouseSpatial::DoorAccess(S, Room, Wall))) return false;
 			}
 			// Low counters can sit beneath a window; tall pieces cannot cover it.
 			for (const FHouseWindow& Window : Wall.Windows)
@@ -103,9 +82,7 @@ namespace
 
 FBox2D FHouseFurnishing::Footprint(const FHouseGenerationSettings& S, const FHouseFurniturePlacement& Item)
 {
-	const FVector& Size = S.FurnitureRules[Item.RuleIndex].Size;
-	const FVector2D Half = (Item.QuarterTurns % 2 ? FVector2D(Size.Y, Size.X) : FVector2D(Size.X, Size.Y)) * 0.5;
-	return FBox2D(Item.Center - Half, Item.Center + Half);
+	return FHouseSpatial::FurnitureBody(S, Item);
 }
 
 bool FHouseFurnishing::FindWalkPaths(const FHouseGenerationSettings& S, const FHouseLayout& L,
