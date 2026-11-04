@@ -26,7 +26,7 @@ void UPlayerNoiseComponent::TickComponent(float DeltaSeconds, ELevelTick TickTyp
 	if (!P) return;
 	const float Travel = FVector::Dist2D(PreviousLocation,P->GetActorLocation());
 	PreviousLocation = P->GetActorLocation();
-	if (!P->HasAuthority() || !P->IsPlayerControlled() || !P->IsAlive() || P->bIsCrouched
+	if (!P->HasAuthority() || !P->IsPlayerControlled() || !P->IsAlive() || P->IsDebugInvisibleToZombies() || P->bIsCrouched
 		|| P->GetActiveStance() == EPlayerLocomotionStance::Crouching || !P->GetCharacterMovement()->IsMovingOnGround()
 		|| Travel > FMath::Max(200.f, P->GetCharacterMovement()->GetMaxSpeed()*DeltaSeconds*2))
 	{ TravelSinceStep = 0; return; }

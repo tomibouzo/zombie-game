@@ -73,6 +73,7 @@ bool AZombieCharacter::IsStaggered() const { return GetWorld()->GetTimeSeconds()
 bool AZombieCharacter::CanHit(const AActor* Victim) const
 {
 	if (!IsValid(Victim)) return false;
+	if (const auto* Player = Cast<Aprototype3Character>(Victim); Player && Player->IsDebugInvisibleToZombies()) return false;
 	const FVector Offset = Victim->GetActorLocation() - GetActorLocation();
 	if (Offset.Size() > FMath::Max(40.f, Tuning.AttackRange)
 		|| FVector::DotProduct(GetActorForwardVector(), Offset.GetSafeNormal2D()) < FMath::Cos(FMath::DegreesToRadians(Tuning.AttackHalfAngle))) return false;

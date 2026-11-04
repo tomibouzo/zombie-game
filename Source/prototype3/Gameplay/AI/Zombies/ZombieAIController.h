@@ -26,6 +26,7 @@ public:
 	void ExecuteBehavior(EZombieBehavior State, float DeltaSeconds);
 	void RefreshSenses();
 	void NotifyDamaged(AActor* Causer);
+	void ForgetDebugPlayer(Aprototype3Character* Player);
 	FVector GetLastKnownLocation() const { return LastKnownLocation; }
 	bool HasVisualContact() const { return bVisualContact; }
 	bool IsAlerted() const { return bAlerted; }

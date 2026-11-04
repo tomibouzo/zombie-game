@@ -1,6 +1,10 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Core/Characters/prototype3Character.h"
+#include "Core/Settings/PrototypeDebugSettings.h"
+#include "Gameplay/AI/Zombies/ZombieCharacter.h"
+#include "Gameplay/AI/Zombies/ZombieAIController.h"
+#include "EngineUtils.h"
 #include "Core/PlayerControllers/prototype3PlayerController.h"
 #include "Gameplay/Combat/Melee/PlayerMeleeComponent.h"
 #include "Gameplay/Player/PlayerNoiseComponent.h"
@@ -76,6 +80,8 @@ Aprototype3Character::Aprototype3Character()
 
 void Aprototype3Character::BeginPlay()
 {
+	// Apply before component/Blueprint startup so saved invisibility is active immediately.
+	SetDebugInvisibleToZombies(GetDefault<UPrototypeDebugSettings>()->bInvisibleToZombies);
 	Super::BeginPlay();
 
 	VitalsComponent->InitializeVitals(MaxHealth, MaxStamina, StaminaRecoveryPerSecond,
@@ -651,12 +657,22 @@ void Aprototype3Character::Tick(float DeltaSeconds)
 
 float Aprototype3Character::TakeDamage(float Damage, const FDamageEvent& DamageEvent, AController* EventInstigator, AActor* DamageCauser)
 {
+	if (bDebugInvisibleToZombies && (DamageEvent.IsOfType(FZombieDamageEvent::ClassID)
+		|| Cast<AZombieCharacter>(DamageCauser) || (EventInstigator && Cast<AZombieCharacter>(EventInstigator->GetPawn())))) return 0;
 	const float AppliedDamage = VitalsComponent->ApplyDamage(Damage);
 	if (AppliedDamage > 0.0f)
 	{
 		OnHealthUpdated.Broadcast(GetHealthPercent());
 	}
 	return AppliedDamage;
+}
+
+void Aprototype3Character::SetDebugInvisibleToZombies(bool bEnabled)
+{
+	if (bDebugInvisibleToZombies == bEnabled) return;
+	bDebugInvisibleToZombies = bEnabled;
+	if (bEnabled && GetWorld())
+		for (TActorIterator<AZombieAIController> It(GetWorld()); It; ++It) It->ForgetDebugPlayer(this);
 }
 
 float Aprototype3Character::GetHealthPercent() const
