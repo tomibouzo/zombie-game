@@ -19,6 +19,10 @@ class PROTOTYPE3_API AHouseGenerator : public AActor
 
 public:
 	AHouseGenerator();
+	virtual void PostLoad() override;
+#if WITH_EDITOR
+	virtual void PostEditChangeProperty(FPropertyChangedEvent& Event) override;
+#endif
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="House Controls", meta=(ShowOnlyInnerProperties))
 	FHouseGenerationSettings Settings;

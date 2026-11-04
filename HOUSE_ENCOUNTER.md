@@ -46,6 +46,9 @@ floor inventory or direct hand pickup controls. No new item actions are added.
 
 Enable **House Settings > Use Generation Ranges**, then expand **Generation
 Ranges** for Width Cells, Depth Cells and Room Count minimum/maximum values.
+The first time ranges are enabled in Details, both bounds inherit the existing
+fixed width, depth and room count. Later off/on toggles preserve edited ranges;
+fixed controls remain separate. Existing saved custom ranges are retained.
 Equal bounds mean a fixed value. A cell is **Cell Size** centimetres (100 cm by
 default). Width/depth describe the actual house footprint between exterior wall
 centre lines, not individual room dimensions or merely a maximum envelope.
@@ -63,10 +66,26 @@ and corners, plus a separate reachable player standing position within pickup
 range and with a clear view. Furniture bodies, front access and door approaches
 remain reserved. Loot uses a 50 cm candidate lattice; zombies retain 75 cm.
 Four deterministic arrangement attempts alternate zombie/loot priority without
-changing the building or counts. Larger items are placed first. Pickup approaches
+changing that building or counts. If all fail, the encounter tries another house
+arrangement, up to four houses total. Each house uses the existing builder's
+bounded generation retries and a fresh navigation build. In range mode all four
+houses keep the same resolved dimensions/count; loot selection and requested
+zombie/item counts also stay fixed. Failed layouts are cleaned before the next
+attempt. Larger items are placed first. Pickup approaches
 stay clear of other initial occupants. Result > Placement includes Item Access Feet;
 Placement Report records attempts and best counts. These are search results,
 not a measurement of the building's theoretical capacity.
+
+During preparation a centered status prompt owns movement/look input. Success
+removes it and restores control. Exhausting the attempts shows the failure reason,
+**Try another seed**, and **End Play** (or **Exit game** outside the editor).
+Retry starts a deterministic new request seed with the original snapshotted
+settings; it can choose new values within the original ranges. It never changes
+editor controls or drops requested occupants. The retry button is disabled during
+preparation and after success. Invalid configuration requires ending Play to fix
+settings; a fixed one-room house with zombies is rejected before geometry is built.
+Result > Request Seed, Layout Attempts and Generation Status identify the request
+and outcome. Re-enter the reported Request Seed to reproduce a manual retry.
 
 On a generated House Builder, **Draw Layout Debug** shows red furniture bodies,
 orange furniture access and green doorway approaches for 30 seconds. These shared
@@ -93,9 +112,9 @@ clearance regions are mathematical rules, not extra physical obstacles.
   fails safely. Counts remain exact; no zombie is placed in the starting room as
   a fallback.
 - Generation, navigation and all spawn counts must succeed before the player is
-  moved. Failure destroys the encounter's house, landing and spawned actors,
-  preserves unrelated world actors and the player's location/loadout, sets
-  `State = Failed`, and reports `LastError`. It never silently reduces counts.
+  moved. A rejected layout destroys the encounter's house, landing and spawned actors,
+  preserves unrelated world actors and the player's location/loadout. Exhausted
+  recovery sets `State = Failed` and reports `LastError`. It never silently reduces counts.
 - The search is deliberately bounded and conservative. It may reject a house that
   a finer placement solver could use. Change the seed or lower counts and restart
   Play after failure. Do not regenerate an active encounter's owned house.
@@ -138,6 +157,32 @@ walking through the exit again cannot reopen the decision. This is local,
 single-player state for the lifetime of that encounter.
 
 ## Verification
+
+### Verified November 4, 2026 — recovery and range controls
+
+Win64 Development Editor build passed with no compiler warnings. All **36/36**
+checks passed: `Prototype.House`, `Prototype.Encounter`,
+`Prototype.Inventory.PauseMenu`, `Prototype.Inventory.InputPreferences`.
+The real Details properties inherit fixed dimensions/counts on first enable on
+both actor types and retain authored ranges across subsequent toggles.
+Seed 2235 at 12 x 10 cells, 4 rooms and 3 zombies/6 items succeeds on its second
+house arrangement. This does not establish that the previously requested 15/23
+population fits that footprint.
+
+Blocked-world tests exhaust four distinct layouts, preserve dimensions and player
+position, remove failed actors, and reproduce successful manual retries while
+retaining snapshotted counts. An automated Play test uses the actual status/retry
+widget, checks disabled retry during preparation, and verifies control restoration
+after success. The zombie movement fixture now uses explicit in-memory settings
+instead of depending on personal map edits; the authored map is never saved.
+
+Reports: `Saved/GenerationRecoveryVerification/Build.log`, `Checks/index.json`,
+`Checks.log`; adjacent `RunChecks.ps1` repeats with isolated preferences and map/
+settings hash guards. 22 checks passed cleanly and 14 with 17 existing crowd-manager
+teardown warnings; none failed or were unrun. No compiler warnings remain.
+Initial verification caught an editor property callback issue and a NullRHI UI
+attribute-refresh issue in the test; both were corrected and the full suite rerun.
+Earlier reports are retained. No manual visual or packaged-build validation was done.
 
 ### Verified November 3, 2026 — generation rework first pass
 

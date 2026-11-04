@@ -19,6 +19,23 @@
 
 DEFINE_LOG_CATEGORY_STATIC(LogHouseGenerator, Log, All);
 
+void AHouseGenerator::PostLoad()
+{
+	Super::PostLoad();
+	// Existing range-enabled maps already contain authored bounds; do not replace them on a later toggle.
+	Settings.PreserveLoadedGenerationRanges();
+}
+
+#if WITH_EDITOR
+void AHouseGenerator::PostEditChangeProperty(FPropertyChangedEvent& Event)
+{
+	if (Event.GetPropertyName() == GET_MEMBER_NAME_CHECKED(FHouseGenerationSettings, bUseGenerationRanges))
+		Settings.InitializeGenerationRanges();
+	else if (Settings.bUseGenerationRanges) Settings.bGenerationRangesInitialized = true;
+	Super::PostEditChangeProperty(Event);
+}
+#endif
+
 namespace
 {
 const TCHAR* FurnitureComponentNames[] = {TEXT("FurnitureSofa"), TEXT("FurnitureCoffeeTable"), TEXT("FurnitureKitchenCounter"),

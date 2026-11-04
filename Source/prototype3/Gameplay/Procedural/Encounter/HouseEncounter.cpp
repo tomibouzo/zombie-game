@@ -39,11 +39,29 @@ void AHouseEncounter::BeginPlay()
 	SetActorTickEnabled(bStartOnBeginPlay);
 }
 
+void AHouseEncounter::PostLoad()
+{
+	Super::PostLoad();
+	HouseSettings.PreserveLoadedGenerationRanges();
+}
+
+#if WITH_EDITOR
+void AHouseEncounter::PostEditChangeProperty(FPropertyChangedEvent& Event)
+{
+	if (Event.GetPropertyName() == GET_MEMBER_NAME_CHECKED(FHouseGenerationSettings, bUseGenerationRanges))
+		HouseSettings.InitializeGenerationRanges();
+	else if (HouseSettings.bUseGenerationRanges) HouseSettings.bGenerationRangesInitialized = true;
+	Super::PostEditChangeProperty(Event);
+}
+#endif
+
 bool AHouseEncounter::Prepare(ACharacter* InPlayer)
 {
 	if (State != EHouseEncounterState::Idle) return false;
 	State = EHouseEncounterState::Preparing;
 	Player = InPlayer;
+	if (IsValid(Player))
+		if (auto* Controller = Cast<Aprototype3PlayerController>(Player->GetController())) Controller->ShowHouseGenerationStatus(this);
 	PreparedNextSections = NextSections;
 	FHouseExitDecision ValidateOptions;
 	if (!IsValid(Player) || Player->GetWorld() != GetWorld() || !Player->FindComponentByClass<UInventoryComponent>()
@@ -52,10 +70,15 @@ bool AHouseEncounter::Prepare(ACharacter* InPlayer)
 		return Fail(TEXT("Invalid player, spawn counts, zombie class, item selection or next-section choices."));
 	// Edits made while navigation builds affect the next encounter, not this transaction.
 	PreparedSeed = HouseSettings.Seed;
+	RequestSeed = PreparedSeed;
+	RequestedHouseSettings = HouseSettings;
+	PreparedStyle = HouseStyle;
 	PreparedZombieCount = ZombieCount;
 	PreparedItemCount = ItemCount;
 	PreparedZombieClass = ZombieClass;
 	PreparedItemSelection = ItemSelection;
+	FString SettingsError;
+	if (!FHouseLayoutGenerator::ResolveRanges(RequestedHouseSettings, PreparedHouseSettings, SettingsError)) return Fail(SettingsError);
 	if (!GetActorScale3D().Equals(FVector::OneVector) || !FMath::IsNearlyZero(GetActorRotation().Pitch)
 		|| !FMath::IsNearlyZero(GetActorRotation().Roll)) return Fail(TEXT("Encounter must be upright and use unit scale."));
 	auto* Nav = FNavigationSystem::GetCurrent<UNavigationSystemV1>(GetWorld());
@@ -70,7 +93,7 @@ bool AHouseEncounter::Prepare(ACharacter* InPlayer)
 		FItemInstance Removed;
 		Catalog->RemoveItem(Entry.Item.InstanceId, Removed);
 	}
-	for (FName Type : ItemSelection)
+	for (FName Type : PreparedItemSelection)
 	{
 		FInventoryItemProfile Profile;
 		FVector Extent;
@@ -78,17 +101,43 @@ bool AHouseEncounter::Prepare(ACharacter* InPlayer)
 			|| !ADroppedItem::GetWorldHalfExtent(Profile.Definition, Extent))
 			return Fail(FString::Printf(TEXT("Unsupported collectible type: %s"), *Type.ToString()));
 	}
+	bRetryAllowed = true;
+	if (PreparedHouseSettings.bRequireExactFootprint && !FHouseLayoutGenerator::ValidateSettings(PreparedHouseSettings, SettingsError))
+		return Fail(SettingsError);
+	return BeginLayoutAttempt();
+}
+
+bool AHouseEncounter::BeginLayoutAttempt()
+{
+	bLayoutRetryPending = false;
+	++LayoutAttempts;
+	GenerationStatus = FString::Printf(TEXT("Preparing house %d of %d..."), LayoutAttempts, MaxLayoutAttempts);
+	if (PreparedHouseSettings.RoomCount == 1 && PreparedZombieCount > 0
+		&& (PreparedHouseSettings.bRequireExactFootprint || PreparedHouseSettings.Navigation.Pattern == EHouseLayoutPattern::LegacyRandom))
+	{
+		bRetryAllowed = RequestedHouseSettings.bUseGenerationRanges && RequestedHouseSettings.GenerationRanges.RoomCount.Max > 1;
+		return Fail(TEXT("A one-room house cannot contain zombies: the player's entire starting room is reserved. Increase the room count or set Zombie Count to zero."));
+	}
+	auto* Nav = FNavigationSystem::GetCurrent<UNavigationSystemV1>(GetWorld());
+	if (!Nav) return Fail(TEXT("Navigation system became unavailable."));
 	FActorSpawnParameters Spawn;
 	Spawn.Owner = this;
 	Spawn.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 	House = GetWorld()->SpawnActor<AHouseGenerator>(GetActorLocation(), GetActorRotation(), Spawn);
 	if (!House) return Fail(TEXT("Could not create the house builder."));
 	OwnedActors.Add(House);
-	House->Settings = HouseSettings;
-	House->Style = HouseStyle;
+	House->Settings = PreparedHouseSettings;
+	// Each builder invocation already tries 16 seeds. Keep the outer retry blocks disjoint.
+	House->Settings.Seed = static_cast<int32>(static_cast<uint32>(PreparedSeed) + 0x9e3779b9u * 16u * (LayoutAttempts-1));
+	House->Style = PreparedStyle;
 	House->bShowLabels = false;
 	House->GenerateHouse();
-	if (!House->LastError.IsEmpty()) return Fail(House->LastError);
+	if (!House->LastError.IsEmpty())
+	{
+		const FString GenerationError = House->LastError;
+		RecoverPlacement(GenerationError);
+		return State == EHouseEncounterState::Preparing;
+	}
 	House->SetActorHiddenInGame(true);
 	const FHouseWall* Entrance = House->Layout.Walls.FindByPredicate([](const FHouseWall& Wall)
 		{ return Wall.RoomB == INDEX_NONE && Wall.Opening == EHouseOpening::Door; });
@@ -121,6 +170,7 @@ bool AHouseEncounter::Prepare(ACharacter* InPlayer)
 bool AHouseEncounter::Activate()
 {
 	if (State != EHouseEncounterState::Preparing) return false;
+	if (bLayoutRetryPending) { BeginLayoutAttempt(); return false; }
 	if (!IsValid(Player) || !IsValid(House)) return Fail(TEXT("Player or generated house became unavailable during preparation."));
 	auto* ZombieDefaults = PreparedZombieClass.GetDefaultObject();
 	const float ZombieRadius = ZombieDefaults->GetCapsuleComponent()->GetScaledCapsuleRadius();
@@ -140,7 +190,7 @@ bool AHouseEncounter::Activate()
 		SelectedTypes.Add(Type); ItemExtents.Add(Extent);
 	}
 	if (!HouseEncounterPlacement::Plan(House, Player, ZombieRadius, ZombieHeight, PreparedZombieCount, ItemExtents,
-		PreparedSeed, Candidate, Error, &PlacementReport)) return Fail(Error);
+		PreparedSeed, Candidate, Error, &PlacementReport)) return RecoverPlacement(Error);
 	UInventoryComponent* Inventory = Player->FindComponentByClass<UInventoryComponent>();
 	if (!Inventory) return Fail(TEXT("Player inventory became unavailable."));
 	for (int32 ItemIndex=0; ItemIndex<Candidate.ItemFeet.Num(); ++ItemIndex)
@@ -217,8 +267,46 @@ bool AHouseEncounter::Activate()
 	Marker->SetRelativeRotation(FRotator(0,90,0));
 	Marker->RegisterComponent();
 	State = EHouseEncounterState::Active;
+	GenerationStatus = FString::Printf(TEXT("House ready after %d layout attempt(s). Request seed %d, layout seed %d."), LayoutAttempts, RequestSeed, House->GeneratedSeed);
 	LastError.Empty();
+	if (auto* Controller = Cast<Aprototype3PlayerController>(Player->GetController())) Controller->CloseHouseGenerationStatus(this);
 	return true;
+}
+
+bool AHouseEncounter::RecoverPlacement(const FString& Error)
+{
+	if (LayoutAttempts >= MaxLayoutAttempts)
+		return Fail(FString::Printf(TEXT("No complete encounter after %d house layouts. Last attempt: %s"), LayoutAttempts, *Error));
+	UE_LOG(LogTemp, Display, TEXT("House encounter layout %d rejected: %s"), LayoutAttempts, *Error);
+	ClearLayout();
+	bLayoutRetryPending = true;
+	GenerationStatus = FString::Printf(TEXT("Trying another arrangement (%d of %d)..."), LayoutAttempts+1, MaxLayoutAttempts);
+	return false; // No active encounter yet. Tick builds the next house and waits for its navigation.
+}
+
+bool AHouseEncounter::RetryGeneration()
+{
+	if (!CanRetryGeneration()) return false;
+	++RetryNumber;
+	PreparedSeed = static_cast<int32>(static_cast<uint32>(RequestedHouseSettings.Seed) + 0x9e3779b9u * 64u * RetryNumber);
+	RequestSeed = PreparedSeed;
+	LayoutAttempts = 0;
+	FHouseGenerationSettings Request = RequestedHouseSettings;
+	Request.Seed = PreparedSeed;
+	FString Error;
+	if (!FHouseLayoutGenerator::ResolveRanges(Request, PreparedHouseSettings, Error)
+		|| (PreparedHouseSettings.bRequireExactFootprint && !FHouseLayoutGenerator::ValidateSettings(PreparedHouseSettings, Error))) return Fail(Error);
+	State = EHouseEncounterState::Preparing;
+	LayoutAttempts = 0;
+	PlacementReport = FHouseEncounterPlacementReport();
+	LastError.Empty();
+	SetActorTickEnabled(true);
+	return BeginLayoutAttempt();
+}
+
+bool AHouseEncounter::CanRetryGeneration() const
+{
+	return State == EHouseEncounterState::Failed && bRetryAllowed && IsValid(Player);
 }
 
 bool AHouseEncounter::CheckExit()
@@ -260,6 +348,7 @@ void AHouseEncounter::Tick(float DeltaSeconds)
 	}
 	else if (State == EHouseEncounterState::Preparing)
 	{
+		if (bLayoutRetryPending) { BeginLayoutAttempt(); return; }
 		NavigationWait += DeltaSeconds;
 		auto* Nav = FNavigationSystem::GetCurrent<UNavigationSystemV1>(GetWorld());
 		if (Nav && NavigationWait >= .5f && !Nav->IsNavigationBuildInProgress()) Activate();
@@ -272,14 +361,18 @@ bool AHouseEncounter::Fail(const FString& Error)
 {
 	LastError = Error;
 	State = EHouseEncounterState::Failed;
-	Cleanup();
+	GenerationStatus = TEXT("House could not be prepared.");
+	ClearLayout();
+	bLayoutRetryPending = false;
 	SetActorTickEnabled(false);
 	UE_LOG(LogTemp, Display, TEXT("House encounter failed: %s"), *LastError);
-	if (GEngine) GEngine->AddOnScreenDebugMessage(INDEX_NONE, 30, FColor::Red, TEXT("House encounter: ") + LastError);
+	// The status prompt owns the visible error, so an old red warning cannot linger after a successful retry.
+	if (IsValid(Player))
+		if (auto* Controller = Cast<Aprototype3PlayerController>(Player->GetController())) Controller->ShowHouseGenerationStatus(this);
 	return false;
 }
 
-void AHouseEncounter::Cleanup()
+void AHouseEncounter::ClearLayout()
 {
 	for (ACharacter* Zombie : Zombies)
 		if (IsValid(Zombie) && Zombie->GetController()) Zombie->GetController()->Destroy();
@@ -288,8 +381,15 @@ void AHouseEncounter::Cleanup()
 	Items.Reset();
 	Zombies.Reset();
 	House = nullptr;
-	Catalog = nullptr;
 	Placement = FHouseEncounterPlacement();
+}
+
+void AHouseEncounter::Cleanup()
+{
+	if (IsValid(Player))
+		if (auto* Controller = Cast<Aprototype3PlayerController>(Player->GetController())) Controller->CloseHouseGenerationStatus(this);
+	ClearLayout();
+	Catalog = nullptr;
 }
 
 void AHouseEncounter::EndPlay(const EEndPlayReason::Type Reason)

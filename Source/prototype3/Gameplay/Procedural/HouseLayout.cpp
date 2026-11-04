@@ -181,6 +181,25 @@ namespace
 
 }
 
+void FHouseGenerationSettings::InitializeGenerationRanges()
+{
+	if (!bUseGenerationRanges || bGenerationRangesInitialized) return;
+	GenerationRanges.WidthCells = FHouseIntegerRange(WidthCells, WidthCells);
+	GenerationRanges.DepthCells = FHouseIntegerRange(DepthCells, DepthCells);
+	GenerationRanges.RoomCount = FHouseIntegerRange(RoomCount, RoomCount);
+	bGenerationRangesInitialized = true;
+}
+
+void FHouseGenerationSettings::PreserveLoadedGenerationRanges()
+{
+	const FHouseGenerationRanges Defaults;
+	const auto Different = [](const FHouseIntegerRange& A, const FHouseIntegerRange& B) { return A.Min != B.Min || A.Max != B.Max; };
+	// Migration for maps saved before the initialization marker existed, including disabled custom ranges.
+	if (bUseGenerationRanges || Different(GenerationRanges.WidthCells, Defaults.WidthCells)
+		|| Different(GenerationRanges.DepthCells, Defaults.DepthCells) || Different(GenerationRanges.RoomCount, Defaults.RoomCount))
+		bGenerationRangesInitialized = true;
+}
+
 bool FHouseLayoutGenerator::ResolveRanges(const FHouseGenerationSettings& Requested,
 	FHouseGenerationSettings& Resolved, FString& OutError)
 {

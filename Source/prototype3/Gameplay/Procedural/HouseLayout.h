@@ -286,6 +286,10 @@ struct PROTOTYPE3_API FHouseGenerationSettings
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="House Controls|Layout", meta=(EditCondition="bUseGenerationRanges", EditConditionHides))
 	FHouseGenerationRanges GenerationRanges;
+	/** Editor transition state; saved so disabling/re-enabling ranges retains authored bounds. */
+	UPROPERTY() bool bGenerationRangesInitialized = false;
+	void InitializeGenerationRanges();
+	void PreserveLoadedGenerationRanges();
 
 	/** Internal resolved-setting contract. Serialized so the successful settings reproduce directly. */
 	UPROPERTY()
