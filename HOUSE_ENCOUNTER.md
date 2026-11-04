@@ -52,6 +52,15 @@ floor inventory or direct hand pickup controls. No new item actions are added.
 - Player and exit positions reserve the doorway. Spawn centres stay at least
   250 cm from the player and are separated by at least 110 cm (increased for
   larger capsules). Loot, NPCs and player never share a spawn position.
+- Zombies cannot initially spawn anywhere in the player's starting room. The
+  exclusion includes a zombie capsule margin at doorways and supports translated
+  and rotated houses. Zombies can enter that room afterward through normal AI
+  navigation. Loot remains eligible there, subject to the existing clearance and
+  250 cm player-distance checks. Zombie and loot passes revisit the same seeded
+  candidates, so the zombie-only room exclusion does not discard loot positions.
+- A single-room house with any requested zombies cannot satisfy this rule and
+  fails safely. Counts remain exact; no zombie is placed in the starting room as
+  a fallback.
 - Generation, navigation and all spawn counts must succeed before the player is
   moved. Failure destroys the encounter's house, landing and spawned actors,
   preserves unrelated world actors and the player's location/loadout, sets
@@ -93,6 +102,23 @@ walking through the exit again cannot reopen the decision. This is local,
 single-player state for the lifetime of that encounter.
 
 ## Verification
+
+### Verified November 3, 2026 — starting-room exclusion
+
+Win64 Development Editor build passed with no compiler warnings. All **9/9
+`Prototype.Encounter` checks passed**, none failed or unrun. Coverage includes
+starting-room exclusion for six furnished seeds across all three layout patterns,
+translated/yaw-rotated repeatability, complete zombie paths toward the starting
+player, pickup/ownership, exit decisions, and actual zombie movement/Debug behavior
+in automated Play. A large single-room case verifies that loot remains eligible
+there, even beyond the old 250 cm player radius, while a request for one zombie
+fails and rolls back without moving the player or leaving partial occupants.
+
+Reports: `Saved/HouseStartRoomVerification/Build.log`, `Checks/index.json`, and
+`Checks.log`. Eight tests passed with warnings: nine existing crowd-manager
+teardown messages and one Recast serialized tile-allocation recreation. No
+warnings were suppressed. The user's locally edited map was left unchanged.
+No manual Play/visual or packaged-build validation was performed.
 
 ### Verified November 3, 2026 — real zombies and Debug tools
 

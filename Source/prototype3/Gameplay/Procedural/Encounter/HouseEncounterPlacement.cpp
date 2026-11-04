@@ -101,6 +101,19 @@ bool HouseEncounterPlacement::Plan(AHouseGenerator* House, APawn* Player, float 
 	}
 	if (!bEntranceFound)
 	{ Error = TEXT("No usable entrance: ") + EntranceError; return false; }
+	const FTransform HouseTransform = House->GetActorTransform();
+	const FVector LocalPlayer = HouseTransform.InverseTransformPosition(Candidate.PlayerFeet);
+	const FHouseRoom* PlayerRoom = House->Layout.Rooms.FindByPredicate([&](const FHouseRoom& Room)
+	{
+		return LocalPlayer.X > Room.Min.X * Cell && LocalPlayer.X < Room.Max.X * Cell &&
+			LocalPlayer.Y > Room.Min.Y * Cell && LocalPlayer.Y < Room.Max.Y * Cell;
+	});
+	if (!PlayerRoom)
+	{ Error = TEXT("Could not identify the player's starting room."); return false; }
+	// Reserve the whole starting room, including a capsule margin at open doorways.
+	// This affects initial zombie placement only; navigation into the room stays enabled.
+	const FBox2D ZombieExclusion = FBox2D(FVector2D(PlayerRoom->Min) * Cell,
+		FVector2D(PlayerRoom->Max) * Cell).ExpandBy(ZombieRadius + 2.f);
 	TArray<FVector> Points;
 	// Fixed lattice plus seeded shuffle. No navmesh random-point calls or actor iteration order in selection.
 	// Original Random Layout stores its footprint in GeneratedSettings; planned layouts store an explicit rectangle.
@@ -115,19 +128,28 @@ bool HouseEncounterPlacement::Plan(AHouseGenerator* House, APawn* Player, float 
 	for (int32 I = Points.Num()-1; I > 0; --I) Points.Swap(I, Random.RandRange(0,I));
 	TArray<FVector> Reserved = {Candidate.PlayerFeet, Candidate.ExitFeet};
 	const float Separation = FMath::Max(110.f, Radius * 2 + 30);
-	for (const FVector& Point : Points)
+	// Revisit the same seeded candidates for loot so positions skipped by the
+	// zombie-only room exclusion remain available to items.
+	for (const bool bZombies : {true, false})
 	{
-		if (Candidate.ZombieFeet.Num() == ZombieCount && Candidate.ItemFeet.Num() == ItemCount) break;
-		if (FVector::Dist2D(Point, Candidate.PlayerFeet) < 250 || Reserved.ContainsByPredicate([&](const FVector& P)
-			{ return FVector::DistSquared2D(Point,P) < FMath::Square(Separation); })) continue;
-		if (!ClearCapsule(World, Point, Radius, Height, Player) || !Reachable(World, Point, Candidate.PlayerFeet, Radius, Height, Player)) continue;
-		if (Candidate.ZombieFeet.Num() < ZombieCount) Candidate.ZombieFeet.Add(Point);
-		else Candidate.ItemFeet.Add(Point);
-		Reserved.Add(Point);
+		TArray<FVector>& Positions = bZombies ? Candidate.ZombieFeet : Candidate.ItemFeet;
+		const int32 Count = bZombies ? ZombieCount : ItemCount;
+		for (const FVector& Point : Points)
+		{
+			if (Positions.Num() == Count) break;
+			const FVector LocalPoint = HouseTransform.InverseTransformPosition(Point);
+			if (bZombies && ZombieExclusion.IsInsideOrOn(FVector2D(LocalPoint.X, LocalPoint.Y))) continue;
+			if (FVector::Dist2D(Point, Candidate.PlayerFeet) < 250 || Reserved.ContainsByPredicate([&](const FVector& P)
+				{ return FVector::DistSquared2D(Point,P) < FMath::Square(Separation); })) continue;
+			if (!ClearCapsule(World, Point, Radius, Height, Player) || !Reachable(World, Point, Candidate.PlayerFeet, Radius, Height, Player)) continue;
+			Positions.Add(Point);
+			Reserved.Add(Point);
+		}
+		if (Positions.Num() != Count) break;
 	}
 	if (Candidate.ZombieFeet.Num() != ZombieCount || Candidate.ItemFeet.Num() != ItemCount)
 	{
-		Error = FString::Printf(TEXT("No complete placement: found %d/%d zombies and %d/%d items. Reduce counts or change the seed."),
+		Error = FString::Printf(TEXT("No complete placement (zombies exclude the player's starting room): found %d/%d zombies and %d/%d items. Reduce counts or change the seed."),
 			Candidate.ZombieFeet.Num(), ZombieCount, Candidate.ItemFeet.Num(), ItemCount);
 		return false;
 	}

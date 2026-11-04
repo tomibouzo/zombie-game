@@ -89,6 +89,26 @@ struct FWorld
 		for (TActorIterator<ANavigationData> It(World); It; ++It) It->EnsureBuildCompletion();
 	}
 };
+
+void CheckStartingRoom(FAutomationTestBase& Test, const AHouseGenerator* House,
+	const FHouseEncounterPlacement& Placement, float ZombieRadius)
+{
+	const FHouseWall* Entrance = House->Layout.Walls.FindByPredicate([](const FHouseWall& Wall)
+		{ return Wall.RoomB == INDEX_NONE && Wall.Opening == EHouseOpening::Door; });
+	if (!Test.TestNotNull(TEXT("House has an entrance room"), Entrance)) return;
+	const FHouseRoom& Room = House->Layout.Rooms[Entrance->RoomA];
+	const float Cell = House->GeneratedSettings.CellSize;
+	const FBox2D Bounds(FVector2D(Room.Min) * Cell, FVector2D(Room.Max) * Cell);
+	const FTransform Transform = House->GetActorTransform();
+	const FVector LocalPlayer = Transform.InverseTransformPosition(Placement.PlayerFeet);
+	Test.TestTrue(TEXT("Player starts in entrance room"), Bounds.IsInsideOrOn(FVector2D(LocalPlayer.X, LocalPlayer.Y)));
+	for (const FVector& Feet : Placement.ZombieFeet)
+	{
+		const FVector LocalZombie = Transform.InverseTransformPosition(Feet);
+		Test.TestFalse(TEXT("Zombie body stays outside whole player starting room"),
+			Bounds.ExpandBy(ZombieRadius).IsInsideOrOn(FVector2D(LocalZombie.X, LocalZombie.Y)));
+	}
+}
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHouseEncounterChoicesTest, "Prototype.Encounter.ExitChoices",
@@ -147,6 +167,8 @@ bool FHouseEncounterIntegrationTest::RunTest(const FString&)
 			TestTrue(TEXT("Zombie has complete collision-checked navigation path to player"), HouseEncounterPlacement::Reachable(Fixture.World,Feet,First.PlayerFeet,34,96,Fixture.Player));
 		}
 		if (!TestTrue(TEXT("Entire encounter activates"), Encounter->Activate())) { AddError(Encounter->LastError); return false; }
+		EncounterTests::CheckStartingRoom(*this, Encounter->House, Encounter->Placement,
+			Encounter->Zombies[0]->GetSimpleCollisionRadius());
 		TestEqual(TEXT("Exact zombie count"), Encounter->Zombies.Num(),Zombies);
 		TestEqual(TEXT("Exact item count"), Encounter->Items.Num(),Items);
 		for (int32 Index = 0; Index < Encounter->Zombies.Num(); ++Index)
@@ -212,6 +234,8 @@ bool FHouseEncounterReproTest::RunTest(const FString&)
 		Fixture.Build();
 		if (!TestTrue(TEXT("Prepared settings remain stable"),Encounter->Activate())) { AddError(Encounter->LastError); return false; }
 		const auto& Current = Encounter->Placement;
+		EncounterTests::CheckStartingRoom(*this, Encounter->House, Current,
+			Encounter->Zombies[0]->GetSimpleCollisionRadius());
 		if (Run == 0) First = Current;
 		else TestTrue(TEXT("Regenerated house repeats spawn transforms and selected loot types"),
 			Current.PlayerFeet == First.PlayerFeet && Current.ExitFeet == First.ExitFeet && Current.ZombieFeet == First.ZombieFeet
@@ -220,6 +244,40 @@ bool FHouseEncounterReproTest::RunTest(const FString&)
 		Encounter->Destroy();
 	}
 	TestEqual(TEXT("Repeatable loot uses fresh ownership identities across encounters"),Ids.Num(),12);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHouseEncounterStartingRoomTest, "Prototype.Encounter.StartingRoomExclusion",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FHouseEncounterStartingRoomTest::RunTest(const FString&)
+{
+	EncounterTests::FWorld Fixture;
+	const FVector Original = Fixture.Player->GetActorLocation();
+	auto* Encounter = Fixture.Create(12345);
+	Encounter->SetActorLocationAndRotation(FVector(400,100,0), FRotator(0,37,0));
+	Encounter->HouseSettings.RoomCount = 1;
+	Encounter->HouseSettings.bGenerateFurniture = false;
+	Encounter->ZombieCount = 1;
+	Encounter->ItemCount = 6;
+	if (!TestTrue(TEXT("Large single-room house prepares"), Encounter->Prepare(Fixture.Player)))
+	{ AddError(Encounter->LastError); return false; }
+	Fixture.Build();
+	FHouseEncounterPlacement Plan;
+	FString Error;
+	if (!TestTrue(TEXT("Loot still fits in the player room without zombies"), HouseEncounterPlacement::Plan(
+		Encounter->House, Fixture.Player,34,96,0,6,12345,Plan,Error))) { AddError(Error); return false; }
+	TestEqual(TEXT("All requested loot remains available"), Plan.ItemFeet.Num(),6);
+	EncounterTests::CheckStartingRoom(*this, Encounter->House, Plan,34);
+	for (const FVector& Feet : Plan.ItemFeet)
+		TestTrue(TEXT("Starting-room loot may be beyond the old player exclusion radius"), FVector::Dist2D(Feet,Plan.PlayerFeet) >= 250);
+	TestFalse(TEXT("Even one zombie cannot spawn elsewhere in the same large room"), HouseEncounterPlacement::Plan(
+		Encounter->House, Fixture.Player,34,96,1,6,12345,Plan,Error));
+	TestTrue(TEXT("Failed plan clears prior loot and zombie positions"), Plan.ItemFeet.IsEmpty() && Plan.ZombieFeet.IsEmpty());
+	TestTrue(TEXT("Room exclusion failure reports zero valid zombies"), Error.Contains(TEXT("0/1 zombies")));
+	TestFalse(TEXT("Encounter rolls back when all zombie space is in the player room"), Encounter->Activate());
+	TestEqual(TEXT("Failure is terminal"), Encounter->State,EHouseEncounterState::Failed);
+	TestTrue(TEXT("Room exclusion failure removes house and all partial occupants"), !Encounter->House && Encounter->Zombies.IsEmpty() && Encounter->Items.IsEmpty());
+	TestTrue(TEXT("Room exclusion failure preserves player position"), Fixture.Player->GetActorLocation().Equals(Original));
 	return true;
 }
 
