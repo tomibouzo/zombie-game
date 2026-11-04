@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "GameplayTagContainer.h"
 #include "HouseLayout.generated.h"
 
 UENUM(BlueprintType)
@@ -162,6 +163,49 @@ enum class EHouseFurnitureType : uint8
 	Count UMETA(Hidden)
 };
 
+/** Labels select rooms without changing their physical type or household purpose. */
+USTRUCT(BlueprintType)
+struct PROTOTYPE3_API FHouseRoomTagAssignment
+{
+	GENERATED_BODY()
+	/** -1 selects all rooms matching Match Tags. Room IDs are specific to a generated layout. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Room Rules", meta=(ClampMin="-1", ClampMax="31"))
+	int32 RoomIndex = INDEX_NONE;
+	/** All tags must match. Evaluated against automatic tags only, never other added labels. Empty matches all. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Room Rules", meta=(Categories="Room.Type,Room.Purpose,Room.Role"))
+	FGameplayTagContainer MatchTags;
+	/** Custom children of Room.Label; automatic Type/Purpose/Role tags cannot be overwritten. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Room Rules", meta=(Categories="Room.Label"))
+	FGameplayTagContainer AdditionalTags;
+};
+
+/** All matching rules apply; any spawn denial wins. Empty arrays preserve existing generation. */
+USTRUCT(BlueprintType)
+struct PROTOTYPE3_API FHouseRoomRule
+{
+	GENERATED_BODY()
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Room Rules")
+	FName RuleName = TEXT("Room rule");
+	/** Match ALL tags, including their descendants. Must not be empty. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Room Rules", meta=(Categories="Room"))
+	FGameplayTagContainer MatchTags;
+	/** Fail generation if this rule matches no room in the completed house. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Room Rules")
+	bool bRequireMatchingRoom = false;
+	/** At least one of each type. Placed first, with normal catalogue eligibility and clearance checks. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Room Rules")
+	TArray<EHouseFurnitureType> RequiredFurniture;
+	/** Every directly connected room must match at least ONE tag. Empty means unrestricted.
+	 * Restricts interior doorways, not shared walls; does not override the existing residential plan. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Room Rules", meta=(Categories="Room"))
+	FGameplayTagContainer AllowedNeighborTags;
+	/** The player's entrance room is always protected, even when this is enabled. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Room Rules")
+	bool bAllowZombieSpawns = true;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Room Rules")
+	bool bAllowItemSpawns = true;
+};
+
 /** One optional item per matching room. Sizes use local X=width, Y=depth, Z=height; front is +Y. */
 USTRUCT(BlueprintType)
 struct PROTOTYPE3_API FHouseFurnitureRule
@@ -305,6 +349,11 @@ struct PROTOTYPE3_API FHouseGenerationSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="House Controls|Layout")
 	FHouseSizingSettings RoomSizing;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="House Controls|Room Rules", meta=(TitleProperty="RoomIndex"))
+	TArray<FHouseRoomTagAssignment> RoomTagAssignments;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="House Controls|Room Rules", meta=(TitleProperty="RuleName"))
+	TArray<FHouseRoomRule> RoomRules;
+
 
 	/** Planned houses may grow beyond Width/Depth Cells when necessary, up to a 24 x 24 envelope.
 	 * Disable to enforce strict footprint limits. Your input dimensions are never overwritten. */
@@ -383,6 +432,13 @@ USTRUCT(BlueprintType)
 struct PROTOTYPE3_API FHouseRoom
 {
 	GENERATED_BODY()
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="House|Room Rules")
+	FGameplayTagContainer Tags;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="House|Room Rules")
+	bool bAllowZombieSpawns = true;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="House|Room Rules")
+	bool bAllowItemSpawns = true;
 
 	/** Integer grid bounds; Max is exclusive. Array index is the stable room ID. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="House")

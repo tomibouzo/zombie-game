@@ -58,8 +58,7 @@ The seed resolves all three ranges once. Generation retries keep those dimension
 and count; they cannot silently grow, shrink or raise the requested count. An
 incompatible sampled combination fails with its resolved values. Existing maps
 keep their previous controls until range mode is enabled. Planned layouts retain
-their residential hallway topology; arbitrary building types and room tags remain
-future work.
+their residential hallway topology; arbitrary building types remain future work.
 
 Loot now uses each selected type's actual oriented box, supported at its centre
 and corners, plus a separate reachable player standing position within pickup
@@ -90,6 +89,67 @@ and outcome. Re-enter the reported Request Seed to reproduce a manual retry.
 On a generated House Builder, **Draw Layout Debug** shows red furniture bodies,
 orange furniture access and green doorway approaches for 30 seconds. These shared
 clearance regions are mathematical rules, not extra physical obstacles.
+
+### Room tags and rules
+
+Expand **House Settings > Room Rules** on the encounter (or **Settings > Room
+Rules** on a standalone builder). **Room Rules** and **Room Tag Assignments** are
+empty by default. They are saved with the map and included in the encounter's
+prepared settings snapshot. The seed and settings determine their results.
+
+Generated rooms receive `Room.Type.*`, `Room.Purpose.*` and, for the entrance,
+`Room.Role.Entrance`. Room type is the physical residential category; purpose
+refines private bedrooms into primary/guest/child bedrooms, offices or storage.
+An optional bedroom converted to an office receives updated tags and rules.
+Inspect **Layout > Rooms** on the generated builder, or use **Draw Layout Debug**
+to see tags and initial spawn permissions alongside the clearance boxes.
+
+Each rule needs a unique **Rule Name** and nonempty **Match Tags**. All selected
+tags must match; a parent such as `Room.Type` matches any type beneath it.
+Multiple matching rules combine: a spawn denial always wins, furniture
+requirements accumulate, and every neighbor restriction must be satisfied.
+**Require Matching Room** rejects a completed house with no matching room;
+otherwise an unmatched rule is simply unused.
+
+| Control | Effect |
+| --- | --- |
+| Required Furniture | Requires at least one piece of each selected type in every matching room. Required types are attempted before optional pieces. |
+| Allowed Neighbor Tags | Each room connected by an interior doorway must match at least one listed tag. Empty means unrestricted. Both ends' rules apply; sharing a solid wall does not count. |
+| Allow Zombie Spawns | Turning this off excludes the whole room plus a capsule margin at doorways. The entrance room remains excluded even if all matching rules allow zombies. |
+| Allow Item Spawns | Turning this off excludes collectible bodies from that room. It does not remove furniture or restrict walking. |
+
+Required furniture still follows catalogue type/purpose/style eligibility,
+unfurnished overrides, physical clearance and walking routes. It overrides the
+density threshold only. Disabling furniture generation or requesting an
+ineligible/oversized required piece fails with the rule name and room/type.
+Bedroom-to-office fallback cannot evade a required bed. The generator does not
+silently omit requirements, reduce population, or relax geometry checks.
+
+For example, create a rule named **Quiet kitchen**, set Match Tags to
+`Room.Type.Kitchen`, and disable Allow Zombie Spawns. To require a furnished
+living room, match `Room.Type.LivingRoom` and add `Sofa` to Required Furniture.
+For hallway-only bedroom access, match `Room.Type.Bedroom` and allow neighbor
+`Room.Type.Hallway`; use a planned residential pattern that supports that rule.
+
+For custom labels, add a **Room Tag Assignment**: use automatic type/purpose/role
+tags as its filter, optionally restrict it to a room ID, and add a child of
+`Room.Label`. The included `Room.Label.Safe` and `Room.Label.Loot` are examples;
+they have no effect until a rule matches them. More labels can be registered in
+Project Settings > Gameplay Tags. Room ID `-1` means all matching rooms, and an
+empty assignment filter matches all types. IDs belong to the current layout and
+can change on a different seed/retry; use semantic tags for portable rules.
+Assignments cannot replace automatic tags or depend on other added labels, so
+their order cannot change the result. Limits: 32 rules, 32 assignments, 16 tags
+per selector/label list; required furniture types must be unique.
+
+These rules constrain the existing generator. Door restrictions validate its
+completed graph and participate in bounded generation retries; they do not
+rewire doors, invent new building types, or rearrange previously placed furniture.
+Contradictory rules may reject every attempt. Population restrictions use the
+existing all-or-nothing encounter recovery flow. They affect initial placement,
+not subsequent zombie movement or player-dropped items.
+
+### Placement guarantees
 
 - The house uses the current builder, including furniture and deterministic builder
   retries. `House.GeneratedSettings` records the effective house settings.
@@ -294,6 +354,31 @@ establish visual quality, gameplay feel, NPC movement behavior, or packaged buil
 The user performs Play testing. Verified commands/results are recorded separately
 in the project continuity notes and the run's `Saved/HouseEncounterVerification`.
 
+### Room-rule verification — November 4, 2026
+
+Win64 Development Editor build passed with no compiler warnings. All **41**
+checks in `Prototype.House`, `Prototype.Encounter`, `Prototype.Inventory.PauseMenu`
+and `Prototype.Inventory.InputPreferences` passed: 26 clean and 15 with existing
+crowd-manager warnings during temporary-world teardown; none failed or were unrun.
+No warnings were suppressed. Startup also reports absent non-Windows SDKs; Win64
+is valid. The user's map and actual saved preferences were hash-checked unchanged.
+
+New checks cover automatic/custom tags across 12 repeated layouts spanning all
+three patterns, unchanged geometry for nonrestrictive rules, hierarchical/all-tag
+matching, deny precedence, invalid settings, required furniture and safe failure,
+reciprocal door restrictions, and rotated encounter placement/reproducibility with
+room exclusions and full zombie paths. Extended checks cover office-fallback tag
+updates, required-bed protection, and actual map save/unload/reload of rules and
+generated metadata. Existing pickup/ownership, retry UI, exit decisions, real
+zombie Play integration and persisted Debug preferences also pass.
+
+Reports: `Saved/HouseRoomRulesVerification/{Build.log,Checks/index.json,Checks.log}`.
+Adjacent `RunChecks.ps1` repeats the selection with isolated user settings.
+Initial test compilation caught a shadowed local name; the first run caught an
+aliased-array insertion in the new duplicate-rule test. Both test issues were
+fixed, and the complete suite rerun successfully; initial logs are retained.
+No manual visual playtest or packaged build was performed for this pass.
+
 ### Historical verification — October 30, 2026 (placeholder version)
 
 `Scripts/VerifyHouseEncounter.ps1 -EngineRoot C:\UE_5.8` completed successfully:
@@ -326,6 +411,8 @@ packaged builds. No assistant Play session was run; user Play testing is pending
 
 ## Code
 
+- `Gameplay/Procedural/HouseRoomRules.*`: automatic/custom tags, rule validation,
+  required furniture, connection restrictions and initial spawn permissions.
 - `Gameplay/Procedural/Encounter/HouseEncounter.*`: lifecycle, transactional spawning,
   lighting, entrance crossing and terminal decision.
 - `HouseEncounterPlacement.*`: occupied geometry, floor support, Recast routes,

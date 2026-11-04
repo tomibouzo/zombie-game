@@ -404,10 +404,12 @@ void AHouseGenerator::DrawLayoutDebug()
 		DrawDebugBox(GetWorld(), Transform.TransformPosition(Center), Extent * Transform.GetScale3D().GetAbs(),
 			Transform.GetRotation(), Color, false, 30.0f, 0, 4.0f);
 		const bool bDeadEnd = Report.DeadEndRooms.Contains(Index);
-		DrawDebugString(GetWorld(), Transform.TransformPosition(Center), FString::Printf(TEXT("%d: %s | %d doors%s%s%s"), Index,
+		DrawDebugString(GetWorld(), Transform.TransformPosition(Center), FString::Printf(TEXT("%d: %s | %d doors%s%s%s\n%s\nInitial spawns: zombies %s | loot %s"), Index,
 			*FHouseHousehold::RoomLabel(Room), Report.RoomDoorDepths[Index],
 			bDeadEnd ? TEXT(" | dead end") : TEXT(""), Index == Report.DeepestRoom ? TEXT(" | deepest") : TEXT(""),
-			Index == Report.EntranceRoom ? TEXT(" | entrance") : TEXT("")), nullptr, bDeadEnd ? FColor::Red : Color, 30.0f);
+			Index == Report.EntranceRoom ? TEXT(" | entrance") : TEXT(""), *Room.Tags.ToStringSimple(),
+			Room.bAllowZombieSpawns ? TEXT("allowed") : TEXT("blocked"), Room.bAllowItemSpawns ? TEXT("allowed") : TEXT("blocked")),
+			nullptr, bDeadEnd ? FColor::Red : Color, 30.0f);
 	}
 	if (Layout.Rooms.Num())
 		DrawDebugString(GetWorld(), Transform.TransformPosition(FVector(0, -80, 100)),

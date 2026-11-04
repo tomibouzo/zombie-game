@@ -2,6 +2,7 @@
 #include "Gameplay/Procedural/HouseHousehold.h"
 #include "Gameplay/Procedural/HouseSizing.h"
 #include "Gameplay/Procedural/HouseFurnishing.h"
+#include "Gameplay/Procedural/HouseRoomRules.h"
 #include "Gameplay/Procedural/HouseNavigation.h"
 
 #include "Math/RandomStream.h"
@@ -287,7 +288,7 @@ bool FHouseLayoutGenerator::ValidateSettings(const FHouseGenerationSettings& S, 
 		for (EHouseRoomType Type : Rule.AllowedRooms)
 			if (Type > EHouseRoomType::Hallway) { OutError = TEXT("Unknown room type in furniture rule."); return false; }
 	}
-	return FHouseSizing::ValidateSettings(S, OutError) && FHouseHousehold::ValidateSettings(S, OutError) && FHouseNavigation::ValidateSettings(S, OutError);
+	return FHouseSizing::ValidateSettings(S, OutError) && FHouseHousehold::ValidateSettings(S, OutError) && FHouseNavigation::ValidateSettings(S, OutError) && FHouseRoomRules::ValidateSettings(S, OutError);
 }
 
 bool FHouseLayoutGenerator::GenerateWithRetries(const FHouseGenerationSettings& Requested,
@@ -369,6 +370,7 @@ bool FHouseLayoutGenerator::Generate(const FHouseGenerationSettings& S, FHouseLa
 		}
 		if (Connected != Connections.Num()) { OutError = TEXT("A planned room connection has no shared wall."); return false; }
 		if (!FHouseHousehold::Assign(S, Layout, OutError)) return false;
+		FHouseRoomRules::Refresh(S, Layout);
 		GenerateWindows(S, Layout);
 		if (!FHouseFurnishing::Generate(S, Layout, OutError)) return false;
 		Layout.Navigation = FHouseNavigation::Measure(Layout);
@@ -465,6 +467,7 @@ bool FHouseLayoutGenerator::Generate(const FHouseGenerationSettings& S, FHouseLa
 		}
 		AssignRoomTypes(Layout, Entrance.RoomA);
 		if (!FHouseHousehold::Assign(S, Layout, OutError)) return false;
+		FHouseRoomRules::Refresh(S, Layout);
 		GenerateWindows(S, Layout);
 		if (!FHouseFurnishing::Generate(S, Layout, OutError)) return false;
 		Layout.Navigation = FHouseNavigation::Measure(Layout);
@@ -475,6 +478,7 @@ bool FHouseLayoutGenerator::Generate(const FHouseGenerationSettings& S, FHouseLa
 		if (S.bRequireExactFootprint)
 			Layout.SizeSummary = FString::Printf(TEXT("Exact footprint %d x %d cells (%.1f x %.1f m); %d rooms. Room labels show clear internal dimensions."),
 				Actual.X, Actual.Y, Actual.X * S.CellSize / 100.f, Actual.Y * S.CellSize / 100.f, Layout.Rooms.Num());
+		if (!FHouseRoomRules::Validate(S, Layout, OutError)) return false;
 		if (Validate(S, Layout, OutError))
 		{
 			OutLayout = MoveTemp(Layout);
@@ -614,5 +618,5 @@ bool FHouseLayoutGenerator::Validate(const FHouseGenerationSettings& S, const FH
 		return false;
 	}
 	if (!FHouseNavigation::ValidatePlan(S, Layout, OutError)) return false;
-	return FHouseSizing::Validate(S, Layout, OutError) && FHouseHousehold::Validate(S, Layout, OutError) && FHouseFurnishing::Validate(S, Layout, OutError);
+	return FHouseSizing::Validate(S, Layout, OutError) && FHouseHousehold::Validate(S, Layout, OutError) && FHouseFurnishing::Validate(S, Layout, OutError) && FHouseRoomRules::Validate(S, Layout, OutError);
 }

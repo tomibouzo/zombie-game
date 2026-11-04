@@ -145,7 +145,10 @@ bool HouseEncounterPlacement::Plan(AHouseGenerator* House, APawn* Player, float 
 	{ Error = TEXT("Could not identify the player's starting room."); return false; }
 	// Reserve the whole starting room, including a capsule margin at open doorways.
 	// This affects initial zombie placement only; navigation into the room stays enabled.
-	const FBox2D ZombieExclusion = FHouseSpatial::RoomBounds(House->GeneratedSettings,House->Layout.Rooms[PlayerRoom]).ExpandBy(ZombieRadius+2);
+	TArray<FBox2D> ZombieExclusions;
+	for (int32 I=0; I<House->Layout.Rooms.Num(); ++I)
+		if (I==PlayerRoom || !House->Layout.Rooms[I].bAllowZombieSpawns)
+			ZombieExclusions.Add(FHouseSpatial::RoomBounds(House->GeneratedSettings,House->Layout.Rooms[I]).ExpandBy(ZombieRadius+2));
 	TArray<FVector> ZombiePoints, ItemPoints;
 	// Fixed lattice plus seeded shuffle. No navmesh random-point calls or actor iteration order in selection.
 	// Original Random Layout stores its footprint in GeneratedSettings; planned layouts store an explicit rectangle.
@@ -202,7 +205,9 @@ bool HouseEncounterPlacement::Plan(AHouseGenerator* House, APawn* Player, float 
 			{
 				if (Candidate.ZombieFeet.Num() == ZombieCount) break;
 				const FVector Point = ZombiePoints[Index];
-				if (ZombieExclusion.IsInsideOrOn(Local2(Point)) || FVector::Dist2D(Point,Candidate.PlayerFeet) < 250) continue;
+				if (ZombieExclusions.ContainsByPredicate([&](const FBox2D& Zone) { return Zone.IsInsideOrOn(Local2(Point)); })
+					|| FHouseSpatial::RoomAt(House->GeneratedSettings,House->Layout,Local2(Point))==INDEX_NONE
+					|| FVector::Dist2D(Point,Candidate.PlayerFeet) < 250) continue;
 				if (Candidate.ZombieFeet.ContainsByPredicate([&](FVector P) { return FVector::Dist2D(P,Point)<Separation; })
 					|| ItemBoxes.ContainsByPredicate([&](const FBox2D& Box) { return BodyNear(Box,Local2(Point),Radius); })
 					|| Candidate.ItemAccessFeet.ContainsByPredicate([&](FVector P) { return FVector::Dist2D(P,Point)<PlayerRadius+ZombieRadius+5; })) continue;
@@ -236,7 +241,7 @@ bool HouseEncounterPlacement::Plan(AHouseGenerator* House, APawn* Player, float 
 					const FVector2D Local=Local2(Feet), Margin(Extent.X+2,Extent.Y+2);
 					const FBox2D Box(Local-Margin,Local+Margin);
 					const int32 Room=FHouseSpatial::RoomAt(House->GeneratedSettings,House->Layout,Local);
-					if (Room==INDEX_NONE || !FHouseSpatial::Contains(FHouseSpatial::RoomBounds(House->GeneratedSettings,
+					if (Room==INDEX_NONE || !House->Layout.Rooms[Room].bAllowItemSpawns || !FHouseSpatial::Contains(FHouseSpatial::RoomBounds(House->GeneratedSettings,
 						House->Layout.Rooms[Room],House->GeneratedSettings.WallThickness*.5),Box)) continue;
 					if (AccessZones.ContainsByPredicate([&](const FBox2D& Zone) { return FHouseSpatial::Overlaps(Zone,Box); })
 						|| ItemBoxes.ContainsByPredicate([&](const FBox2D& Other) { return FHouseSpatial::Overlaps(Other.ExpandBy(8),Box); })

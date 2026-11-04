@@ -1,4 +1,5 @@
 #include "Gameplay/Procedural/HouseFurnishing.h"
+#include "Gameplay/Procedural/HouseRoomRules.h"
 #include "Gameplay/Procedural/HouseHousehold.h"
 #include "Math/RandomStream.h"
 #include "Gameplay/Procedural/HouseSizing.h"
@@ -167,7 +168,12 @@ bool FHouseFurnishing::Generate(const FHouseGenerationSettings& S, FHouseLayout&
 {
 	L.Furniture.Reset();
 	L.SkippedFurnitureCount = 0;
-	if (!S.bGenerateFurniture) return true;
+	if (!S.bGenerateFurniture)
+	{
+		for (int32 I = 0; I < L.Rooms.Num(); ++I)
+			if (!FHouseRoomRules::ValidateFurniture(S, L, I, OutError)) return false;
+		return true;
+	}
 	FRandomStream Random(static_cast<int32>(static_cast<uint32>(S.Seed) ^ 0x61C88647u));
 	TArray<int32> RuleOrder;
 	for (int32 I = 0; I < S.FurnitureRules.Num(); ++I) RuleOrder.Add(I);
@@ -183,10 +189,16 @@ bool FHouseFurnishing::Generate(const FHouseGenerationSettings& S, FHouseLayout&
 		const FBox2D Room = RoomBounds(S, L.Rooms[RoomIndex]);
 		auto FurnishRoom = [&]()
 		{
-			for (int32 RuleIndex : RuleOrder)
+			TArray<int32> RoomOrder = RuleOrder;
+			RoomOrder.StableSort([&](int32 A, int32 B)
+			{
+				return FHouseRoomRules::RequiresFurniture(S, L.Rooms[RoomIndex], S.FurnitureRules[A].Type) &&
+					!FHouseRoomRules::RequiresFurniture(S, L.Rooms[RoomIndex], S.FurnitureRules[B].Type);
+			});
+			for (int32 RuleIndex : RoomOrder)
 			{
 				const FHouseFurnitureRule& Rule = S.FurnitureRules[RuleIndex];
-				if (!FHouseHousehold::WantsFurniture(S, L.Rooms[RoomIndex], RoomIndex, RuleIndex)) continue;
+				if (!FHouseRoomRules::WantsFurniture(S, L.Rooms[RoomIndex], RoomIndex, RuleIndex)) continue;
 				TArray<FHouseFurniturePlacement> Candidates;
 				for (int32 Turn = 0; Turn < 4; ++Turn)
 				{
@@ -233,6 +245,8 @@ bool FHouseFurnishing::Generate(const FHouseGenerationSettings& S, FHouseLayout&
 		};
 		const int32 SkippedBefore = L.SkippedFurnitureCount;
 		FurnishRoom();
+		// Validate before an optional bedroom becomes an office: fallback must not evade a requirement.
+		if (!FHouseRoomRules::ValidateFurniture(S, L, RoomIndex, OutError)) return false;
 		FHouseRoom& R = L.Rooms[RoomIndex];
 		const bool bBedroom = R.RoomType == EHouseRoomType::Bedroom && R.Purpose != EHouseRoomPurpose::Office && R.Purpose != EHouseRoomPurpose::Storage;
 		if (S.Navigation.Pattern == EHouseLayoutPattern::LegacyRandom || !bBedroom || R.bUnfurnished || L.Furniture.ContainsByPredicate([&](const FHouseFurniturePlacement& I) { return I.RoomIndex == RoomIndex && IsBed(I.Type); })) continue;
@@ -252,6 +266,7 @@ bool FHouseFurnishing::Generate(const FHouseGenerationSettings& S, FHouseLayout&
 			return false;
 		}
 		R.Purpose = EHouseRoomPurpose::Office;
+		FHouseRoomRules::Refresh(S, L);
 		if (S.Navigation.Pattern != EHouseLayoutPattern::LegacyRandom && !FHouseSizing::Fits(S, R, R.Max - R.Min, false))
 		{
 			OutError = FString::Printf(TEXT("Bedroom %d cannot fit a bed and does not meet office size limits."), RoomIndex);
@@ -260,6 +275,7 @@ bool FHouseFurnishing::Generate(const FHouseGenerationSettings& S, FHouseLayout&
 		L.Furniture.RemoveAll([&](const FHouseFurniturePlacement& I) { return I.RoomIndex == RoomIndex; });
 		L.SkippedFurnitureCount = SkippedBefore;
 		FurnishRoom();
+		if (!FHouseRoomRules::ValidateFurniture(S, L, RoomIndex, OutError)) return false;
 		if (!L.Furniture.ContainsByPredicate([&](const FHouseFurniturePlacement& I) { return I.RoomIndex == RoomIndex && I.Type == EHouseFurnitureType::Desk; }))
 		{
 			OutError = FString::Printf(TEXT("Room %d cannot fit a bed or an office desk. Check dimensions and furniture rules."), RoomIndex);
@@ -281,7 +297,7 @@ bool FHouseFurnishing::Validate(const FHouseGenerationSettings& S, const FHouseL
 			return false;
 		}
 		const FHouseFurnitureRule& Rule = S.FurnitureRules[Item.RuleIndex];
-		if (Item.Type != Rule.Type || !FHouseHousehold::WantsFurniture(S, L.Rooms[Item.RoomIndex], Item.RoomIndex, Item.RuleIndex))
+		if (Item.Type != Rule.Type || !FHouseRoomRules::WantsFurniture(S, L.Rooms[Item.RoomIndex], Item.RoomIndex, Item.RuleIndex))
 		{
 			OutError = TEXT("Furniture does not match the room type/rule.");
 			return false;

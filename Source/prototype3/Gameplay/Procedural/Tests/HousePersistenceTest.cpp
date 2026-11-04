@@ -39,6 +39,15 @@ bool FHousePersistenceTest::RunTest(const FString& Parameters)
 	House->Settings.Household.Profile = EHouseholdProfile::WorkingFromHomeCouple;
 	House->Settings.Household.FurnitureStyle = EHouseFurnitureStyle::Traditional;
 	House->Settings.WidthCells = House->Settings.DepthCells = 24;
+	FHouseRoomTagAssignment TagAssignment;
+	TagAssignment.MatchTags.AddTag(FGameplayTag::RequestGameplayTag(TEXT("Room.Type.Bathroom")));
+	TagAssignment.AdditionalTags.AddTag(FGameplayTag::RequestGameplayTag(TEXT("Room.Label.Safe")));
+	House->Settings.RoomTagAssignments.Add(TagAssignment);
+	FHouseRoomRule Rule;
+	Rule.RuleName = TEXT("Safe bathroom"); Rule.MatchTags = TagAssignment.AdditionalTags;
+	Rule.bAllowZombieSpawns = false; Rule.bAllowItemSpawns = false;
+	Rule.bRequireMatchingRoom = true;
+	House->Settings.RoomRules.Add(Rule);
 	House->GenerateHouse();
 	TestTrue(TEXT("Planned house generated before saving"), House->LastError.IsEmpty());
 	const FString Summary = House->NavigationSummary;
@@ -78,6 +87,16 @@ bool FHousePersistenceTest::RunTest(const FString& Parameters)
 		if (TestNotNull(TEXT("Saved builder loads"), House))
 		{
 			FString Error;
+			TestEqual(TEXT("Authored room rules persist"), House->Settings.RoomRules.Num(), 1);
+			TestEqual(TEXT("Generated rule snapshot persists"), House->GeneratedSettings.RoomRules.Num(), 1);
+			TestEqual(TEXT("Custom label assignments persist"), House->Settings.RoomTagAssignments.Num(), 1);
+			for (const FHouseRoom& Room : House->Layout.Rooms)
+				if (Room.RoomType == EHouseRoomType::Bathroom)
+				{
+					TestTrue(TEXT("Generated custom room label persists"), Room.Tags.HasTagExact(FGameplayTag::RequestGameplayTag(TEXT("Room.Label.Safe"))));
+					TestFalse(TEXT("Zombie restriction persists"), Room.bAllowZombieSpawns);
+					TestFalse(TEXT("Loot restriction persists"), Room.bAllowItemSpawns);
+				}
 			TestEqual(TEXT("Household persists"), House->Layout.Household.Profile, EHouseholdProfile::WorkingFromHomeCouple);
 			TestEqual(TEXT("Furniture style persists"), House->GeneratedSettings.Household.FurnitureStyle, EHouseFurnitureStyle::Traditional);
 			TestEqual(TEXT("Pattern persists"), House->GeneratedSettings.Navigation.Pattern, EHouseLayoutPattern::DeepBranches);

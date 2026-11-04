@@ -7,6 +7,7 @@
 #include "Gameplay/Procedural/Encounter/HouseEncounterSupport.h"
 #include "Gameplay/Procedural/Encounter/HouseEncounterGameMode.h"
 #include "Gameplay/Procedural/HouseGenerator.h"
+#include "Gameplay/Procedural/HouseSpatial.h"
 #include "Gameplay/Items/World/DroppedItem.h"
 #include "Gameplay/Items/ItemDefinition.h"
 #include "Gameplay/Player/Inventory/InventoryComponent.h"
@@ -669,5 +670,75 @@ bool FHouseEncounterNaturalRecoveryTest::RunTest(const FString&)
  TestEqual(TEXT("Population unchanged"),Encounter->Items.Num(),6);
  TestEqual(TEXT("Footprint unchanged"),Encounter->House->GeneratedSettings.WidthCells,12);
  return true;
+}
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHouseEncounterRoomRulesTest, "Prototype.Encounter.RoomRulePlacement",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FHouseEncounterRoomRulesTest::RunTest(const FString&)
+{
+	EncounterTests::FWorld Fixture;
+	FHouseEncounterPlacement First;
+	for (int32 Run=0; Run<2; ++Run)
+	{
+		Fixture.Player->SetActorLocation(FVector(-400,-400,100));
+		auto* E = Fixture.Create(12345);
+		E->SetActorLocationAndRotation(FVector(400,100,0), FRotator(0,37,0));
+		E->HouseSettings.WidthCells=20; E->HouseSettings.DepthCells=20;
+		E->HouseSettings.RoomCount=4;
+		E->ZombieCount=2; E->ItemCount=2;
+		FHouseRoomRule Rule;
+		Rule.RuleName=TEXT("Quiet kitchen");
+		Rule.MatchTags.AddTag(FGameplayTag::RequestGameplayTag(TEXT("Room.Type.Kitchen")));
+		Rule.bAllowZombieSpawns=false; Rule.bRequireMatchingRoom=true;
+		E->HouseSettings.RoomRules.Add(Rule);
+		Rule.RuleName=TEXT("Clean entrance"); Rule.MatchTags.Reset();
+		Rule.MatchTags.AddTag(FGameplayTag::RequestGameplayTag(TEXT("Room.Role.Entrance")));
+		Rule.bAllowZombieSpawns=true; Rule.bAllowItemSpawns=false;
+		E->HouseSettings.RoomRules.Add(Rule);
+		if (!TestTrue(TEXT("Ruled house prepares"), E->Prepare(Fixture.Player))) { AddError(E->LastError); return false; }
+		// Changes during navigation must not mutate the prepared rule snapshot.
+		E->HouseSettings.RoomRules.Reset();
+		if (!TestTrue(TEXT("Ruled encounter activates"), Fixture.Activate(E))) { AddError(E->LastError); return false; }
+		TestEqual(TEXT("Exact requested zombies"), E->Zombies.Num(),2);
+		TestEqual(TEXT("Exact requested loot"), E->Items.Num(),2);
+		const auto* H=E->House.Get();
+		EncounterTests::CheckStartingRoom(*this,H,E->Placement,E->Zombies[0]->GetSimpleCollisionRadius());
+		for (const FVector& Feet : E->Placement.ZombieFeet)
+		{
+			const FVector2D Local(H->GetActorTransform().InverseTransformPosition(Feet));
+			for (const auto& Room : H->Layout.Rooms)
+				if (!Room.bAllowZombieSpawns)
+					TestFalse(TEXT("Zombie body avoids every excluded room including doorway margins"),
+						FHouseSpatial::RoomBounds(H->GeneratedSettings,Room).ExpandBy(E->Zombies[0]->GetSimpleCollisionRadius()).IsInsideOrOn(Local));
+		}
+		for (int32 I=0; I<E->Placement.ItemFeet.Num(); ++I)
+		{
+			const int32 Room=FHouseSpatial::RoomAt(H->GeneratedSettings,H->Layout,FVector2D(H->GetActorTransform().InverseTransformPosition(E->Placement.ItemFeet[I])));
+			if (TestTrue(TEXT("Loot stays inside a room"), H->Layout.Rooms.IsValidIndex(Room)))
+				TestTrue(TEXT("Loot respects room rule"), H->Layout.Rooms[Room].bAllowItemSpawns);
+		}
+		if (Run==0) First=E->Placement;
+		else TestTrue(TEXT("Rules preserve reproducible placements"), First.ZombieFeet==E->Placement.ZombieFeet && First.ItemFeet==E->Placement.ItemFeet && First.ItemAccessFeet==E->Placement.ItemAccessFeet);
+		for (int32 I=0; I<E->Zombies.Num(); ++I)
+		{
+			auto* Path=Fixture.Nav->FindPathToLocationSynchronously(Fixture.World,E->Placement.ZombieFeet[I],E->Placement.PlayerFeet,E->Zombies[I]);
+			TestTrue(TEXT("Allowed zombies have full navigation paths"),Path && Path->IsValid() && !Path->IsPartial());
+		}
+		E->Destroy();
+	}
+	// A valid layout with no allowed population locations must not expose a partial encounter.
+	Fixture.Player->SetActorLocation(FVector(-400,-400,100));
+	const FVector Before=Fixture.Player->GetActorLocation();
+	auto* E=Fixture.Create(12345);
+	E->ZombieCount=1; E->ItemCount=1;
+	FHouseRoomRule Deny;
+	Deny.RuleName=TEXT("No initial occupants"); Deny.MatchTags.AddTag(FGameplayTag::RequestGameplayTag(TEXT("Room")));
+	Deny.bAllowZombieSpawns=false; Deny.bAllowItemSpawns=false;
+	E->HouseSettings.RoomRules.Add(Deny);
+	if (!TestTrue(TEXT("Restricted layout itself is valid"),E->Prepare(Fixture.Player))) { AddError(E->LastError); return false; }
+	TestFalse(TEXT("Unsatisfiable population fails after bounded recovery"),Fixture.Activate(E));
+	TestEqual(TEXT("Failed state"),E->State,EHouseEncounterState::Failed);
+	TestTrue(TEXT("No partial geometry or occupants"),!E->House && E->Zombies.IsEmpty() && E->Items.IsEmpty());
+	TestTrue(TEXT("Failure leaves player in original position"),Fixture.Player->GetActorLocation().Equals(Before));
+	return true;
 }
 #endif
