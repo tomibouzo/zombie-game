@@ -1,5 +1,6 @@
 #include "UI/Pause/SPauseMenu.h"
 #include "Core/Characters/prototype3Character.h"
+#include "Core/Settings/PrototypeDebugSettings.h"
 #include "Gameplay/Player/Inventory/PlayerItemUseComponent.h"
 #include "Framework/Application/SlateApplication.h"
 #include "Widgets/Input/SButton.h"
@@ -123,11 +124,19 @@ void SPauseMenu::Construct(const FArguments& Args)
 		+SVerticalBox::Slot().AutoHeight()[Tabs]
 		+SVerticalBox::Slot().FillHeight(1)[InventorySections.ToSharedRef()];
 	TSharedRef<SVerticalBox> DebugPage = SNew(SVerticalBox)
-		+SVerticalBox::Slot().AutoHeight().Padding(0,12)[Description(TEXT("Debug tools apply immediately for this Play session. They reset when a new session starts."))]
+		+SVerticalBox::Slot().AutoHeight().Padding(0,12)[Description(TEXT("Debug tools apply and save immediately. Your choices are restored when you start playing again."))]
 		+SVerticalBox::Slot().AutoHeight().Padding(0,12)[SNew(SCheckBox)
 			.IsEnabled_Lambda([this] { return DebugPlayer.IsValid(); })
 			.IsChecked_Lambda([this] { return DebugPlayer.IsValid() && DebugPlayer->IsDebugInvisibleToZombies() ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; })
-			.OnCheckStateChanged_Lambda([this](ECheckBoxState State) { if (DebugPlayer.IsValid()) DebugPlayer->SetDebugInvisibleToZombies(State == ECheckBoxState::Checked); })
+			.OnCheckStateChanged_Lambda([this](ECheckBoxState State)
+			{
+				if (!DebugPlayer.IsValid()) return;
+				const bool bEnabled = State == ECheckBoxState::Checked;
+				DebugPlayer->SetDebugInvisibleToZombies(bEnabled);
+				auto* Settings = GetMutableDefault<UPrototypeDebugSettings>();
+				Settings->bInvisibleToZombies = bEnabled;
+				Settings->SaveConfig();
+			})
 			[Description(TEXT("Invisible to zombies"))]]
 		+SVerticalBox::Slot().AutoHeight()[Description(TEXT("Zombies ignore your sight and footsteps, abandon pursuit and attacks, and cannot damage you. You remain visible on screen."))];
 	ChildSlot[SNew(SBorder).BorderImage(FCoreStyle::Get().GetBrush(TEXT("WhiteBrush")))

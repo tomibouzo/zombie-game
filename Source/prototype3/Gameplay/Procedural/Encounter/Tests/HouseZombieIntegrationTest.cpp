@@ -28,6 +28,8 @@ public:
 		if (PC && PC->GetPawn() && !Player)
 		{ Test->AddError(TEXT("Unexpected encounter player class: ")+PC->GetPawn()->GetClass()->GetPathName()); return true; }
 		if (!Player || !Player->HasActorBegunPlay()) return false;
+		// This check exercises ordinary pursuit, regardless of the user's saved debug preference.
+		Player->SetDebugInvisibleToZombies(false);
 		if (!Zombie.IsValid())
 		{
 			AHouseEncounter* Encounter = nullptr;

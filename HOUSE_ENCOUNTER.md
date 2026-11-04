@@ -88,8 +88,13 @@ During Play, open **Esc > Options > Debug** and enable **Invisible to zombies**.
 This immediately cancels existing zombie pursuit/attacks, clears perception clues,
 prevents sight and footstep detection, and blocks zombie damage. Turning it off
 restores normal sensing and damage. It does not hide the character visually or
-disable environment damage. The toggle is session-only, starts off in a new Play
-session, and does not require Apply changes or save into control preferences.
+disable environment damage. The toggle applies and saves immediately; both on
+and off choices survive new Play sessions, editor restarts and recompilation.
+It defaults to off until changed. The local preference is stored in
+`GameUserSettings.ini`, in the separate `/Script/prototype3.PrototypeDebugSettings`
+section, and is applied before player startup. It does not require Apply changes,
+change control bindings, or get cleared by resetting controls. Maps and source
+files do not store the user's choice.
 
 ## Exit state
 
@@ -102,6 +107,24 @@ walking through the exit again cannot reopen the decision. This is local,
 single-player state for the lifetime of that encounter.
 
 ## Verification
+
+### Verified November 3, 2026 — saved Debug preferences
+
+Win64 Development Editor build passed with no compiler warnings. All **12/12
+encounter/settings checks passed**, none failed or unrun: `Prototype.Encounter`,
+`Prototype.Inventory.PauseMenu`, and `Prototype.Inventory.InputPreferences`.
+The Debug test uses the actual checkbox, reads saved on/off values directly from
+disk, reloads configuration, and verifies startup state and menu state across
+three fresh Play worlds. Existing visibility/noise/pursuit/attack/damage checks,
+encounter placement, pickup, rollback, reproducibility and controls checks pass.
+
+Reports: `Saved/DebugPersistenceVerification/Build.log`, `Checks/index.json`,
+`Checks.log`; repeat with the adjacent `RunChecks.ps1`. Tests use an isolated
+user-settings file through `-GAMEUSERSETTINGSINI`. Hash checks confirm the user's
+actual settings file and edited encounter map remain unchanged. Eight tests
+passed with warnings: ten familiar crowd-manager teardown messages and one
+Recast tile-allocation recreation. No warnings were suppressed. No manual Play,
+editor-restart or packaged-build pass was performed.
 
 ### Verified November 3, 2026 — starting-room exclusion
 
@@ -204,6 +227,7 @@ packaged builds. No assistant Play session was run; user Play testing is pending
 - `HouseEncounterSupport.*`: visible NPC stand-in and map-local navigation classes.
 - `HouseEncounterGameMode.*`: existing player/controller with test fixtures disabled.
 - `HouseEncounterTypes.*`: placement result and exit-decision state.
+- `Core/Settings/PrototypeDebugSettings.h`: saved local Debug preferences.
 - `Core/PlayerControllers/prototype3PlayerController.*`: prompt and interface/input lifecycle.
 - `Gameplay/Items/World/DroppedItem.*`: fresh world-owned item factory; existing pickup path.
 

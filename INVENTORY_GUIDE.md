@@ -1,6 +1,6 @@
 # Inventory and controls
 
-Updated: 2026-10-09. Includes movement intent replacement and the crosshair dot.
+Updated: 2026-11-03. Includes movement intent replacement, the crosshair dot and saved Debug preferences.
 Read `Source/prototype3/Gameplay/Items/README.md` before changing item actions.
 
 ## Crosshair
@@ -10,7 +10,7 @@ It scales with viewport height and hides while inventory or pause menus are open
 
 ## Options
 
-Pause > Options has **Controls**, **Sound**, and **Graphics**. Sound and Graphics
+Pause > Options has **Controls**, **Sound**, **Graphics**, and **Debug**. Sound and Graphics
 are placeholders. Controls uses a horizontal scrollable bar: **Movement**, **Item actions**,
 **Gameplay**, and **Inventory**. Gameplay contains opening keys; Inventory groups
 backpack, item handling, item rotation, and floor-list controls. Rotation speed
@@ -32,7 +32,7 @@ custom-key-first normalization as other controls.
 Choose a slot, then press a keyboard key or mouse button. **Delete** clears that
 slot; **Escape** cancels capture. Same-context conflicts offer **Replace / Cancel**.
 Replace clears only the colliding slots. Keys may be reused in different contexts.
-Edits remain a draft until **Apply changes**. Exiting dirty Options offers **Cancel**
+Control edits remain a draft until **Apply changes**. Exiting dirty Options offers **Cancel**
 (return to editing), **Cancel and exit** (discard), or **Save and exit**.
 Explicitly empty slots survive reloading. Esc is fixed and cannot be reassigned.
 Hints show current keys, or **Unbound**, including actions with neither slot bound.
@@ -41,6 +41,14 @@ Hints show current keys, or **Unbound**, including actions with neither slot bou
 by another section stays unbound, with an explanation; other sections are preserved.
 **Reset all controls** requires confirmation. Movement also has look sensitivity
 only. Vertical mouse inversion is removed. Inventory has hold/click dragging and numeric rotation speed.
+
+**Debug > Invisible to zombies** applies and saves immediately. Zombies stop
+pursuing/attacking, ignore sight and footsteps, and cannot damage the player.
+The character stays visible on screen and environment damage still applies.
+The on/off choice is restored at player startup across Play sessions, editor
+restarts and recompilation. It defaults to off until changed and lives in a
+separate section of local `GameUserSettings.ini`; Apply, discard and Reset all
+controls do not change the saved Debug choice.
 
 ## Default controls
 

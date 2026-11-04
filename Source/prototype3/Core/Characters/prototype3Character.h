@@ -330,7 +330,7 @@ public:
 	UFUNCTION(BlueprintPure, Category="Health")
 	bool IsAlive() const;
 
-	/** Session-only testing aid; never saved as a player preference. */
+	/** Changes runtime state; the Debug menu separately saves the startup preference. */
 	UFUNCTION(BlueprintCallable, Category="Debug") void SetDebugInvisibleToZombies(bool bEnabled);
 	UFUNCTION(BlueprintPure, Category="Debug") bool IsDebugInvisibleToZombies() const { return bDebugInvisibleToZombies; }
 	UPROPERTY(Transient, VisibleInstanceOnly, BlueprintReadOnly, Category="Debug") bool bDebugInvisibleToZombies = false;
