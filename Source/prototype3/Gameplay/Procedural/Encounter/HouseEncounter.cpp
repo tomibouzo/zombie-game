@@ -3,6 +3,10 @@
 #include "Gameplay/Procedural/Encounter/HouseEncounterSupport.h"
 #include "Gameplay/AI/Zombies/ZombieCharacter.h"
 #include "Gameplay/Procedural/HouseGenerator.h"
+#include "Gameplay/Procedural/HouseOfficePlan.h"
+#if WITH_EDITOR
+#include "ScopedTransaction.h"
+#endif
 #include "Gameplay/Items/ItemDefinition.h"
 #include "Gameplay/Items/World/DroppedItem.h"
 #include "Gameplay/Player/Inventory/InventoryComponent.h"
@@ -37,6 +41,15 @@ void AHouseEncounter::BeginPlay()
 {
 	Super::BeginPlay();
 	SetActorTickEnabled(bStartOnBeginPlay);
+}
+
+void AHouseEncounter::ApplySmallOfficePreset()
+{
+	if (GetWorld() && GetWorld()->IsGameWorld()) return;
+#if WITH_EDITOR
+	const FScopedTransaction Transaction(NSLOCTEXT("HouseEncounter", "OfficePreset", "Apply small office preset"));
+#endif
+	Modify(); HouseSettings = FHouseOfficePlan::Preset(HouseSettings.Seed);
 }
 
 void AHouseEncounter::PostLoad()

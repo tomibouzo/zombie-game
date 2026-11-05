@@ -14,6 +14,53 @@ for this map; the existing starting inventory and controls remain available.
 
 ## Settings
 
+### Small office preset
+
+After restarting the editor, select the encounter and press **Apply Small Office
+Preset** in Details. On a standalone House Builder the same button is available;
+then press Generate House. This explicit, undoable editor action replaces house
+generation controls (including room rules and the furniture catalogue), preserves
+Seed, and leaves encounter counts, zombie class, item selection and exit choices
+unchanged. It does not regenerate an active encounter or edit the example map on
+disk automatically. Save your map if you want to retain the preset.
+
+The preset selects **Navigation > Pattern > Connected Office Suite**, 10 × 8 cells,
+six rooms, four furniture arrangements and 50% extra workroom connection chance.
+It produces one reception, one bathroom, one storage room and three offices.
+Every office requires a desk through a normal room rule. Existing placeholder
+sofas, desks, chairs, shelves and bathroom furniture are reused. Custom catalogues
+can use the new Reception, Office and Storage room types; switching just the
+pattern on an old map does not replace that map's saved catalogue.
+
+Office packing recursively splits the footprint into size-constrained rectangles,
+then connects reception and offices through shared boundaries that can fit a door.
+Bathroom and storage each have one door to reception/an office and cannot become
+through routes. Extra Connection Chance can add alternate workroom routes/loops.
+This deliberately permits traffic through offices; it is a compact connected-suite
+prototype, not a corridor-access office standard. Each generated graph must be
+connected and still passes furniture walking checks and runtime encounter navigation.
+
+Use **Room Sizing > Living Room** for reception limits, and Office, Storage and
+Bathroom for those rooms. Office suites accept 4..12 rooms; count includes reception,
+bathroom and storage. Residential household profiles/overrides are rejected.
+Residential Difficulty/Custom Route Depth/Max Dead Ends do not apply; reported
+depth and loops describe the generated graph. Office packing always fills the
+requested width/depth, does not auto-grow or increase room count, and supports the
+existing seeded ranges. Min Room Cells is a legacy partition control; office
+rooms instead obey their room-size limits and opening widths.
+
+There are at most 64 packing attempts per layout, each with a 1,024-call recursive
+search budget. The existing bounded seed/layout retries and full rollback still
+apply. Incompatible dimensions, counts, furniture or room rules can fail safely.
+Automatic tags include `Room.Type.Reception`, `Room.Type.Office` and
+`Room.Type.Storage`; offices/storage also have their matching purpose tags.
+Reception receives `Room.Role.Entrance` and remains excluded from initial zombies.
+Room-rule exclusions, real collectible pickup and exit choices work as before.
+
+Existing residential modes remain available. This adds one non-house program and
+a different partition/connection strategy; shops, arbitrary room programs,
+nonrectangular footprints and multiple floors remain future work.
+
 | Setting | Default / contract |
 | --- | --- |
 | House Settings | Existing builder settings, including Seed (12345), furniture, room count and navigation pattern |
@@ -57,8 +104,9 @@ Hallways count as rooms. Room Sizing continues to constrain planned room interio
 The seed resolves all three ranges once. Generation retries keep those dimensions
 and count; they cannot silently grow, shrink or raise the requested count. An
 incompatible sampled combination fails with its resolved values. Existing maps
-keep their previous controls until range mode is enabled. Planned layouts retain
-their residential hallway topology; arbitrary building types remain future work.
+keep their previous controls until range mode is enabled. Central Hub and Deep
+Branches retain their residential hallway topology; Connected Office Suite uses
+its own room program and workroom graph. Arbitrary building programs remain future work.
 
 Loot now uses each selected type's actual oriented box, supported at its centre
 and corners, plus a separate reachable player standing position within pickup
@@ -378,6 +426,23 @@ Automated checks use physics worlds and real Recast path queries. They do not
 establish visual quality, gameplay feel, NPC movement behavior, or packaged builds.
 The user performs Play testing. Verified commands/results are recorded separately
 in the project continuity notes and the run's `Saved/HouseEncounterVerification`.
+
+### Office-suite verification — November 5, 2026
+
+Win64 Development Editor build passed with zero compiler warnings. The 44-check
+House/Encounter/PauseMenu/InputPreferences suite passed (28 clean, 16 with warnings).
+There were 19 familiar crowd-manager teardown warnings, none suppressed; startup
+reports missing non-Windows SDKs while Win64 is valid. Twenty-four office seeds produced 24 distinct
+partitions, five with loops, with repeated full-layout equality, size/clearance/
+connectivity validation, required desks, entrance protection and reflected data
+serialization checks. Two rotated office encounters (seeds 12345 and 7) activated
+with the default 3 zombies/6 items and passed actual NPC path, pickup and exit
+checks. The preset actions preserve seeds and encounter population/loot selection.
+Exact range settings and incompatible program/footprint failures are covered.
+
+Reports and isolated-settings runner: `Saved/OfficeSuiteVerification`. Existing
+residential and saved-preference regressions pass; real map/preferences hashes
+remain unchanged. No manual visual playtest or packaged build was performed.
 
 ### Furniture-recovery verification — November 4, 2026
 

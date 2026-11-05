@@ -7,6 +7,7 @@
 #include "Gameplay/Procedural/Encounter/HouseEncounterSupport.h"
 #include "Gameplay/Procedural/Encounter/HouseEncounterGameMode.h"
 #include "Gameplay/Procedural/HouseGenerator.h"
+#include "Gameplay/Procedural/HouseOfficePlan.h"
 #include "Gameplay/Procedural/HouseSpatial.h"
 #include "Gameplay/Items/World/DroppedItem.h"
 #include "Gameplay/Items/ItemDefinition.h"
@@ -739,6 +740,37 @@ bool FHouseEncounterRoomRulesTest::RunTest(const FString&)
 	TestEqual(TEXT("Failed state"),E->State,EHouseEncounterState::Failed);
 	TestTrue(TEXT("No partial geometry or occupants"),!E->House && E->Zombies.IsEmpty() && E->Items.IsEmpty());
 	TestTrue(TEXT("Failure leaves player in original position"),Fixture.Player->GetActorLocation().Equals(Before));
+	return true;
+}
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FOfficeEncounterTest,"Prototype.Encounter.OfficeSuite",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FOfficeEncounterTest::RunTest(const FString&)
+{
+	EncounterTests::FWorld Fixture;
+	for (int32 Seed : {12345,7})
+	{
+		Fixture.Player->SetActorLocation(FVector(-400,-400,100));
+		auto* E=Fixture.Create(Seed);
+		E->HouseSettings=FHouseOfficePlan::Preset(Seed);
+		E->SetActorLocationAndRotation(FVector(200,100,0),FRotator(0,25,0));
+		if (!TestTrue(TEXT("Office encounter prepares"),E->Prepare(Fixture.Player))) { AddError(E->LastError); return false; }
+		if (!TestTrue(TEXT("Office encounter activates with default population"),Fixture.Activate(E))) { AddError(E->LastError); return false; }
+		TestEqual(TEXT("Office zombies"),E->Zombies.Num(),3); TestEqual(TEXT("Office loot"),E->Items.Num(),6);
+		EncounterTests::CheckStartingRoom(*this,E->House,E->Placement,E->Zombies[0]->GetSimpleCollisionRadius());
+		for (int32 I=0; I<E->Zombies.Num(); ++I)
+		{
+			auto* Path=Fixture.Nav->FindPathToLocationSynchronously(Fixture.World,E->Placement.ZombieFeet[I],E->Placement.PlayerFeet,E->Zombies[I]);
+			TestTrue(TEXT("Office zombie has full route to reception"),Path && Path->IsValid() && !Path->IsPartial());
+		}
+		Fixture.Player->SetActorLocation(E->Placement.ItemAccessFeet[0]+FVector(0,0,98));
+		auto* Item=E->Items[0].Get(); const FGuid Id=Item->GetItem().InstanceId;
+		TestTrue(TEXT("Office loot is reachable through actual pickup system"),Fixture.Use->PickUpToHands(Item));
+		Fixture.Use->ClearHeld(); FItemInstance Removed; Fixture.Inventory->RemoveItem(Id,Removed,true);
+		Fixture.Player->SetActorLocation(E->Placement.PlayerFeet+FVector(0,0,96)); E->CheckExit();
+		Fixture.Player->SetActorLocation(E->Placement.ExitFeet+FVector(0,0,96));
+		TestTrue(TEXT("Leaving office offers next section"),E->CheckExit());
+		E->Destroy();
+	}
 	return true;
 }
 #endif

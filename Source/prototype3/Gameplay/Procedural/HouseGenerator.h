@@ -75,6 +75,9 @@ public:
 	/** Replaces the editable furniture rules with the current blockout catalogue. Does not regenerate. */
 	UFUNCTION(CallInEditor, BlueprintCallable, Category="House", meta=(DisplayName="Reset Furniture Rules To Defaults"))
 	void ResetFurnitureRulesToDefaults();
+	/** Replaces generation controls with a small office example; preserves Seed. Supports editor undo. */
+	UFUNCTION(CallInEditor, Category="House", meta=(DisplayName="Apply Small Office Preset"))
+	void ApplySmallOfficePreset();
 
 	UFUNCTION(CallInEditor, BlueprintCallable, Category="House", meta=(DisplayName="Clear House"))
 	void ClearHouse();

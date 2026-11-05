@@ -1,4 +1,5 @@
 #include "Gameplay/Procedural/HouseGenerator.h"
+#include "Gameplay/Procedural/HouseOfficePlan.h"
 #include "Gameplay/Procedural/HouseHousehold.h"
 #include "Gameplay/Procedural/HouseSizing.h"
 #include "Gameplay/Procedural/HouseSpatial.h"
@@ -94,6 +95,15 @@ void AHouseGenerator::SetRoofHidden(bool bNewHidden)
 	bHideRoof = bNewHidden;
 	Roof->SetVisibility(!bNewHidden);
 	Roof->SetHiddenInGame(bNewHidden);
+}
+
+void AHouseGenerator::ApplySmallOfficePreset()
+{
+	if (GetWorld() && GetWorld()->IsGameWorld()) return;
+#if WITH_EDITOR
+	const FScopedTransaction Transaction(NSLOCTEXT("HouseGenerator", "OfficePreset", "Apply small office preset"));
+#endif
+	Modify(); Settings = FHouseOfficePlan::Preset(Settings.Seed);
 }
 
 void AHouseGenerator::ResetFurnitureRulesToDefaults()

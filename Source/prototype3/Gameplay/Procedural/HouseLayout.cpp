@@ -46,6 +46,12 @@ FHouseGenerationSettings::FHouseGenerationSettings()
 	HouseholdRule(EHouseFurnitureType::StorageShelf, FVector(100, 40, 160), {EHouseRoomPurpose::Storage, EHouseRoomPurpose::Office}, true);
 	HouseholdRule(EHouseFurnitureType::Desk, FVector(100, 50, 75), {EHouseRoomPurpose::ChildBedroom}, false);
 	FurnitureRules.Last().MinimumDensity = EHouseFurnishingDensity::Full;
+	for (auto& Furniture : FurnitureRules)
+	{
+		if (Furniture.Type==EHouseFurnitureType::Sofa || Furniture.Type==EHouseFurnitureType::CoffeeTable) Furniture.AllowedRooms.Add(EHouseRoomType::Reception);
+		if (Furniture.Type==EHouseFurnitureType::Desk || Furniture.Type==EHouseFurnitureType::Chair || Furniture.Type==EHouseFurnitureType::StorageShelf) Furniture.AllowedRooms.Add(EHouseRoomType::Office);
+		if (Furniture.Type==EHouseFurnitureType::StorageShelf) Furniture.AllowedRooms.Add(EHouseRoomType::Storage);
+	}
 
 }
 
@@ -288,7 +294,7 @@ bool FHouseLayoutGenerator::ValidateSettings(const FHouseGenerationSettings& S, 
 		for (EHouseFurnitureStyle Style : Rule.AllowedStyles)
 			if (Style > EHouseFurnitureStyle::MixedSecondhand) { OutError = TEXT("Unknown furniture style."); return false; }
 		for (EHouseRoomType Type : Rule.AllowedRooms)
-			if (Type > EHouseRoomType::Hallway) { OutError = TEXT("Unknown room type in furniture rule."); return false; }
+			if (Type > EHouseRoomType::Storage) { OutError = TEXT("Unknown room type in furniture rule."); return false; }
 	}
 	return FHouseSizing::ValidateSettings(S, OutError) && FHouseHousehold::ValidateSettings(S, OutError) && FHouseNavigation::ValidateSettings(S, OutError) && FHouseRoomRules::ValidateSettings(S, OutError);
 }
@@ -306,7 +312,7 @@ bool FHouseLayoutGenerator::GenerateWithRetries(const FHouseGenerationSettings& 
 		FHouseNavigation::TargetDepth(Requested.Navigation) >= 2 && FHouseNavigation::TargetDepth(Requested.Navigation) <= 12)
 		EffectiveSettings.RoomCount = FMath::Max(Requested.RoomCount, FHouseNavigation::MinimumRoomCount(Requested));
 	// Validate against the permitted envelope first, while still rejecting invalid input dimensions.
-	const bool bCanGrow = !EffectiveSettings.bRequireExactFootprint && Requested.bAllowLargerFootprint && Requested.Navigation.Pattern != EHouseLayoutPattern::LegacyRandom &&
+	const bool bCanGrow = !EffectiveSettings.bRequireExactFootprint && Requested.bAllowLargerFootprint && Requested.Navigation.Pattern != EHouseLayoutPattern::LegacyRandom && Requested.Navigation.Pattern != EHouseLayoutPattern::ConnectedOffice &&
 		Requested.WidthCells >= 3 && Requested.WidthCells <= 64 && Requested.DepthCells >= 3 && Requested.DepthCells <= 64;
 	FHouseGenerationSettings ValidationSettings = EffectiveSettings;
 	if (bCanGrow)
@@ -587,7 +593,8 @@ bool FHouseLayoutGenerator::Validate(const FHouseGenerationSettings& S, const FH
 		}
 		if (Wall.Opening == EHouseOpening::Door && Wall.RoomB == INDEX_NONE)
 		{
-			if (Layout.Rooms[Wall.RoomA].RoomType != EHouseRoomType::LivingRoom) { OutError = TEXT("Entrance must lead to the living room."); return false; }
+			const auto EntranceType = S.Navigation.Pattern==EHouseLayoutPattern::ConnectedOffice ? EHouseRoomType::Reception : EHouseRoomType::LivingRoom;
+			if (Layout.Rooms[Wall.RoomA].RoomType != EntranceType) { OutError = TEXT("Entrance must lead to the building's living room or reception."); return false; }
 			++EntranceCount;
 			Reached.Add(Wall.RoomA);
 		}
@@ -602,19 +609,19 @@ bool FHouseLayoutGenerator::Validate(const FHouseGenerationSettings& S, const FH
 				Reached.Add(Wall.RoomB);
 			}
 	if (Reached.Num() != Layout.Rooms.Num()) { OutError = TEXT("A room is unreachable from the entrance."); return false; }
-	int32 Counts[5] = {};
+	int32 Counts[8] = {};
 	for (const FHouseRoom& Room : Layout.Rooms)
 	{
 		const int32 Type = static_cast<int32>(Room.RoomType);
-		if (Type < 0 || Type > 4) { OutError = TEXT("Unknown room type."); return false; }
+		if (Type < 0 || Type > 7 || (S.Navigation.Pattern!=EHouseLayoutPattern::ConnectedOffice && Type>4)) { OutError = TEXT("Unknown or incompatible room type."); return false; }
 		++Counts[Type];
 	}
-	if (Counts[0] != 1 || Counts[1] != (Layout.Rooms.Num() >= 2 ? 1 : 0) || Counts[3] != (Layout.Rooms.Num() >= 4 ? 1 : 0))
+	if (S.Navigation.Pattern!=EHouseLayoutPattern::ConnectedOffice && (Counts[0] != 1 || Counts[1] != (Layout.Rooms.Num() >= 2 ? 1 : 0) || Counts[3] != (Layout.Rooms.Num() >= 4 ? 1 : 0)))
 	{
 		OutError = TEXT("Room type counts do not match the house program.");
 		return false;
 	}
-	if (S.Navigation.Pattern != EHouseLayoutPattern::LegacyRandom && Counts[2] == 0)
+	if (S.Navigation.Pattern != EHouseLayoutPattern::LegacyRandom && S.Navigation.Pattern != EHouseLayoutPattern::ConnectedOffice && Counts[2] == 0)
 	{
 		OutError = TEXT("Planned houses require at least one bedroom.");
 		return false;

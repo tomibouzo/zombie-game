@@ -10,6 +10,9 @@ UE_DEFINE_GAMEPLAY_TAG_STATIC(Kitchen, "Room.Type.Kitchen");
 UE_DEFINE_GAMEPLAY_TAG_STATIC(Bedroom, "Room.Type.Bedroom");
 UE_DEFINE_GAMEPLAY_TAG_STATIC(Bathroom, "Room.Type.Bathroom");
 UE_DEFINE_GAMEPLAY_TAG_STATIC(Hallway, "Room.Type.Hallway");
+UE_DEFINE_GAMEPLAY_TAG_STATIC(Reception, "Room.Type.Reception");
+UE_DEFINE_GAMEPLAY_TAG_STATIC(OfficeType, "Room.Type.Office");
+UE_DEFINE_GAMEPLAY_TAG_STATIC(StorageType, "Room.Type.Storage");
 UE_DEFINE_GAMEPLAY_TAG_STATIC(Default, "Room.Purpose.Default");
 UE_DEFINE_GAMEPLAY_TAG_STATIC(PrimaryBedroom, "Room.Purpose.PrimaryBedroom");
 UE_DEFINE_GAMEPLAY_TAG_STATIC(GuestBedroom, "Room.Purpose.GuestBedroom");
@@ -86,7 +89,7 @@ bool FHouseRoomRules::ValidateSettings(const FHouseGenerationSettings& S, FStrin
 void FHouseRoomRules::Refresh(const FHouseGenerationSettings& S, FHouseLayout& L)
 {
 	using namespace HouseRoomTags;
-	const FGameplayTag Types[] = {LivingRoom, Kitchen, Bedroom, Bathroom, Hallway};
+	const FGameplayTag Types[] = {LivingRoom, Kitchen, Bedroom, Bathroom, Hallway, Reception, OfficeType, StorageType};
 	const FGameplayTag Purposes[] = {Default, PrimaryBedroom, GuestBedroom, ChildBedroom, Office, Storage};
 	for (int32 I = 0; I < L.Rooms.Num(); ++I)
 	{

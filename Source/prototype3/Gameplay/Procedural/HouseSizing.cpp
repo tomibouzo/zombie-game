@@ -23,6 +23,9 @@ const FHouseRoomSizeRange& FHouseSizing::Range(const FHouseGenerationSettings& S
 	switch (Room.RoomType)
 	{
 	case EHouseRoomType::LivingRoom: return R.LivingRoom;
+	case EHouseRoomType::Reception: return R.LivingRoom;
+	case EHouseRoomType::Office: return R.Office;
+	case EHouseRoomType::Storage: return R.Storage;
 	case EHouseRoomType::Kitchen: return R.Kitchen;
 	case EHouseRoomType::Bathroom: return R.Bathroom;
 	default: break;

@@ -11,7 +11,10 @@ enum class EHouseRoomType : uint8
 	Kitchen,
 	Bedroom,
 	Bathroom,
-	Hallway
+	Hallway,
+	Reception,
+	Office,
+	Storage
 };
 
 /** Household categories are independent of navigation difficulty. None preserves old maps. */
@@ -70,7 +73,8 @@ enum class EHouseLayoutPattern : uint8
 {
 	LegacyRandom UMETA(DisplayName="Original Random Layout"),
 	CentralHub,
-	DeepBranches
+	DeepBranches,
+	ConnectedOffice UMETA(DisplayName="Connected Office Suite")
 };
 
 UENUM(BlueprintType)
@@ -91,15 +95,15 @@ struct PROTOTYPE3_API FHouseNavigationSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Navigation")
 	EHouseLayoutPattern Pattern = EHouseLayoutPattern::LegacyRandom;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Navigation", meta=(EditCondition="Pattern != EHouseLayoutPattern::LegacyRandom"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Navigation", meta=(EditCondition="Pattern != EHouseLayoutPattern::LegacyRandom && Pattern != EHouseLayoutPattern::ConnectedOffice"))
 	EHouseNavigationDifficulty Difficulty = EHouseNavigationDifficulty::Normal;
 
 	/** Exact deepest room distance in interior doorways, excluding the exterior entrance. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Navigation", meta=(ClampMin="2", ClampMax="12", EditCondition="Pattern != EHouseLayoutPattern::LegacyRandom && Difficulty == EHouseNavigationDifficulty::Custom"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Navigation", meta=(ClampMin="2", ClampMax="12", EditCondition="Pattern != EHouseLayoutPattern::LegacyRandom && Pattern != EHouseLayoutPattern::ConnectedOffice && Difficulty == EHouseNavigationDifficulty::Custom"))
 	int32 CustomRouteDepth = 3;
 
 	/** Reject a custom plan exceeding this count; the entrance room is not counted. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Navigation", meta=(ClampMin="3", ClampMax="31", EditCondition="Pattern != EHouseLayoutPattern::LegacyRandom && Difficulty == EHouseNavigationDifficulty::Custom"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Navigation", meta=(ClampMin="3", ClampMax="31", EditCondition="Pattern != EHouseLayoutPattern::LegacyRandom && Pattern != EHouseLayoutPattern::ConnectedOffice && Difficulty == EHouseNavigationDifficulty::Custom"))
 	int32 CustomMaxDeadEnds = 31;
 };
 
@@ -372,7 +376,7 @@ struct PROTOTYPE3_API FHouseGenerationSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="House Controls|Layout", meta=(ClampMin="3", ClampMax="32"))
 	int32 MinRoomCells = 3;
 
-	/** Used only by Original Random Layout; planned patterns preserve their requested door graph. */
+	/** Used by Original Random Layout and Connected Office Suite; residential planned patterns preserve their door graph. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="House Controls|Layout", meta=(ClampMin="0", ClampMax="1"))
 	float ExtraConnectionChance = 0.2f;
 

@@ -54,6 +54,9 @@ public:
 	/** Polling also catches crossings when overlap events are not generated. Only the assigned player counts. */
 	bool CheckExit();
 	virtual void Tick(float DeltaSeconds) override;
+	/** Replaces house generation controls only; preserves Seed and encounter population. Editor undo supported. */
+	UFUNCTION(CallInEditor, Category="Encounter", meta=(DisplayName="Apply Small Office Preset"))
+	void ApplySmallOfficePreset();
 	virtual void Destroyed() override;
 protected:
 	virtual void BeginPlay() override;
