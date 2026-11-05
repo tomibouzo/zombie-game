@@ -168,6 +168,10 @@ bool FHouseFurnishing::Generate(const FHouseGenerationSettings& S, FHouseLayout&
 {
 	L.Furniture.Reset();
 	L.SkippedFurnitureCount = 0;
+	L.FurnitureArrangementsTried = 0;
+	L.FurnitureRoomsImproved = 0;
+	if (S.FurnitureArrangementAttempts < 1 || S.FurnitureArrangementAttempts > 8)
+	{ OutError = TEXT("Furniture Arrangement Attempts must be between 1 and 8."); return false; }
 	if (!S.bGenerateFurniture)
 	{
 		for (int32 I = 0; I < L.Rooms.Num(); ++I)
@@ -187,7 +191,7 @@ bool FHouseFurnishing::Generate(const FHouseGenerationSettings& S, FHouseLayout&
 	for (int32 RoomIndex = 0; RoomIndex < L.Rooms.Num(); ++RoomIndex)
 	{
 		const FBox2D Room = RoomBounds(S, L.Rooms[RoomIndex]);
-		auto FurnishRoom = [&]()
+		auto TryArrangement = [&](FRandomStream& ArrangementRandom)
 		{
 			TArray<int32> RoomOrder = RuleOrder;
 			RoomOrder.StableSort([&](int32 A, int32 B)
@@ -230,7 +234,7 @@ bool FHouseFurnishing::Generate(const FHouseGenerationSettings& S, FHouseLayout&
 						}
 					}
 				}
-				for (int32 I = Candidates.Num() - 1; I > 0; --I) Candidates.Swap(I, Random.RandRange(0, I));
+				for (int32 I = Candidates.Num() - 1; I > 0; --I) Candidates.Swap(I, ArrangementRandom.RandRange(0, I));
 				bool bPlaced = false;
 				for (const FHouseFurniturePlacement& Item : Candidates)
 				{
@@ -244,6 +248,53 @@ bool FHouseFurnishing::Generate(const FHouseGenerationSettings& S, FHouseLayout&
 			}
 		};
 		const int32 SkippedBefore = L.SkippedFurnitureCount;
+		bool bRoomImproved = false;
+		auto FurnishRoom = [&]()
+		{
+			const int32 Prefix = L.Furniture.Num();
+			const int32 InitialSkipped = L.SkippedFurnitureCount;
+			TArray<FHouseFurniturePlacement> Best;
+			int32 BestMissing = MAX_int32, BestSkipped = MAX_int32;
+			bool bImproved = false;
+			for (int32 Attempt = 0; Attempt < S.FurnitureArrangementAttempts; ++Attempt)
+			{
+				L.Furniture.SetNum(Prefix);
+				L.SkippedFurnitureCount = InitialSkipped;
+				// Retry streams cannot perturb the original random sequence used by later rooms.
+				FRandomStream Retry(static_cast<int32>(static_cast<uint32>(S.Seed) ^
+					(0x9e3779b9u * (RoomIndex + 1)) ^ (0x85ebca6bu * Attempt) ^
+					(0xc2b2ae35u * static_cast<uint32>(L.Rooms[RoomIndex].Purpose))));
+				TryArrangement(Attempt == 0 ? Random : Retry);
+				++L.FurnitureArrangementsTried;
+				const auto& CurrentRoom = L.Rooms[RoomIndex];
+				auto HasType = [&](EHouseFurnitureType Type)
+				{ return L.Furniture.ContainsByPredicate([&](const FHouseFurniturePlacement& F) { return F.RoomIndex == RoomIndex && F.Type == Type; }); };
+				int32 Missing = 0;
+				for (uint8 Type = 0; Type < static_cast<uint8>(EHouseFurnitureType::Count); ++Type)
+					if (FHouseRoomRules::RequiresFurniture(S, CurrentRoom, static_cast<EHouseFurnitureType>(Type)) && !HasType(static_cast<EHouseFurnitureType>(Type))) ++Missing;
+				const bool bNeedsBed = S.Navigation.Pattern != EHouseLayoutPattern::LegacyRandom &&
+					CurrentRoom.RoomType == EHouseRoomType::Bedroom && !CurrentRoom.bUnfurnished &&
+					CurrentRoom.Purpose != EHouseRoomPurpose::Office && CurrentRoom.Purpose != EHouseRoomPurpose::Storage;
+				if (bNeedsBed && !HasType(EHouseFurnitureType::Bed) && !HasType(EHouseFurnitureType::SingleBed)) ++Missing;
+				// Office fallback must keep its desk even if another arrangement fits more optional pieces.
+				if (CurrentRoom.Purpose == EHouseRoomPurpose::Office && !CurrentRoom.bUnfurnished && !HasType(EHouseFurnitureType::Desk)) ++Missing;
+				const int32 Skipped = L.SkippedFurnitureCount - InitialSkipped;
+				if (Missing < BestMissing || (Missing == BestMissing && Skipped < BestSkipped))
+				{
+					Best.Reset();
+					for (int32 I = Prefix; I < L.Furniture.Num(); ++I) Best.Add(L.Furniture[I]);
+					BestMissing = Missing; BestSkipped = Skipped;
+					bImproved |= Attempt > 0;
+				}
+				if (Missing == 0 && Skipped == 0) break;
+			}
+			L.Furniture.SetNum(Prefix);
+			L.Furniture.Append(Best);
+			L.SkippedFurnitureCount = InitialSkipped + BestSkipped;
+			// A bedroom-to-office fallback replaces this room's earlier result, not a second room.
+			L.FurnitureRoomsImproved += static_cast<int32>(bImproved) - static_cast<int32>(bRoomImproved);
+			bRoomImproved = bImproved;
+		};
 		FurnishRoom();
 		// Validate before an optional bedroom becomes an office: fallback must not evade a requirement.
 		if (!FHouseRoomRules::ValidateFurniture(S, L, RoomIndex, OutError)) return false;

@@ -230,6 +230,8 @@ bool FHouseLayoutGenerator::ResolveRanges(const FHouseGenerationSettings& Reques
 
 bool FHouseLayoutGenerator::ValidateSettings(const FHouseGenerationSettings& S, FString& OutError)
 {
+	if (S.FurnitureArrangementAttempts < 1 || S.FurnitureArrangementAttempts > 8)
+	{ OutError = TEXT("Furniture Arrangement Attempts must be between 1 and 8."); return false; }
 	OutError.Reset();
 	if (S.bUseGenerationRanges)
 	{

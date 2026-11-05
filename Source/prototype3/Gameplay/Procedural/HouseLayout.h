@@ -426,6 +426,10 @@ struct PROTOTYPE3_API FHouseGenerationSettings
 	/** Evaluated in order: put large/important pieces first. Items that cannot fit safely are skipped. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="House Controls|Furniture")
 	TArray<FHouseFurnitureRule> FurnitureRules;
+
+	/** Bounded room arrangements. 1 preserves the original seed results; increase to try rearrangement. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="House Controls|Furniture", meta=(ClampMin="1", ClampMax="8"))
+	int32 FurnitureArrangementAttempts = 1;
 };
 
 USTRUCT(BlueprintType)
@@ -559,6 +563,10 @@ struct PROTOTYPE3_API FHouseLayout
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="House")
 	int32 SkippedFurnitureCount = 0;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="House")
+	int32 FurnitureArrangementsTried = 0;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="House")
+	int32 FurnitureRoomsImproved = 0;
 };
 
 /** Data-only generation: no world, assets, global randomness or spawned actors. */

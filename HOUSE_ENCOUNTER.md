@@ -142,9 +142,34 @@ Assignments cannot replace automatic tags or depend on other added labels, so
 their order cannot change the result. Limits: 32 rules, 32 assignments, 16 tags
 per selector/label list; required furniture types must be unique.
 
+### Bounded furniture rearrangement
+
+**House Settings > Furniture Arrangement Attempts** accepts 1..8; set it to **4**
+to try room rearrangement. The default of 1 preserves existing seed results.
+If the first arrangement skips eligible furniture or misses a required piece,
+the generator tries new seeded candidate orders from an empty version of that
+room. Earlier rooms stay intact. Every placement still checks furniture bodies,
+front access, door approaches and walking routes.
+
+Selection first minimizes missing required furniture (including planned bedroom
+beds and office desks), then skipped eligible pieces. Ties keep the earlier
+arrangement. A complete arrangement ends the search early. Retry random streams
+are separate from the original stream, so retries do not consume the random
+draws reserved for subsequent rooms. Original settings are never overwritten.
+Required furniture failure and bedroom-to-office fallback happen only after
+these attempts; impossible requirements still reject the entire house.
+
+The generated layout reports **Furniture Arrangements Tried** and **Furniture
+Rooms Improved**, alongside Skipped Furniture Count. More attempts cost more
+generation time. This is a bounded search over alternative whole-room
+arrangements, not exhaustive backtracking, furniture-group design, or a guarantee
+that every physically possible placement will be found. It does not yet choose
+furniture arrangements based on the requested zombie/loot population.
+
 These rules constrain the existing generator. Door restrictions validate its
 completed graph and participate in bounded generation retries; they do not
-rewire doors, invent new building types, or rearrange previously placed furniture.
+rewire doors or invent new building types. Furniture rearrangement stays within
+each room and does not change the room graph.
 Contradictory rules may reject every attempt. Population restrictions use the
 existing all-or-nothing encounter recovery flow. They affect initial placement,
 not subsequent zombie movement or player-dropped items.
@@ -353,6 +378,20 @@ Automated checks use physics worlds and real Recast path queries. They do not
 establish visual quality, gameplay feel, NPC movement behavior, or packaged builds.
 The user performs Play testing. Verified commands/results are recorded separately
 in the project continuity notes and the run's `Saved/HouseEncounterVerification`.
+
+### Furniture-recovery verification — November 4, 2026
+
+Win64 Development Editor build passed without compiler warnings. The 42-check
+house/encounter/pause/input-preference suite passed. Four arrangements improved
+furniture count in 10 of 64 crowded fixtures over one arrangement, with no count
+regressions in those fixtures. Checks also cover deterministic repeated results,
+bounded attempts, full clearance/walking validation and impossible required-piece
+rollback. This fixture result is not a general building success-rate claim.
+Default one-attempt behavior passes the existing regression suite.
+
+Reports and the isolated-settings runner are in `Saved/FurnitureRecoveryVerification`.
+The user's map and real preferences remain unchanged. The familiar crowd-manager
+teardown warnings remain; no manual visual playtest or packaged build was performed.
 
 ### Room-rule verification — November 4, 2026
 
