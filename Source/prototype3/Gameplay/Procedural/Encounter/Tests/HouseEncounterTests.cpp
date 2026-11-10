@@ -8,6 +8,7 @@
 #include "Gameplay/Procedural/Encounter/HouseEncounterGameMode.h"
 #include "Gameplay/Procedural/HouseGenerator.h"
 #include "Gameplay/Procedural/HouseOfficePlan.h"
+#include "Gameplay/Procedural/HouseGenerationPreset.h"
 #include "Gameplay/Procedural/HouseSpatial.h"
 #include "Gameplay/Items/World/DroppedItem.h"
 #include "Gameplay/Items/ItemDefinition.h"
@@ -770,6 +771,50 @@ bool FOfficeEncounterTest::RunTest(const FString&)
 		Fixture.Player->SetActorLocation(E->Placement.ExitFeet+FVector(0,0,96));
 		TestTrue(TEXT("Leaving office offers next section"),E->CheckExit());
 		E->Destroy();
+	}
+	return true;
+}
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPresetEncounterSweepTest,"Prototype.Encounter.PresetSweep",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FPresetEncounterSweepTest::RunTest(const FString&)
+{
+	constexpr int32 Seeds = 20;
+	EncounterTests::FWorld Fixture;
+	for (int32 Index = 0; Index < HousePresetDefaults::AssetPaths().Num(); ++Index)
+	{
+		bool bAsset = false;
+		UHouseGenerationPreset* P = HousePresetDefaults::LoadOrDefault(Index, &bAsset);
+		const FString Name = FPackageName::GetShortName(HousePresetDefaults::AssetPaths()[Index]);
+		int32 Failures = 0, Layouts = 0, MaxLayouts = 0;
+		TArray<FString> Examples;
+		const double Start = FPlatformTime::Seconds();
+		for (int32 Seed = 1000; Seed < 1000 + Seeds; ++Seed)
+		{
+			Fixture.Player->SetActorLocation(FVector(-400,-400,100));
+			auto* E = Fixture.Create(Seed);
+			E->Preset = P;
+			const bool bActive = E->Prepare(Fixture.Player) && Fixture.Activate(E);
+			FHousePresetResult R; FString Error; P->Resolve(Seed, R, Error);
+			if (!bActive)
+			{
+				++Failures;
+				if (Examples.Num() < 6) Examples.Add(FString::Printf(TEXT("seed %d (%s): %s"), Seed, *R.Describe(), *E->LastError.Left(200)));
+			}
+			else
+			{
+				Layouts += E->LayoutAttempts; MaxLayouts = FMath::Max(MaxLayouts, E->LayoutAttempts);
+				TestEqual(TEXT("Preset zombie count spawned"), E->Zombies.Num(), R.ZombieCount);
+				TestEqual(TEXT("Preset item count spawned"), E->Items.Num(), R.ItemCount);
+				TestEqual(TEXT("Preset footprint used"), E->House->Layout.FootprintCells, FIntPoint(R.WidthCells, R.DepthCells));
+				TestFalse(TEXT("Preset summary reported"), E->PresetSummary.IsEmpty());
+			}
+			E->Destroy();
+		}
+		AddInfo(FString::Printf(TEXT("%s (%s): %d/%d encounters activated, mean %.2f / max %d house layouts, %.2f s total."),
+			*Name, bAsset ? TEXT("asset") : TEXT("built-in values"), Seeds - Failures, Seeds,
+			Seeds > Failures ? double(Layouts) / (Seeds - Failures) : 0.0, MaxLayouts, FPlatformTime::Seconds() - Start));
+		if (Failures)
+			AddError(FString::Printf(TEXT("%s: %d/%d encounters failed. Examples: %s"), *Name, Failures, Seeds, *FString::Join(Examples, TEXT(" | "))));
 	}
 	return true;
 }

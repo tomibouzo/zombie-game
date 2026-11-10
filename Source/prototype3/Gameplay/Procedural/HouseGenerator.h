@@ -6,6 +6,7 @@
 #include "HouseGenerator.generated.h"
 
 class UHouseStyle;
+class UHouseGenerationPreset;
 class UInstancedStaticMeshComponent;
 class UStaticMesh;
 class UTextRenderComponent;
@@ -21,8 +22,14 @@ public:
 	AHouseGenerator();
 	virtual void PostLoad() override;
 #if WITH_EDITOR
+	virtual void PreEditChange(FProperty* PropertyAboutToChange) override;
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& Event) override;
 #endif
+
+	/** Optional building model. When set, generation uses the preset's fixed values and seed-resolved ranges;
+	 * only Seed is read from the controls below. Clear it to use Custom controls, starting from this preset. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="House")
+	TObjectPtr<UHouseGenerationPreset> Preset;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="House Controls", meta=(ShowOnlyInnerProperties))
 	FHouseGenerationSettings Settings;
@@ -75,9 +82,6 @@ public:
 	/** Replaces the editable furniture rules with the current blockout catalogue. Does not regenerate. */
 	UFUNCTION(CallInEditor, BlueprintCallable, Category="House", meta=(DisplayName="Reset Furniture Rules To Defaults"))
 	void ResetFurnitureRulesToDefaults();
-	/** Replaces generation controls with a small office example; preserves Seed. Supports editor undo. */
-	UFUNCTION(CallInEditor, Category="House", meta=(DisplayName="Apply Small Office Preset"))
-	void ApplySmallOfficePreset();
 
 	UFUNCTION(CallInEditor, BlueprintCallable, Category="House", meta=(DisplayName="Clear House"))
 	void ClearHouse();
@@ -108,6 +112,9 @@ protected:
 private:
 	UPROPERTY()
 	TObjectPtr<UStaticMesh> DefaultBlockMesh;
+
+	/** Editor-only: preset before a Details edit, used to seed Custom controls when it is cleared. */
+	TWeakObjectPtr<UHouseGenerationPreset> PresetBeforeEdit;
 
 	UPROPERTY()
 	TArray<TObjectPtr<UTextRenderComponent>> GeneratedLabels;

@@ -15,24 +15,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHouseOfficeTest,"Prototype.House.OfficeSuite",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 bool FHouseOfficeTest::RunTest(const FString&)
 {
-#if WITH_EDITOR
-	const auto Init=UWorld::InitializationValues().AllowAudioPlayback(false).CreateNavigation(false).CreateAISystem(false).ShouldSimulatePhysics(false);
-	auto* World=UWorld::CreateWorld(EWorldType::Editor,false,NAME_None,nullptr,true,ERHIFeatureLevel::Num,&Init);
-	auto* Builder=World->SpawnActor<AHouseGenerator>();
-	Builder->Settings.Seed=456; Builder->ApplySmallOfficePreset();
-	TestEqual(TEXT("Builder preset retains seed"),Builder->Settings.Seed,456);
-	TestEqual(TEXT("Builder preset selects office"),Builder->Settings.Navigation.Pattern,EHouseLayoutPattern::ConnectedOffice);
-	auto* Encounter=World->SpawnActor<AHouseEncounter>();
-	Encounter->HouseSettings.Seed=789; Encounter->ZombieCount=2; Encounter->ItemCount=5;
-	const auto Selection=Encounter->ItemSelection;
-	Encounter->ApplySmallOfficePreset();
-	TestEqual(TEXT("Encounter preset retains seed"),Encounter->HouseSettings.Seed,789);
-	TestEqual(TEXT("Encounter preset selects office"),Encounter->HouseSettings.Navigation.Pattern,EHouseLayoutPattern::ConnectedOffice);
-	TestEqual(TEXT("Preset preserves zombie count"),Encounter->ZombieCount,2);
-	TestEqual(TEXT("Preset preserves item count"),Encounter->ItemCount,5);
-	TestTrue(TEXT("Preset preserves loot selection"),Encounter->ItemSelection==Selection);
-	World->DestroyWorld(false);
-#endif
+	// Preset selection on actors is covered by Prototype.House.Presets.*.
 	TSet<FString> Shapes; int32 Looped=0;
 	for (int32 Seed=-8; Seed<16; ++Seed)
 	{

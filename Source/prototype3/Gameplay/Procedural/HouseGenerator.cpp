@@ -1,5 +1,5 @@
 #include "Gameplay/Procedural/HouseGenerator.h"
-#include "Gameplay/Procedural/HouseOfficePlan.h"
+#include "Gameplay/Procedural/HouseGenerationPreset.h"
 #include "Gameplay/Procedural/HouseHousehold.h"
 #include "Gameplay/Procedural/HouseSizing.h"
 #include "Gameplay/Procedural/HouseSpatial.h"
@@ -28,9 +28,25 @@ void AHouseGenerator::PostLoad()
 }
 
 #if WITH_EDITOR
+void AHouseGenerator::PreEditChange(FProperty* PropertyAboutToChange)
+{
+	Super::PreEditChange(PropertyAboutToChange);
+	PresetBeforeEdit = Preset;
+}
+
 void AHouseGenerator::PostEditChangeProperty(FPropertyChangedEvent& Event)
 {
-	if (Event.GetPropertyName() == GET_MEMBER_NAME_CHECKED(FHouseGenerationSettings, bUseGenerationRanges))
+	if (Event.GetPropertyName() == GET_MEMBER_NAME_CHECKED(AHouseGenerator, Preset))
+	{
+		// Switching to Custom starts from the previous preset's values so they can be tuned directly.
+		if (!Preset && PresetBeforeEdit.IsValid())
+		{
+			int32 Zombies = 0, Items = 0;
+			Settings = PresetBeforeEdit->MakeCustomSettings(Settings.Seed, Zombies, Items);
+		}
+		PresetBeforeEdit.Reset();
+	}
+	else if (Event.GetPropertyName() == GET_MEMBER_NAME_CHECKED(FHouseGenerationSettings, bUseGenerationRanges))
 		Settings.InitializeGenerationRanges();
 	else if (Settings.bUseGenerationRanges) Settings.bGenerationRangesInitialized = true;
 	Super::PostEditChangeProperty(Event);
@@ -97,15 +113,6 @@ void AHouseGenerator::SetRoofHidden(bool bNewHidden)
 	Roof->SetHiddenInGame(bNewHidden);
 }
 
-void AHouseGenerator::ApplySmallOfficePreset()
-{
-	if (GetWorld() && GetWorld()->IsGameWorld()) return;
-#if WITH_EDITOR
-	const FScopedTransaction Transaction(NSLOCTEXT("HouseGenerator", "OfficePreset", "Apply small office preset"));
-#endif
-	Modify(); Settings = FHouseOfficePlan::Preset(Settings.Seed);
-}
-
 void AHouseGenerator::ResetFurnitureRulesToDefaults()
 {
 #if WITH_EDITOR
@@ -142,8 +149,21 @@ void AHouseGenerator::GenerateHouse()
 		UE_LOG(LogHouseGenerator, Warning, TEXT("%s: %s"), *GetName(), *LastError);
 		return;
 	}
-	const FHouseFurniturePalette* Palette = Style && Settings.Household.Profile != EHouseholdProfile::None ?
-		Style->HouseholdPalettes.Find(Settings.Household.FurnitureStyle) : nullptr;
+	// A preset replaces every control except Seed; its ranged values resolve from that seed.
+	FHouseGenerationSettings Request = Settings;
+	FHousePresetResult PresetResult;
+	if (Preset)
+	{
+		if (!Preset->Resolve(Settings.Seed, PresetResult, Error))
+		{
+			LastError = Error + TEXT(" Existing house was preserved.");
+			UE_LOG(LogHouseGenerator, Warning, TEXT("%s: %s"), *GetName(), *LastError);
+			return;
+		}
+		Request = PresetResult.Request;
+	}
+	const FHouseFurniturePalette* Palette = Style && Request.Household.Profile != EHouseholdProfile::None ?
+		Style->HouseholdPalettes.Find(Request.Household.FurnitureStyle) : nullptr;
 	if (Style)
 	{
 		TMap<EHouseFurnitureType, TObjectPtr<UStaticMesh>> SelectedMeshes = Style->FurnitureMeshes;
@@ -162,8 +182,8 @@ void AHouseGenerator::GenerateHouse()
 	}
 	FHouseGenerationSettings EffectiveSettings;
 	int32 Attempts = 0;
-	const int32 RequestedRoomCount = Settings.RoomCount;
-	if (!FHouseLayoutGenerator::GenerateWithRetries(Settings, EffectiveSettings, NewLayout, Attempts, Error))
+	const int32 RequestedRoomCount = Request.RoomCount;
+	if (!FHouseLayoutGenerator::GenerateWithRetries(Request, EffectiveSettings, NewLayout, Attempts, Error))
 	{
 		LastError = Error;
 		UE_LOG(LogHouseGenerator, Warning, TEXT("%s: %s Existing house was preserved."), *GetName(), *Error);
@@ -203,14 +223,16 @@ void AHouseGenerator::GenerateHouse()
 	GeneratedSeed = EffectiveSettings.Seed;
 	NavigationSummary = Layout.Navigation.Summary;
 	GenerationSummary = FString::Printf(TEXT("Input seed %d -> generated seed %d; %d attempt(s)."), Settings.Seed, GeneratedSeed, Attempts);
-	if (Settings.bUseGenerationRanges)
+	if (Preset)
+		GenerationSummary += FString::Printf(TEXT(" Preset %s: %s."), *Preset->GetName(), *PresetResult.Describe());
+	if (Request.bUseGenerationRanges)
 		GenerationSummary += FString::Printf(TEXT(" Resolved exact footprint %d x %d cells and %d rooms from the input seed; retries keep these values."),
 			GeneratedSettings.WidthCells, GeneratedSettings.DepthCells, GeneratedSettings.RoomCount);
-	if (!Settings.bUseGenerationRanges && RequestedRoomCount != GeneratedSettings.RoomCount)
+	if (!Request.bUseGenerationRanges && RequestedRoomCount != GeneratedSettings.RoomCount)
 		GenerationSummary += FString::Printf(TEXT(" Used %d rooms (requested %d) to satisfy difficulty/household."), GeneratedSettings.RoomCount, RequestedRoomCount);
-	if (!Settings.bUseGenerationRanges && (Settings.WidthCells != GeneratedSettings.WidthCells || Settings.DepthCells != GeneratedSettings.DepthCells))
+	if (!Request.bUseGenerationRanges && (Request.WidthCells != GeneratedSettings.WidthCells || Request.DepthCells != GeneratedSettings.DepthCells))
 		GenerationSummary += FString::Printf(TEXT(" Expanded envelope from %d x %d to %d x %d cells; disable Allow Larger Footprint for strict limits."),
-			Settings.WidthCells, Settings.DepthCells, GeneratedSettings.WidthCells, GeneratedSettings.DepthCells);
+			Request.WidthCells, Request.DepthCells, GeneratedSettings.WidthCells, GeneratedSettings.DepthCells);
 	GenerationSummary += TEXT(" Your input controls are unchanged.");
 	SizeSummary = Layout.SizeSummary;
 	LastError.Reset();

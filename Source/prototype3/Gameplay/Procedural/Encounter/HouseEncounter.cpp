@@ -3,7 +3,7 @@
 #include "Gameplay/Procedural/Encounter/HouseEncounterSupport.h"
 #include "Gameplay/AI/Zombies/ZombieCharacter.h"
 #include "Gameplay/Procedural/HouseGenerator.h"
-#include "Gameplay/Procedural/HouseOfficePlan.h"
+#include "Gameplay/Procedural/HouseGenerationPreset.h"
 #if WITH_EDITOR
 #include "ScopedTransaction.h"
 #endif
@@ -43,15 +43,6 @@ void AHouseEncounter::BeginPlay()
 	SetActorTickEnabled(bStartOnBeginPlay);
 }
 
-void AHouseEncounter::ApplySmallOfficePreset()
-{
-	if (GetWorld() && GetWorld()->IsGameWorld()) return;
-#if WITH_EDITOR
-	const FScopedTransaction Transaction(NSLOCTEXT("HouseEncounter", "OfficePreset", "Apply small office preset"));
-#endif
-	Modify(); HouseSettings = FHouseOfficePlan::Preset(HouseSettings.Seed);
-}
-
 void AHouseEncounter::PostLoad()
 {
 	Super::PostLoad();
@@ -59,9 +50,22 @@ void AHouseEncounter::PostLoad()
 }
 
 #if WITH_EDITOR
+void AHouseEncounter::PreEditChange(FProperty* PropertyAboutToChange)
+{
+	Super::PreEditChange(PropertyAboutToChange);
+	PresetBeforeEdit = Preset;
+}
+
 void AHouseEncounter::PostEditChangeProperty(FPropertyChangedEvent& Event)
 {
-	if (Event.GetPropertyName() == GET_MEMBER_NAME_CHECKED(FHouseGenerationSettings, bUseGenerationRanges))
+	if (Event.GetPropertyName() == GET_MEMBER_NAME_CHECKED(AHouseEncounter, Preset))
+	{
+		// Switching to Custom starts from the previous preset's values, including a matching population.
+		if (!Preset && PresetBeforeEdit.IsValid())
+			HouseSettings = PresetBeforeEdit->MakeCustomSettings(HouseSettings.Seed, ZombieCount, ItemCount);
+		PresetBeforeEdit.Reset();
+	}
+	else if (Event.GetPropertyName() == GET_MEMBER_NAME_CHECKED(FHouseGenerationSettings, bUseGenerationRanges))
 		HouseSettings.InitializeGenerationRanges();
 	else if (HouseSettings.bUseGenerationRanges) HouseSettings.bGenerationRangesInitialized = true;
 	Super::PostEditChangeProperty(Event);
@@ -78,20 +82,23 @@ bool AHouseEncounter::Prepare(ACharacter* InPlayer)
 	PreparedNextSections = NextSections;
 	FHouseExitDecision ValidateOptions;
 	if (!IsValid(Player) || Player->GetWorld() != GetWorld() || !Player->FindComponentByClass<UInventoryComponent>()
-		|| !ZombieClass || !ValidateOptions.Offer(PreparedNextSections) || (ItemCount > 0 && ItemSelection.IsEmpty())
-		|| ZombieCount < 0 || ZombieCount > 32 || ItemCount < 0 || ItemCount > 64)
+		|| !ZombieClass || !ValidateOptions.Offer(PreparedNextSections)
+		|| (!Preset && (ZombieCount < 0 || ZombieCount > 32 || ItemCount < 0 || ItemCount > 64)))
 		return Fail(TEXT("Invalid player, spawn counts, zombie class, item selection or next-section choices."));
 	// Edits made while navigation builds affect the next encounter, not this transaction.
 	PreparedSeed = HouseSettings.Seed;
 	RequestSeed = PreparedSeed;
 	RequestedHouseSettings = HouseSettings;
+	PreparedPreset = Preset;
 	PreparedStyle = HouseStyle;
 	PreparedZombieCount = ZombieCount;
 	PreparedItemCount = ItemCount;
 	PreparedZombieClass = ZombieClass;
 	PreparedItemSelection = ItemSelection;
 	FString SettingsError;
-	if (!FHouseLayoutGenerator::ResolveRanges(RequestedHouseSettings, PreparedHouseSettings, SettingsError)) return Fail(SettingsError);
+	if (!ResolveRequest(PreparedSeed, SettingsError)) return Fail(SettingsError);
+	if (PreparedItemCount > 0 && PreparedItemSelection.IsEmpty())
+		return Fail(TEXT("Invalid player, spawn counts, zombie class, item selection or next-section choices."));
 	if (!GetActorScale3D().Equals(FVector::OneVector) || !FMath::IsNearlyZero(GetActorRotation().Pitch)
 		|| !FMath::IsNearlyZero(GetActorRotation().Roll)) return Fail(TEXT("Encounter must be upright and use unit scale."));
 	auto* Nav = FNavigationSystem::GetCurrent<UNavigationSystemV1>(GetWorld());
@@ -304,10 +311,8 @@ bool AHouseEncounter::RetryGeneration()
 	PreparedSeed = static_cast<int32>(static_cast<uint32>(RequestedHouseSettings.Seed) + 0x9e3779b9u * 64u * RetryNumber);
 	RequestSeed = PreparedSeed;
 	LayoutAttempts = 0;
-	FHouseGenerationSettings Request = RequestedHouseSettings;
-	Request.Seed = PreparedSeed;
 	FString Error;
-	if (!FHouseLayoutGenerator::ResolveRanges(Request, PreparedHouseSettings, Error)
+	if (!ResolveRequest(PreparedSeed, Error)
 		|| (PreparedHouseSettings.bRequireExactFootprint && !FHouseLayoutGenerator::ValidateSettings(PreparedHouseSettings, Error))) return Fail(Error);
 	State = EHouseEncounterState::Preparing;
 	LayoutAttempts = 0;
@@ -315,6 +320,27 @@ bool AHouseEncounter::RetryGeneration()
 	LastError.Empty();
 	SetActorTickEnabled(true);
 	return BeginLayoutAttempt();
+}
+
+bool AHouseEncounter::ResolveRequest(int32 Seed, FString& OutError)
+{
+	PresetSummary.Reset();
+	FHouseGenerationSettings Request = RequestedHouseSettings;
+	if (PreparedPreset)
+	{
+		FHousePresetResult Result;
+		if (!PreparedPreset->Resolve(Seed, Result, OutError)) return false;
+		// Keep the original request seed so manual retries derive from it, as with Custom controls.
+		const int32 BaseSeed = RequestedHouseSettings.Seed;
+		RequestedHouseSettings = Result.Request;
+		RequestedHouseSettings.Seed = BaseSeed;
+		Request = Result.Request;
+		PreparedZombieCount = Result.ZombieCount;
+		PreparedItemCount = Result.ItemCount;
+		PresetSummary = FString::Printf(TEXT("%s, seed %d: %s."), *PreparedPreset->GetName(), Seed, *Result.Describe());
+	}
+	Request.Seed = Seed;
+	return FHouseLayoutGenerator::ResolveRanges(Request, PreparedHouseSettings, OutError);
 }
 
 bool AHouseEncounter::CanRetryGeneration() const

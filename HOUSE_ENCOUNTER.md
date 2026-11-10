@@ -14,20 +14,53 @@ for this map; the existing starting inventory and controls remain available.
 
 ## Settings
 
-### Small office preset
+### Generation presets
 
-After restarting the editor, select the encounter and press **Apply Small Office
-Preset** in Details. On a standalone House Builder the same button is available;
-then press Generate House. This explicit, undoable editor action replaces house
-generation controls (including room rules and the furniture catalogue), preserves
-Seed, and leaves encounter counts, zombie class, item selection and exit choices
-unchanged. It does not regenerate an active encounter or edit the example map on
-disk automatically. Save your map if you want to retain the preset.
+Select the encounter (or a standalone House Builder) and pick one asset in
+the **Preset** dropdown. Only one preset is active at a time; **None (Custom)**
+uses the actor's own controls. With a preset selected, generation reads only **Seed**
+from House Settings; Zombie Count and Item Count are greyed out because the preset
+decides them. Choosing None (Custom), or the reset arrow beside Preset, switches
+to Custom starting from that preset's
+values: its fixed settings and size ranges, the midpoint connection chance and
+density, and the population at the midpoint size. Save the map to keep the choice.
 
-The preset selects **Navigation > Pattern > Connected Office Suite**, 10 × 8 cells,
-six rooms, four furniture arrangements and 50% extra workroom connection chance.
-It produces one reception, one bathroom, one storage room and three offices.
-Every office requires a desk through a normal room rule. Existing placeholder
+Presets live in `Content/Procedural/Presets` and can be tuned in the editor
+without recompiling:
+
+| Preset | Layout | Width × depth (cells) | Rooms | Zombies | Items |
+| --- | --- | --- | --- | --- | --- |
+| `DA_HousePreset_SmallOffice` | Connected Office Suite, required desks | 8–13 × 6–11 | 5–8 | 0.5–0.8 per room, 2–5 | 1.0–1.5 per room, 4–10 |
+| `DA_HousePreset_CompactHouse` | Central Hub (Easy), Couple | 8–11 × 9–15 | 6–7 | 0.4–0.7 per room, 2–6 | 0.8–1.2 per room, 3–10 |
+| `DA_HousePreset_FamilyHouse` | Deep Branches (Normal), Family with 2 children | 10–11 × 13–17 | 9–11 | 0.4–0.7 per room, 3–4 | 0.8–1.2 per room, 5–14 |
+
+The seed resolves every range: connection chance, furnishing density, and the
+zombie and item rates. Zombies are counted per room excluding the entrance room;
+items per room including it. Each count is rounded, then clamped to the preset's
+minimum and maximum, so population follows the building's size. Width, depth and
+room count are not independent: offices only build when room count matches floor
+area, and the residential template only builds narrow houses with matching depths.
+The seed therefore tries the size combinations inside the ranges in a seeded order
+and keeps the first one that builds (at most 64 tried). Result > Preset Summary
+shows the resolved values; **Try another seed** re-rolls all of them within the
+preset. The same seed and preset always give the same values.
+
+The shipped ranges come from a Nov 9 feasibility sweep. Family houses are only
+10–11 cells wide because the default room sizing (bedroom area and proportion
+limits) prevents wider residential layouts; widening them needs Room Sizing
+changes in the preset's fixed settings. Density only filters optional household
+furniture, so the office preset keeps it at Standard. Wider custom ranges may
+fail more often; `Prototype.House.Presets.LayoutSweep` (200 seeds per preset) and
+`Prototype.Encounter.PresetSweep` (20 full encounters per preset) check the saved
+assets. Recreate missing assets with
+`-CreateHousePresetAssets -ExecCmds="Automation RunTests Prototype.House.Presets.CreateAssets"`;
+existing assets are never overwritten.
+
+### Small office layout
+
+The office preset uses **Navigation > Pattern > Connected Office Suite** with four
+furniture arrangements. It produces one reception, one bathroom, one storage room
+and offices. Every office requires a desk through a normal room rule. Existing placeholder
 sofas, desks, chairs, shelves and bathroom furniture are reused. Custom catalogues
 can use the new Reception, Office and Storage room types; switching just the
 pattern on an old map does not replace that map's saved catalogue.

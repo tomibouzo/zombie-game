@@ -11,6 +11,7 @@ class AHouseGenerator;
 class ADroppedItem;
 class UInventoryComponent;
 class UHouseStyle;
+class UHouseGenerationPreset;
 
 /** Single-player, single-use encounter. Preparation is transactional; player placement commits last. */
 UCLASS(Blueprintable)
@@ -21,12 +22,16 @@ public:
 	AHouseEncounter();
 	virtual void PostLoad() override;
 #if WITH_EDITOR
+	virtual void PreEditChange(FProperty* PropertyAboutToChange) override;
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& Event) override;
 #endif
+	/** Optional building model. When set, the preset's fixed values and seed-resolved ranges replace House Settings
+	 * (only Seed is read) and decide Zombie/Item Count. Clear it to use Custom controls, starting from this preset. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Encounter") TObjectPtr<UHouseGenerationPreset> Preset;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Encounter") FHouseGenerationSettings HouseSettings;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Encounter") TObjectPtr<UHouseStyle> HouseStyle;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Encounter", meta=(ClampMin="0", ClampMax="32")) int32 ZombieCount = 3;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Encounter", meta=(ClampMin="0", ClampMax="64")) int32 ItemCount = 6;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Encounter", meta=(ClampMin="0", ClampMax="32", EditCondition="Preset == nullptr")) int32 ZombieCount = 3;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Encounter", meta=(ClampMin="0", ClampMax="64", EditCondition="Preset == nullptr")) int32 ItemCount = 6;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Encounter") TSubclassOf<ACharacter> ZombieClass;
 	/** Existing ItemIds. Repetitions weight the seeded selection. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Encounter") TArray<FName> ItemSelection;
@@ -37,6 +42,8 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Encounter|Result") int32 LayoutAttempts = 0;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Encounter|Result") int32 RequestSeed = 0;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Encounter|Result") FString GenerationStatus;
+	/** Values the preset resolved for the current request seed; empty when using Custom controls. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Encounter|Result") FString PresetSummary;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Encounter|Result") FHouseEncounterPlacement Placement;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Encounter|Result") FHouseEncounterPlacementReport PlacementReport;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Encounter|Result") FHouseExitDecision ExitDecision;
@@ -54,9 +61,6 @@ public:
 	/** Polling also catches crossings when overlap events are not generated. Only the assigned player counts. */
 	bool CheckExit();
 	virtual void Tick(float DeltaSeconds) override;
-	/** Replaces house generation controls only; preserves Seed and encounter population. Editor undo supported. */
-	UFUNCTION(CallInEditor, Category="Encounter", meta=(DisplayName="Apply Small Office Preset"))
-	void ApplySmallOfficePreset();
 	virtual void Destroyed() override;
 protected:
 	virtual void BeginPlay() override;
@@ -67,6 +71,10 @@ private:
 	UPROPERTY(Transient) TArray<TObjectPtr<AActor>> OwnedActors;
 	UPROPERTY(Transient) TSubclassOf<ACharacter> PreparedZombieClass;
 	UPROPERTY(Transient) TObjectPtr<UHouseStyle> PreparedStyle;
+	UPROPERTY(Transient) TObjectPtr<UHouseGenerationPreset> PreparedPreset;
+	TWeakObjectPtr<UHouseGenerationPreset> PresetBeforeEdit;
+	/** Resolve the request for Seed: preset values and counts, or the snapshotted Custom controls. */
+	bool ResolveRequest(int32 Seed, FString& OutError);
 	FHouseGenerationSettings RequestedHouseSettings;
 	FHouseGenerationSettings PreparedHouseSettings;
 	uint32 RetryNumber = 0;
