@@ -6,6 +6,8 @@
 #include "GameFramework/HUD.h"
 #include "HorrorHUD.generated.h"
 
+class UShelterBuildComponent;
+
 /**
  * In-game vitals, centered aiming dot and pickup prompts for the horror prototype.
  * The bars intentionally live in C++ so they work immediately, while UHorrorUI
@@ -18,4 +20,8 @@ class PROTOTYPE3_API AHorrorHUD : public AHUD
 
 public:
 	virtual void DrawHUD() override;
+
+private:
+	/** Category or piece list with key hints; shown only while build mode is open. */
+	void DrawBuildOverlay(const UShelterBuildComponent& Build);
 };

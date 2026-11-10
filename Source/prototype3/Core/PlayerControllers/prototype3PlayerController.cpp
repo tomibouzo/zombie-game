@@ -39,6 +39,7 @@
 #include "Framework/Application/SlateApplication.h"
 #include "Widgets/SViewport.h"
 #include "Kismet/KismetSystemLibrary.h"
+#include "Gameplay/Shelter/Build/ShelterBuildComponent.h"
 #if WITH_EDITOR
 #include "Editor.h"
 #endif
@@ -110,6 +111,7 @@ Aprototype3PlayerController::Aprototype3PlayerController()
 	RuntimeCrouchAction->ValueType = EInputActionValueType::Boolean;
 	RuntimeCrouchAction->bConsumeInput = true;
 
+	BuildComponent = CreateDefaultSubobject<UShelterBuildComponent>(TEXT("ShelterBuild"));
 }
 
 UInputAction* Aprototype3PlayerController::GetPrimaryAction()
@@ -290,6 +292,10 @@ bool Aprototype3PlayerController::HandleInventoryControlKey(FKey Key, EInputEven
 bool Aprototype3PlayerController::InputKey(const FInputKeyEventArgs& Params)
 {
 	if (HouseExitMenu.IsValid()) return true;
+	// The single build-mode hook. It must precede every branch below: they consume Esc, Tab,
+	// I and the pickup key before Enhanced Input runs, and build mode owns both mouse buttons.
+	if (IsLocalController() && !PauseMenu.IsValid() && !bInventoryDemoOpen && BuildComponent
+		&& BuildComponent->HandleKey(Params.Key, Params.Event)) return true;
 	const auto* Controls = GetDefault<UInventoryInputSettings>();
 	if (IsLocalController() && Controls->Matches(EInventoryControl::Back, Params.Key))
 	{
@@ -381,6 +387,7 @@ void Aprototype3PlayerController::ToggleInventoryDemo(bool bLegacyLab, bool bPoc
 {
 	if (HouseExitMenu.IsValid()) return;
 	if (PauseMenu.IsValid()) return;
+	if (BuildComponent) BuildComponent->Close();
 	if (bInventoryDemoOpen)
 	{
 		if (InventoryDemoWidget && InventoryDemoWidget->IsPocketsOnly() != bPocketsOnly)
@@ -443,6 +450,12 @@ void Aprototype3PlayerController::CloseInventoryDemo()
 	FlushPressedKeys();
 }
 
+void Aprototype3PlayerController::FlushKeysPreservingMovement()
+{
+	TGuardValue<bool> PreserveWalking(bPreserveWalkingInput, true);
+	FlushPressedKeys();
+}
+
 bool Aprototype3PlayerController::HasInterfaceFocus(int32 UserIndex) const
 {
 	if (!IsLocalController() || !GetWorld() || !GetWorld()->IsGameWorld()) return false;
@@ -463,6 +476,7 @@ void Aprototype3PlayerController::HandleInterfaceEscape()
 	if (HouseExitMenu.IsValid()) return;
 	// Hold a local reference because Resume removes the controller's menu reference.
 	if (const TSharedPtr<SPauseMenu> Menu = PauseMenu) Menu->HandleEscape();
+	else if (BuildComponent && BuildComponent->IsActive()) BuildComponent->Close();
 	else if (bInventoryDemoOpen) CloseInventoryDemo();
 	else OpenPauseMenu();
 }
@@ -474,6 +488,7 @@ void Aprototype3PlayerController::OpenPauseMenu()
 	UGameViewportClient* Viewport = GetWorld()->GetGameViewport();
 	if (!Viewport) return;
 	if (bInventoryDemoOpen) CloseInventoryDemo();
+	if (BuildComponent) BuildComponent->Close();
 	if (!SetPause(true)) return;
 	const bool bPlayInEditor = GetWorld()->WorldType == EWorldType::PIE;
 	bCursorBeforePause = bShowMouseCursor;
@@ -529,6 +544,7 @@ void Aprototype3PlayerController::EndPlay(const EEndPlayReason::Type EndPlayReas
 	if (InterfaceInputProcessor.IsValid() && FSlateApplication::IsInitialized())
 		FSlateApplication::Get().UnregisterInputPreProcessor(InterfaceInputProcessor);
 	InterfaceInputProcessor.Reset();
+	if (BuildComponent) BuildComponent->Close();
 	CloseHouseExitChoice();
 	ClosePauseMenu();
 	CloseInventoryDemo();
@@ -541,6 +557,7 @@ void Aprototype3PlayerController::ShowHouseExitChoice(AHouseEncounter* Encounter
 		|| HouseExitMenu.IsValid() || !GetWorld() || !GetWorld()->GetGameViewport()) return;
 	ClosePauseMenu();
 	CloseInventoryDemo();
+	if (BuildComponent) BuildComponent->Close();
 	if (auto* Use = ItemUse(this)) { Use->CloseBackpack(); Use->CancelUse(); Use->CancelQuickItemHold(); }
 	if (GetPawn())
 	{
@@ -603,6 +620,7 @@ void Aprototype3PlayerController::ShowHouseGenerationStatus(AHouseEncounter* Enc
 	if (HouseExitMenu.IsValid()) return;
 	ClosePauseMenu();
 	CloseInventoryDemo();
+	if (BuildComponent) BuildComponent->Close();
 	if (auto* Use = ItemUse(this)) { Use->CloseBackpack(); Use->CancelUse(); Use->CancelQuickItemHold(); }
 	if (auto* ControlledCharacter = Cast<ACharacter>(GetPawn()))
 	{

@@ -54,12 +54,14 @@ void SPauseMenu::Construct(const FArguments& Args)
 	for (int32 I = 0; I < UE_ARRAY_COUNT(CategoryNames); ++I)
 		Navigation->AddSlot().AutoHeight().Padding(0, 4)[Button(CategoryNames[I], FOnClicked::CreateLambda([this, I]() { ShowCategory(static_cast<EOptionsCategory>(I)); return FReply::Handled(); }))];
 	TSharedRef<SScrollBox> Tabs = SNew(SScrollBox).Orientation(Orient_Horizontal).ScrollBarAlwaysVisible(true);
-	const TCHAR* SectionNames[] = { TEXT("Movement"), TEXT("Item actions"), TEXT("Inventory"), TEXT("Gameplay") };
-	for (int32 I : { 0, 1, 3, 2 })
-		Tabs->AddSlot().Padding(0, 0, 6, 8)[SNew(SBox).WidthOverride(220)
+	const TCHAR* SectionNames[] = { TEXT("Movement"), TEXT("Item actions"), TEXT("Inventory"), TEXT("Gameplay"), TEXT("Building") };
+	static_assert(UE_ARRAY_COUNT(SectionNames) == static_cast<int32>(EControlSection::Count));
+	for (int32 I : { 0, 1, 3, 2, 4 })
+		// Five tabs must fit the 884-unit page without scrolling: 5 x (168 + 6) = 870.
+		Tabs->AddSlot().Padding(0, 0, 6, 8)[SNew(SBox).WidthOverride(168)
 			[Button(SectionNames[I], FOnClicked::CreateLambda([this, I]() { ShowInventorySection(I); return FReply::Handled(); }))]];
 	InventorySections = SNew(SWidgetSwitcher);
-	for (int32 I = 0; I < 4; ++I)
+	for (int32 I = 0; I < static_cast<int32>(EControlSection::Count); ++I)
 	{
 		const auto Group = static_cast<EControlSection>(I);
 		TSharedRef<SScrollBox> Page = SNew(SScrollBox);
@@ -67,7 +69,8 @@ void SPauseMenu::Construct(const FArguments& Args)
 			TEXT("During gameplay. Run, sprint and crouch use tap to toggle or hold until release. Space is reserved."),
 			TEXT("During gameplay. Item contracts determine primary/secondary actions. Bandage shortcut: tap takes into hands; hold uses; release stops unfinished use. Stow also works in inventory."),
 			TEXT("While inventory is open. Double-activate Select / drag / place item to take/stow without closing inventory. Storage placement is manual. Opening keys are in Gameplay. Esc always closes the interface."),
-			TEXT("Open pockets or backpack from gameplay. The same key closes its interface. In backpack view, Next pocket is a separate Inventory action. Esc is fixed: close an interface or open Pause.") };
+			TEXT("Open pockets or backpack from gameplay. The same key closes its interface. In backpack view, Next pocket is a separate Inventory action. Esc is fixed: close an interface or open Pause."),
+			TEXT("Inside a build area. These keys apply only while build mode is open, except Build menu, which opens it.") };
 		Page->AddSlot().Padding(0, 12, 0, 16)[Description(Help[I])];
 		if (Group == EControlSection::Inventory)
 		{
@@ -282,7 +285,7 @@ void SPauseMenu::ShowCategory(EOptionsCategory Category)
 }
 void SPauseMenu::ShowInventorySection(int32 Section)
 {
-	if (Section < 0 || Section >= 4) return;
+	if (Section < 0 || Section >= static_cast<int32>(EControlSection::Count)) return;
 	Rebinding = INDEX_NONE; bConflictPending = bConfirmReset = false; Status.Empty(); ActiveSection = Section;
 	InventorySections->SetActiveWidgetIndex(Section); FSlateApplication::Get().SetKeyboardFocus(SharedThis(this));
 }
