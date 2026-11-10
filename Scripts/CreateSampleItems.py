@@ -14,7 +14,7 @@ SAMPLES = [
     ("WaterBottle", "Water bottle", "Consumable.Drink", 0.55, "Handheld", None, "Drink"),
     ("Knife", "Knife", "Weapon.Melee", 0.20, "Handheld", "MeleeAttack", None),
     ("Pistol", "Pistol", "Weapon.Firearm", 0.90, "Handheld", "Fire", "Aim"),
-    ("Flashlight", "Flashlight", "Tool.Lighting", 0.15, "Handheld", None, "ToggleLight"),
+    ("Flashlight", "Flashlight", "Tool.Lighting", 0.15, "Handheld", "ToggleLight", None),
     ("Jacket", "Jacket", "Equipment.Clothing", 0.80, "Equippable", None, "Equip"),
     ("SmallBackpack", "Small backpack", "Equipment.Backpack", 0.70, "Equippable", "OpenStorage", "Equip"),
     ("ScrapMetal", "Scrap metal", "Material.Salvage", 0.25, None, None, None),

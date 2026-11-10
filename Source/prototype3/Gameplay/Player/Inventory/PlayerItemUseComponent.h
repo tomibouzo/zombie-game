@@ -11,6 +11,7 @@ class UStaticMeshComponent;
 class AInventoryTestSpikes;
 class UHealingItemActionData;
 class ADroppedItem;
+class USpotLightComponent;
 
 enum class EBackpackMode : uint8 { Closed, Selecting, Quick, Slow };
 enum class EInventoryArrangement : uint8 { Move, PickUp, Drop, FloorDrop, Take, Stow, TakeFloor };
@@ -45,6 +46,10 @@ public:
 	UPROPERTY(EditAnywhere, Category="Prototype") FVector2D QuickSize = FVector2D(220,220);
 	UPROPERTY(EditAnywhere, Category="Prototype") FVector2D BackpackSize = FVector2D(420,600);
 	UPROPERTY(EditAnywhere, Category="Prototype", meta=(ClampMin="0.1", ClampMax="1")) float QuickUseHoldSeconds = 0.3f;
+	/** Beam of a held light source. Provisional values. */
+	UPROPERTY(EditAnywhere, Category="Prototype|Light", meta=(ClampMin="0")) float HeldLightIntensity = 12000.f;
+	UPROPERTY(EditAnywhere, Category="Prototype|Light", meta=(ClampMin="1", ClampMax="80", Units="deg")) float HeldLightOuterCone = 28.f;
+	UPROPERTY(EditAnywhere, Category="Prototype|Light", meta=(ClampMin="100", Units="cm")) float HeldLightRange = 2200.f;
 	UPROPERTY(Transient) TObjectPtr<UInventoryComponent> Inventory;
 	UPROPERTY(Transient) FItemInstance Backpack;
 	static FName HandsPocketId() { return TEXT("Hands"); }
@@ -64,6 +69,12 @@ public:
 	void PressQuickItem(int32 Slot);
 	void ReleaseQuickItem(int32 Slot);
 	void CancelQuickItemHold();
+	/** True when the held item declares the ToggleLight action in either slot. */
+	bool IsHeldLightSource() const;
+	/** Switches the held light source. False, with nothing changed, when no light source is held. */
+	bool ToggleHeldLight();
+	/** The light belongs to the item in the hands: it is off whenever that item is not held. */
+	bool IsHeldLightOn() const { return bHeldLightOn && HeldId.IsValid() && HeldId == HeldLightItem; }
 	bool BeginOpenBackpack(bool bSelectMode = false);
 	void ReleaseBackpackInput();
 	void CloseBackpack();
@@ -96,6 +107,9 @@ protected:
 private:
 	UPROPERTY(Transient) TObjectPtr<UPlayerVitalsComponent> Vitals;
 	UPROPERTY(Transient) TObjectPtr<UStaticMeshComponent> HeldVisual;
+	UPROPERTY(Transient) TObjectPtr<USpotLightComponent> HeldLight;
+	bool bHeldLightOn = false;
+	FGuid HeldLightItem;
 	UPROPERTY(Transient) TObjectPtr<AInventoryTestSpikes> Spikes;
 	FGuid HeldId;
 	float PickupBlockedUntil = 0;

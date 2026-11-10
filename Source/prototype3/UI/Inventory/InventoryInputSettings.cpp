@@ -31,6 +31,7 @@ TArray<FKey> DefaultKeys()
 	Set(A::PickUpWorld, EKeys::E); Set(A::DropHeld, EKeys::P);
 	Set(A::BuildMenu, EKeys::B); Set(A::BuildPrevious, EKeys::Q); Set(A::BuildNext, EKeys::E);
 	Set(A::BuildRotate, EKeys::R); Set(A::BuildExit, EKeys::V);
+	Set(A::ToggleFlashlight, EKeys::F);
 	return Result;
 }
 }
@@ -190,6 +191,8 @@ uint32 UInventoryInputSettings::Contexts(A Action)
 	if (!IsBindable(Action)) return 0;
 	// Keys that stay live while building share the Build context, so a build key cannot collide with them.
 	if (Action == A::BuildMenu) return Game | Build;
+	// Stays live while building, so a build key cannot take it.
+	if (Action == A::ToggleFlashlight) return Game | Build;
 	if (Action >= A::BuildPrevious && Action <= A::BuildExit) return Build;
 	if (Action == A::Toggle) return Game | Inventory | Build;
 	if (Action == A::Stow || Action == A::DropHeld) return Game | Inventory;
@@ -246,7 +249,8 @@ EControlSection UInventoryInputSettings::Section(A Action)
 {
 	if (Action >= A::BuildMenu && Action <= A::BuildExit) return EControlSection::Building;
 	if (Action >= A::MoveForward && Action <= A::Crouch) return EControlSection::Movement;
-	if ((Action >= A::Primary && Action <= A::Water) || Action == A::Stow || Action == A::DropHeld || Action == A::PickUpWorld) return EControlSection::ItemActions;
+	if ((Action >= A::Primary && Action <= A::Water) || Action == A::Stow || Action == A::DropHeld || Action == A::PickUpWorld
+		|| Action == A::ToggleFlashlight) return EControlSection::ItemActions;
 	if (Action == A::Toggle || Action == A::ShowQuick) return EControlSection::Gameplay;
 	return EControlSection::Inventory;
 }
@@ -302,6 +306,7 @@ FString UInventoryInputSettings::Label(A Action)
 	case A::BuildNext: return TEXT("Next category / piece");
 	case A::BuildRotate: return TEXT("Rotate piece");
 	case A::BuildExit: return TEXT("Exit build mode");
+	case A::ToggleFlashlight: return TEXT("Toggle flashlight");
 	default: return TEXT("Retired action");
 	}
 }

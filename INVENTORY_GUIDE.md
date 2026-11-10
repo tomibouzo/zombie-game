@@ -81,6 +81,7 @@ sprint still requires forward input.
 | Gameplay or inventory | Stow held item | X |
 | Gameplay | Pick up looked-at floor item | E |
 | Gameplay or inventory | Drop held item | P |
+| Gameplay | Toggle flashlight (only while a flashlight is in your hands; left mouse does the same) | F |
 | Gameplay or pockets | Open / close pockets | Tab |
 | Gameplay or inventory | Open / close backpack | I |
 | Backpack open | Next pocket | Tab |

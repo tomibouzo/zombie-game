@@ -14,7 +14,7 @@ enum class EInventoryControl : uint8
 	Primary, Secondary, Bandage, Food, Water, CyclePocket, FasterRotation,
 	SlowerRotation, ScrollFloorUp, ScrollFloorDown, Back, PickUpWorld, DropHeld,
 	// Saved bindings are stored by position: append new controls here, never insert above.
-	BuildMenu, BuildPrevious, BuildNext, BuildRotate, BuildExit, Count
+	BuildMenu, BuildPrevious, BuildNext, BuildRotate, BuildExit, ToggleFlashlight, Count
 };
 
 enum class EControlSection : uint8 { Movement, ItemActions, Inventory, Gameplay, Building, Count };

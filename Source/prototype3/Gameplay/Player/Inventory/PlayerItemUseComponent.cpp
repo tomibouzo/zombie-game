@@ -9,6 +9,8 @@
 #include "UI/Inventory/InventoryDemoData.h"
 #include "Camera/CameraComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "Components/SpotLightComponent.h"
+#include "GameplayTagContainer.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/StaticMesh.h"
 #include "Materials/MaterialInterface.h"
@@ -92,6 +94,16 @@ void UPlayerItemUseComponent::BeginPlay()
 		HeldVisual->FirstPersonPrimitiveType = EFirstPersonPrimitiveType::FirstPerson;
 		HeldVisual->SetRelativeScale3D(FVector(0.08,0.08,0.06));
 		HeldVisual->RegisterComponent();
+		HeldLight = NewObject<USpotLightComponent>(GetOwner(), TEXT("HeldItemLight"));
+		HeldLight->SetupAttachment(Camera);
+		HeldLight->SetMobility(EComponentMobility::Movable);
+		HeldLight->SetRelativeLocation(FVector(35, 12, -13));
+		HeldLight->SetIntensity(HeldLightIntensity);
+		HeldLight->SetOuterConeAngle(HeldLightOuterCone);
+		HeldLight->SetInnerConeAngle(HeldLightOuterCone * .55f);
+		HeldLight->SetAttenuationRadius(HeldLightRange);
+		HeldLight->SetVisibility(false);
+		HeldLight->RegisterComponent();
 		UpdateVisual();
 	}
 
@@ -245,6 +257,9 @@ bool UPlayerItemUseComponent::PressItemAction(bool bSecondary)
 	if (!Inventory || !Inventory->GetItem(HeldId, Entry)) return true;
 	const UItemActionData* Contract = bSecondary ? Entry.Item.Definition->SecondaryAction : Entry.Item.Definition->PrimaryAction;
 	if (!Contract) return true; // A missing slot consumes its input without falling back to unarmed/another slot.
+	if (const auto* Intent = Cast<UIntentItemActionData>(Contract); Intent
+		&& Intent->ActionTag == FGameplayTag::RequestGameplayTag(TEXT("Item.Action.ToggleLight"), false))
+	{ ToggleHeldLight(); return true; }
 	const auto* Action = HealingAction(bSecondary);
 	if (!Action) { Status = TEXT("This item's action is not implemented yet."); return true; }
 	if (!Vitals || !Vitals->IsAlive() || Vitals->GetCurrentHealth() >= Vitals->GetMaxHealth())
@@ -313,6 +328,28 @@ void UPlayerItemUseComponent::CancelQuickItemHold()
 	HeldQuickItem = INDEX_NONE;
 	QuickHoldElapsed = 0;
 	bQuickUseAttempted = bUsingFromQuickKey = false;
+}
+
+bool UPlayerItemUseComponent::IsHeldLightSource() const
+{
+	FInventoryEntry Entry;
+	if (!Inventory || !Inventory->GetItem(HeldId, Entry) || !Entry.Item.Definition) return false;
+	const FGameplayTag Light = FGameplayTag::RequestGameplayTag(TEXT("Item.Action.ToggleLight"), false);
+	if (!Light.IsValid()) return false;
+	for (const UItemActionData* Slot : { Entry.Item.Definition->PrimaryAction.Get(), Entry.Item.Definition->SecondaryAction.Get() })
+		if (const auto* Intent = Cast<UIntentItemActionData>(Slot); Intent && Intent->ActionTag == Light) return true;
+	return false;
+}
+
+bool UPlayerItemUseComponent::ToggleHeldLight()
+{
+	if (!Vitals || !Vitals->IsAlive() || !IsHeldLightSource()) return false;
+	const bool bTurnOn = !IsHeldLightOn();
+	bHeldLightOn = bTurnOn;
+	HeldLightItem = HeldId;
+	Status = GetHeldName() + (bTurnOn ? TEXT(" on.") : TEXT(" off."));
+	UpdateVisual();
+	return true;
 }
 
 float UPlayerItemUseComponent::BackpackHoldThreshold() const
@@ -573,6 +610,9 @@ FString UPlayerItemUseComponent::GetHeldName() const
 }
 void UPlayerItemUseComponent::UpdateVisual()
 {
+	// Stowing, dropping or swapping the item switches its light off.
+	if (bHeldLightOn && HeldId != HeldLightItem) { bHeldLightOn = false; HeldLightItem.Invalidate(); }
+	if (HeldLight && HeldLight->IsVisible() != IsHeldLightOn()) HeldLight->SetVisibility(IsHeldLightOn());
 	if (!HeldVisual) return;
 	HeldVisual->SetVisibility(HasHeldItem());
 	const float Motion = bUsing ? FMath::Sin(GetProgress()*PI*6) : 0;
