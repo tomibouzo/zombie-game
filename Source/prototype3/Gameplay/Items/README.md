@@ -128,7 +128,7 @@ establish a contents simulation or authoritative real-world specifications.
 | WaterBottle / Water bottle | Consumable.Drink | 0.55 | Handheld | — | Drink |
 | Knife / Knife | Weapon.Melee | 0.20 | Handheld | MeleeAttack | — |
 | Pistol / Pistol | Weapon.Firearm | 0.90 | Handheld | Fire | Aim |
-| Flashlight / Flashlight | Tool.Lighting | 0.15 | Handheld | — | ToggleLight |
+| Flashlight / Flashlight | Tool.Lighting | 0.15 | Handheld | ToggleLight | — |
 | Jacket / Jacket | Equipment.Clothing | 0.80 | Equippable | — | Equip |
 | SmallBackpack / Small backpack | Equipment.Backpack | 0.70 | Equippable | OpenStorage | Equip |
 | ScrapMetal / Scrap metal | Material.Salvage | 0.25 | — | — | — |

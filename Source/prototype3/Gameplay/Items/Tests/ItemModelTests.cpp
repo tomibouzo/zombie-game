@@ -104,7 +104,7 @@ bool FItemSampleAssetsTest::RunTest(const FString& Parameters)
 		{ TEXT("WaterBottle"), TEXT("Consumable.Drink"), 0.55, TEXT("Handheld"), nullptr, TEXT("Drink") },
 		{ TEXT("Knife"), TEXT("Weapon.Melee"), 0.20, TEXT("Handheld"), TEXT("MeleeAttack"), nullptr },
 		{ TEXT("Pistol"), TEXT("Weapon.Firearm"), 0.90, TEXT("Handheld"), TEXT("Fire"), TEXT("Aim") },
-		{ TEXT("Flashlight"), TEXT("Tool.Lighting"), 0.15, TEXT("Handheld"), nullptr, TEXT("ToggleLight") },
+		{ TEXT("Flashlight"), TEXT("Tool.Lighting"), 0.15, TEXT("Handheld"), TEXT("ToggleLight"), nullptr },
 		{ TEXT("Jacket"), TEXT("Equipment.Clothing"), 0.80, TEXT("Equippable"), nullptr, TEXT("Equip") },
 		{ TEXT("SmallBackpack"), TEXT("Equipment.Backpack"), 0.70, TEXT("Equippable"), TEXT("OpenStorage"), TEXT("Equip") },
 		{ TEXT("ScrapMetal"), TEXT("Material.Salvage"), 0.25, nullptr, nullptr, nullptr },

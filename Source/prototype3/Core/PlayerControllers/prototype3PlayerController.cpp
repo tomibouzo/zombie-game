@@ -363,6 +363,12 @@ bool Aprototype3PlayerController::InputKey(const FInputKeyEventArgs& Params)
 				if (Params.Event == IE_Pressed) Use->Stow();
 				return true;
 			}
+			if (Controls->Matches(EInventoryControl::ToggleFlashlight, Params.Key))
+			{
+				// Does nothing unless the held item is a light source.
+				if (Params.Event == IE_Pressed) Use->ToggleHeldLight();
+				return true;
+			}
 			for (int32 Slot = 0; Slot < 3; ++Slot)
 				if (const auto Action = static_cast<EInventoryControl>(static_cast<int32>(EInventoryControl::Bandage) + Slot); Controls->Matches(Action, Params.Key))
 				{
