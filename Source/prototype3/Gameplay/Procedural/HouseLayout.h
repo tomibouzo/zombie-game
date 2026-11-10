@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "GameplayTagContainer.h"
 #include "HouseLayout.generated.h"
 
 UENUM(BlueprintType)
@@ -10,7 +11,10 @@ enum class EHouseRoomType : uint8
 	Kitchen,
 	Bedroom,
 	Bathroom,
-	Hallway
+	Hallway,
+	Reception,
+	Office,
+	Storage
 };
 
 /** Household categories are independent of navigation difficulty. None preserves old maps. */
@@ -69,7 +73,8 @@ enum class EHouseLayoutPattern : uint8
 {
 	LegacyRandom UMETA(DisplayName="Original Random Layout"),
 	CentralHub,
-	DeepBranches
+	DeepBranches,
+	ConnectedOffice UMETA(DisplayName="Connected Office Suite")
 };
 
 UENUM(BlueprintType)
@@ -90,15 +95,15 @@ struct PROTOTYPE3_API FHouseNavigationSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Navigation")
 	EHouseLayoutPattern Pattern = EHouseLayoutPattern::LegacyRandom;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Navigation", meta=(EditCondition="Pattern != EHouseLayoutPattern::LegacyRandom"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Navigation", meta=(EditCondition="Pattern != EHouseLayoutPattern::LegacyRandom && Pattern != EHouseLayoutPattern::ConnectedOffice"))
 	EHouseNavigationDifficulty Difficulty = EHouseNavigationDifficulty::Normal;
 
 	/** Exact deepest room distance in interior doorways, excluding the exterior entrance. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Navigation", meta=(ClampMin="2", ClampMax="12", EditCondition="Pattern != EHouseLayoutPattern::LegacyRandom && Difficulty == EHouseNavigationDifficulty::Custom"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Navigation", meta=(ClampMin="2", ClampMax="12", EditCondition="Pattern != EHouseLayoutPattern::LegacyRandom && Pattern != EHouseLayoutPattern::ConnectedOffice && Difficulty == EHouseNavigationDifficulty::Custom"))
 	int32 CustomRouteDepth = 3;
 
 	/** Reject a custom plan exceeding this count; the entrance room is not counted. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Navigation", meta=(ClampMin="3", ClampMax="31", EditCondition="Pattern != EHouseLayoutPattern::LegacyRandom && Difficulty == EHouseNavigationDifficulty::Custom"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Navigation", meta=(ClampMin="3", ClampMax="31", EditCondition="Pattern != EHouseLayoutPattern::LegacyRandom && Pattern != EHouseLayoutPattern::ConnectedOffice && Difficulty == EHouseNavigationDifficulty::Custom"))
 	int32 CustomMaxDeadEnds = 31;
 };
 
@@ -160,6 +165,49 @@ enum class EHouseFurnitureType : uint8
 	ToyBox,
 	StorageShelf,
 	Count UMETA(Hidden)
+};
+
+/** Labels select rooms without changing their physical type or household purpose. */
+USTRUCT(BlueprintType)
+struct PROTOTYPE3_API FHouseRoomTagAssignment
+{
+	GENERATED_BODY()
+	/** -1 selects all rooms matching Match Tags. Room IDs are specific to a generated layout. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Room Rules", meta=(ClampMin="-1", ClampMax="31"))
+	int32 RoomIndex = INDEX_NONE;
+	/** All tags must match. Evaluated against automatic tags only, never other added labels. Empty matches all. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Room Rules", meta=(Categories="Room.Type,Room.Purpose,Room.Role"))
+	FGameplayTagContainer MatchTags;
+	/** Custom children of Room.Label; automatic Type/Purpose/Role tags cannot be overwritten. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Room Rules", meta=(Categories="Room.Label"))
+	FGameplayTagContainer AdditionalTags;
+};
+
+/** All matching rules apply; any spawn denial wins. Empty arrays preserve existing generation. */
+USTRUCT(BlueprintType)
+struct PROTOTYPE3_API FHouseRoomRule
+{
+	GENERATED_BODY()
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Room Rules")
+	FName RuleName = TEXT("Room rule");
+	/** Match ALL tags, including their descendants. Must not be empty. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Room Rules", meta=(Categories="Room"))
+	FGameplayTagContainer MatchTags;
+	/** Fail generation if this rule matches no room in the completed house. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Room Rules")
+	bool bRequireMatchingRoom = false;
+	/** At least one of each type. Placed first, with normal catalogue eligibility and clearance checks. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Room Rules")
+	TArray<EHouseFurnitureType> RequiredFurniture;
+	/** Every directly connected room must match at least ONE tag. Empty means unrestricted.
+	 * Restricts interior doorways, not shared walls; does not override the existing residential plan. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Room Rules", meta=(Categories="Room"))
+	FGameplayTagContainer AllowedNeighborTags;
+	/** The player's entrance room is always protected, even when this is enabled. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Room Rules")
+	bool bAllowZombieSpawns = true;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Room Rules")
+	bool bAllowItemSpawns = true;
 };
 
 /** One optional item per matching room. Sizes use local X=width, Y=depth, Z=height; front is +Y. */
@@ -241,6 +289,35 @@ struct PROTOTYPE3_API FHouseSizingSettings
 	float MaxHallwayLength = 10.0f;
 };
 
+/** Inclusive integer bounds. Equal bounds select a fixed value. */
+USTRUCT(BlueprintType)
+struct PROTOTYPE3_API FHouseIntegerRange
+{
+	GENERATED_BODY()
+	FHouseIntegerRange() = default;
+	FHouseIntegerRange(int32 InMin, int32 InMax) : Min(InMin), Max(InMax) {}
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Range", meta=(ClampMin="1", ClampMax="64"))
+	int32 Min = 1;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Range", meta=(ClampMin="1", ClampMax="64"))
+	int32 Max = 1;
+};
+
+/** Width/depth bound the actual footprint, not an envelope. Room count includes hallways. */
+USTRUCT(BlueprintType)
+struct PROTOTYPE3_API FHouseGenerationRanges
+{
+	GENERATED_BODY()
+	/** Actual footprint width in cells (3..64). One cell is Cell Size centimetres. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Ranges")
+	FHouseIntegerRange WidthCells = FHouseIntegerRange(12, 12);
+	/** Actual footprint depth in cells (3..64). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Ranges")
+	FHouseIntegerRange DepthCells = FHouseIntegerRange(10, 10);
+	/** Exact total room count, including hallways (1..32). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Ranges")
+	FHouseIntegerRange RoomCount = FHouseIntegerRange(4, 4);
+};
+
 USTRUCT(BlueprintType)
 struct PROTOTYPE3_API FHouseGenerationSettings
 {
@@ -249,6 +326,22 @@ struct PROTOTYPE3_API FHouseGenerationSettings
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="House Controls|Layout")
 	int32 Seed = 12345;
+
+	/** Resolve actual width, depth and room count once from Seed. Equal bounds are fixed.
+	 * Incompatible combinations fail; retries never enlarge the footprint or raise the count. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="House Controls|Layout")
+	bool bUseGenerationRanges = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="House Controls|Layout", meta=(EditCondition="bUseGenerationRanges", EditConditionHides))
+	FHouseGenerationRanges GenerationRanges;
+	/** Editor transition state; saved so disabling/re-enabling ranges retains authored bounds. */
+	UPROPERTY() bool bGenerationRangesInitialized = false;
+	void InitializeGenerationRanges();
+	void PreserveLoadedGenerationRanges();
+
+	/** Internal resolved-setting contract. Serialized so the successful settings reproduce directly. */
+	UPROPERTY()
+	bool bRequireExactFootprint = false;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="House Controls|Layout")
 	FHouseNavigationSettings Navigation;
@@ -260,25 +353,30 @@ struct PROTOTYPE3_API FHouseGenerationSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="House Controls|Layout")
 	FHouseSizingSettings RoomSizing;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="House Controls|Room Rules", meta=(TitleProperty="RoomIndex"))
+	TArray<FHouseRoomTagAssignment> RoomTagAssignments;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="House Controls|Room Rules", meta=(TitleProperty="RuleName"))
+	TArray<FHouseRoomRule> RoomRules;
+
 
 	/** Planned houses may grow beyond Width/Depth Cells when necessary, up to a 24 x 24 envelope.
 	 * Disable to enforce strict footprint limits. Your input dimensions are never overwritten. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="House Controls|Layout", meta=(DisplayName="Allow Larger Footprint"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="House Controls|Layout", meta=(DisplayName="Allow Larger Footprint", EditCondition="!bUseGenerationRanges", EditConditionHides))
 	bool bAllowLargerFootprint = true;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="House Controls|Layout", meta=(ClampMin="3", ClampMax="64"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="House Controls|Layout", meta=(ClampMin="3", ClampMax="64", EditCondition="!bUseGenerationRanges", EditConditionHides))
 	int32 WidthCells = 12;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="House Controls|Layout", meta=(ClampMin="3", ClampMax="64"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="House Controls|Layout", meta=(ClampMin="3", ClampMax="64", EditCondition="!bUseGenerationRanges", EditConditionHides))
 	int32 DepthCells = 10;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="House Controls|Layout", meta=(ClampMin="1", ClampMax="32"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="House Controls|Layout", meta=(ClampMin="1", ClampMax="32", EditCondition="!bUseGenerationRanges", EditConditionHides))
 	int32 RoomCount = 4;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="House Controls|Layout", meta=(ClampMin="3", ClampMax="32"))
 	int32 MinRoomCells = 3;
 
-	/** Used only by Original Random Layout; planned patterns preserve their requested door graph. */
+	/** Used by Original Random Layout and Connected Office Suite; residential planned patterns preserve their door graph. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="House Controls|Layout", meta=(ClampMin="0", ClampMax="1"))
 	float ExtraConnectionChance = 0.2f;
 
@@ -332,12 +430,23 @@ struct PROTOTYPE3_API FHouseGenerationSettings
 	/** Evaluated in order: put large/important pieces first. Items that cannot fit safely are skipped. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="House Controls|Furniture")
 	TArray<FHouseFurnitureRule> FurnitureRules;
+
+	/** Bounded room arrangements. 1 preserves the original seed results; increase to try rearrangement. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="House Controls|Furniture", meta=(ClampMin="1", ClampMax="8"))
+	int32 FurnitureArrangementAttempts = 1;
 };
 
 USTRUCT(BlueprintType)
 struct PROTOTYPE3_API FHouseRoom
 {
 	GENERATED_BODY()
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="House|Room Rules")
+	FGameplayTagContainer Tags;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="House|Room Rules")
+	bool bAllowZombieSpawns = true;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="House|Room Rules")
+	bool bAllowItemSpawns = true;
 
 	/** Integer grid bounds; Max is exclusive. Array index is the stable room ID. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="House")
@@ -458,14 +567,22 @@ struct PROTOTYPE3_API FHouseLayout
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="House")
 	int32 SkippedFurnitureCount = 0;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="House")
+	int32 FurnitureArrangementsTried = 0;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="House")
+	int32 FurnitureRoomsImproved = 0;
 };
 
 /** Data-only generation: no world, assets, global randomness or spawned actors. */
 class PROTOTYPE3_API FHouseLayoutGenerator
 {
 public:
+	/** Resolve inclusive ranges from the requested seed without mutating inputs. Does not validate
+	 * the remaining generation rules. Resolved output does not reroll when retry seeds change. */
+	static bool ResolveRanges(const FHouseGenerationSettings& Requested, FHouseGenerationSettings& Resolved, FString& OutError);
 	/** Editor-friendly generation: raise undersized room counts, then try up to 16 deterministic seeds.
-	 * EffectiveSettings records the successful seed/count; original request is never mutated. */
+	 * Range mode instead keeps its resolved footprint/count exact. EffectiveSettings records the
+	 * successful seed/count; original request is never mutated. */
 	static bool GenerateWithRetries(const FHouseGenerationSettings& Requested, FHouseGenerationSettings& EffectiveSettings,
 		FHouseLayout& OutLayout, int32& Attempts, FString& OutError);
 	static bool ValidateSettings(const FHouseGenerationSettings& Settings, FString& OutError);

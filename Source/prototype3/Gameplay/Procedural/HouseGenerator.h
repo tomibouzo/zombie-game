@@ -6,6 +6,7 @@
 #include "HouseGenerator.generated.h"
 
 class UHouseStyle;
+class UHouseGenerationPreset;
 class UInstancedStaticMeshComponent;
 class UStaticMesh;
 class UTextRenderComponent;
@@ -19,6 +20,16 @@ class PROTOTYPE3_API AHouseGenerator : public AActor
 
 public:
 	AHouseGenerator();
+	virtual void PostLoad() override;
+#if WITH_EDITOR
+	virtual void PreEditChange(FProperty* PropertyAboutToChange) override;
+	virtual void PostEditChangeProperty(FPropertyChangedEvent& Event) override;
+#endif
+
+	/** Optional building model. When set, generation uses the preset's fixed values and seed-resolved ranges;
+	 * only Seed is read from the controls below. Clear it to use Custom controls, starting from this preset. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="House")
+	TObjectPtr<UHouseGenerationPreset> Preset;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="House Controls", meta=(ShowOnlyInnerProperties))
 	FHouseGenerationSettings Settings;
@@ -101,6 +112,9 @@ protected:
 private:
 	UPROPERTY()
 	TObjectPtr<UStaticMesh> DefaultBlockMesh;
+
+	/** Editor-only: preset before a Details edit, used to seed Custom controls when it is cleared. */
+	TWeakObjectPtr<UHouseGenerationPreset> PresetBeforeEdit;
 
 	UPROPERTY()
 	TArray<TObjectPtr<UTextRenderComponent>> GeneratedLabels;

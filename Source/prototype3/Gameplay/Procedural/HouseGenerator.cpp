@@ -1,6 +1,8 @@
 #include "Gameplay/Procedural/HouseGenerator.h"
+#include "Gameplay/Procedural/HouseGenerationPreset.h"
 #include "Gameplay/Procedural/HouseHousehold.h"
 #include "Gameplay/Procedural/HouseSizing.h"
+#include "Gameplay/Procedural/HouseSpatial.h"
 
 #include "Components/InstancedStaticMeshComponent.h"
 #include "Components/SceneComponent.h"
@@ -17,6 +19,39 @@
 #endif
 
 DEFINE_LOG_CATEGORY_STATIC(LogHouseGenerator, Log, All);
+
+void AHouseGenerator::PostLoad()
+{
+	Super::PostLoad();
+	// Existing range-enabled maps already contain authored bounds; do not replace them on a later toggle.
+	Settings.PreserveLoadedGenerationRanges();
+}
+
+#if WITH_EDITOR
+void AHouseGenerator::PreEditChange(FProperty* PropertyAboutToChange)
+{
+	Super::PreEditChange(PropertyAboutToChange);
+	PresetBeforeEdit = Preset;
+}
+
+void AHouseGenerator::PostEditChangeProperty(FPropertyChangedEvent& Event)
+{
+	if (Event.GetPropertyName() == GET_MEMBER_NAME_CHECKED(AHouseGenerator, Preset))
+	{
+		// Switching to Custom starts from the previous preset's values so they can be tuned directly.
+		if (!Preset && PresetBeforeEdit.IsValid())
+		{
+			int32 Zombies = 0, Items = 0;
+			Settings = PresetBeforeEdit->MakeCustomSettings(Settings.Seed, Zombies, Items);
+		}
+		PresetBeforeEdit.Reset();
+	}
+	else if (Event.GetPropertyName() == GET_MEMBER_NAME_CHECKED(FHouseGenerationSettings, bUseGenerationRanges))
+		Settings.InitializeGenerationRanges();
+	else if (Settings.bUseGenerationRanges) Settings.bGenerationRangesInitialized = true;
+	Super::PostEditChangeProperty(Event);
+}
+#endif
 
 namespace
 {
@@ -114,8 +149,21 @@ void AHouseGenerator::GenerateHouse()
 		UE_LOG(LogHouseGenerator, Warning, TEXT("%s: %s"), *GetName(), *LastError);
 		return;
 	}
-	const FHouseFurniturePalette* Palette = Style && Settings.Household.Profile != EHouseholdProfile::None ?
-		Style->HouseholdPalettes.Find(Settings.Household.FurnitureStyle) : nullptr;
+	// A preset replaces every control except Seed; its ranged values resolve from that seed.
+	FHouseGenerationSettings Request = Settings;
+	FHousePresetResult PresetResult;
+	if (Preset)
+	{
+		if (!Preset->Resolve(Settings.Seed, PresetResult, Error))
+		{
+			LastError = Error + TEXT(" Existing house was preserved.");
+			UE_LOG(LogHouseGenerator, Warning, TEXT("%s: %s"), *GetName(), *LastError);
+			return;
+		}
+		Request = PresetResult.Request;
+	}
+	const FHouseFurniturePalette* Palette = Style && Request.Household.Profile != EHouseholdProfile::None ?
+		Style->HouseholdPalettes.Find(Request.Household.FurnitureStyle) : nullptr;
 	if (Style)
 	{
 		TMap<EHouseFurnitureType, TObjectPtr<UStaticMesh>> SelectedMeshes = Style->FurnitureMeshes;
@@ -134,8 +182,8 @@ void AHouseGenerator::GenerateHouse()
 	}
 	FHouseGenerationSettings EffectiveSettings;
 	int32 Attempts = 0;
-	const int32 RequestedRoomCount = Settings.RoomCount;
-	if (!FHouseLayoutGenerator::GenerateWithRetries(Settings, EffectiveSettings, NewLayout, Attempts, Error))
+	const int32 RequestedRoomCount = Request.RoomCount;
+	if (!FHouseLayoutGenerator::GenerateWithRetries(Request, EffectiveSettings, NewLayout, Attempts, Error))
 	{
 		LastError = Error;
 		UE_LOG(LogHouseGenerator, Warning, TEXT("%s: %s Existing house was preserved."), *GetName(), *Error);
@@ -175,11 +223,16 @@ void AHouseGenerator::GenerateHouse()
 	GeneratedSeed = EffectiveSettings.Seed;
 	NavigationSummary = Layout.Navigation.Summary;
 	GenerationSummary = FString::Printf(TEXT("Input seed %d -> generated seed %d; %d attempt(s)."), Settings.Seed, GeneratedSeed, Attempts);
-	if (RequestedRoomCount != GeneratedSettings.RoomCount)
+	if (Preset)
+		GenerationSummary += FString::Printf(TEXT(" Preset %s: %s."), *Preset->GetName(), *PresetResult.Describe());
+	if (Request.bUseGenerationRanges)
+		GenerationSummary += FString::Printf(TEXT(" Resolved exact footprint %d x %d cells and %d rooms from the input seed; retries keep these values."),
+			GeneratedSettings.WidthCells, GeneratedSettings.DepthCells, GeneratedSettings.RoomCount);
+	if (!Request.bUseGenerationRanges && RequestedRoomCount != GeneratedSettings.RoomCount)
 		GenerationSummary += FString::Printf(TEXT(" Used %d rooms (requested %d) to satisfy difficulty/household."), GeneratedSettings.RoomCount, RequestedRoomCount);
-	if (Settings.WidthCells != GeneratedSettings.WidthCells || Settings.DepthCells != GeneratedSettings.DepthCells)
+	if (!Request.bUseGenerationRanges && (Request.WidthCells != GeneratedSettings.WidthCells || Request.DepthCells != GeneratedSettings.DepthCells))
 		GenerationSummary += FString::Printf(TEXT(" Expanded envelope from %d x %d to %d x %d cells; disable Allow Larger Footprint for strict limits."),
-			Settings.WidthCells, Settings.DepthCells, GeneratedSettings.WidthCells, GeneratedSettings.DepthCells);
+			Request.WidthCells, Request.DepthCells, GeneratedSettings.WidthCells, GeneratedSettings.DepthCells);
 	GenerationSummary += TEXT(" Your input controls are unchanged.");
 	SizeSummary = Layout.SizeSummary;
 	LastError.Reset();
@@ -328,6 +381,28 @@ void AHouseGenerator::DrawLayoutDebug()
 	if (!GetWorld()) return;
 	const FTransform Transform = GetActorTransform();
 	const FHouseNavigationReport Report = FHouseNavigation::Measure(Layout);
+	auto DrawRegion = [&](const FBox2D& Region, float Bottom, float Height, FColor Color)
+	{
+		const FVector2D Center = Region.GetCenter(), Half = Region.GetExtent();
+		DrawDebugBox(GetWorld(), Transform.TransformPosition(FVector(Center.X, Center.Y, Bottom + Height * .5)),
+			FVector(Half.X, Half.Y, Height * .5) * Transform.GetScale3D().GetAbs(), Transform.GetRotation(),
+			Color, false, 30.f, 0, 3.f);
+	};
+	// Draw exactly the regions used by furnishing and encounter placement, including both sides of an internal door.
+	for (const FHouseFurniturePlacement& Item : Layout.Furniture)
+	{
+		if (!GeneratedSettings.FurnitureRules.IsValidIndex(Item.RuleIndex)) continue;
+		DrawRegion(FHouseSpatial::FurnitureBody(GeneratedSettings, Item), 0,
+			GeneratedSettings.FurnitureRules[Item.RuleIndex].Size.Z, FColor::Red);
+		DrawRegion(FHouseSpatial::FurnitureAccess(GeneratedSettings, Item), 5, 8, FColor::Orange);
+	}
+	for (const FHouseWall& Wall : Layout.Walls)
+	{
+		if (Wall.Opening != EHouseOpening::Door) continue;
+		for (int32 RoomIndex : {Wall.RoomA, Wall.RoomB})
+			if (Layout.Rooms.IsValidIndex(RoomIndex))
+				DrawRegion(FHouseSpatial::DoorAccess(GeneratedSettings, Layout.Rooms[RoomIndex], Wall), 15, 8, FColor::Green);
+	}
 	auto CenterOf = [&](int32 ID)
 	{
 		const FHouseRoom& Room = Layout.Rooms[ID];
@@ -361,12 +436,15 @@ void AHouseGenerator::DrawLayoutDebug()
 		DrawDebugBox(GetWorld(), Transform.TransformPosition(Center), Extent * Transform.GetScale3D().GetAbs(),
 			Transform.GetRotation(), Color, false, 30.0f, 0, 4.0f);
 		const bool bDeadEnd = Report.DeadEndRooms.Contains(Index);
-		DrawDebugString(GetWorld(), Transform.TransformPosition(Center), FString::Printf(TEXT("%d: %s | %d doors%s%s%s"), Index,
+		DrawDebugString(GetWorld(), Transform.TransformPosition(Center), FString::Printf(TEXT("%d: %s | %d doors%s%s%s\n%s\nInitial spawns: zombies %s | loot %s"), Index,
 			*FHouseHousehold::RoomLabel(Room), Report.RoomDoorDepths[Index],
 			bDeadEnd ? TEXT(" | dead end") : TEXT(""), Index == Report.DeepestRoom ? TEXT(" | deepest") : TEXT(""),
-			Index == Report.EntranceRoom ? TEXT(" | entrance") : TEXT("")), nullptr, bDeadEnd ? FColor::Red : Color, 30.0f);
+			Index == Report.EntranceRoom ? TEXT(" | entrance") : TEXT(""), *Room.Tags.ToStringSimple(),
+			Room.bAllowZombieSpawns ? TEXT("allowed") : TEXT("blocked"), Room.bAllowItemSpawns ? TEXT("allowed") : TEXT("blocked")),
+			nullptr, bDeadEnd ? FColor::Red : Color, 30.0f);
 	}
 	if (Layout.Rooms.Num())
 		DrawDebugString(GetWorld(), Transform.TransformPosition(FVector(0, -80, 100)),
-			FHouseNavigation::Describe(GeneratedSettings, Report) + TEXT(" Cyan: main door route. Red: dead ends."), nullptr, FColor::White, 30);
+			FHouseNavigation::Describe(GeneratedSettings, Report) + TEXT(" Cyan: main door route. Red labels: dead ends.\nBoxes: red = furniture body, orange = furniture access, green = doorway approach."),
+			nullptr, FColor::White, 30);
 }

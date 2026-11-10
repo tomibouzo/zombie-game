@@ -64,11 +64,17 @@ bool FHouseResidentialPlan::Build(const FHouseGenerationSettings& S, FHouseLayou
 	for (int32 Left = 1; Left < S.WidthCells - HallWidth; ++Left)
 		for (int32 Right = 1; Right <= S.WidthCells - HallWidth - Left; ++Right)
 			for (int32 Depth = 1; Depth < S.DepthCells; ++Depth)
-				if (Depth * S.CellSize >= S.DoorWidth + 2 * S.WallThickness &&
+				if ((!S.bRequireExactFootprint || Left + HallWidth + Right == S.WidthCells) &&
+					Depth * S.CellSize >= S.DoorWidth + 2 * S.WallThickness &&
 					FHouseSizing::Fits(S, Living, FIntPoint(Left + HallWidth, Depth)) &&
 					FHouseSizing::Fits(S, Kitchen, FIntPoint(Right, Depth))) Fronts.Add({Left, Right, Depth});
 	if (Fronts.IsEmpty())
-	{ Error = TEXT("The footprint envelope/grid cannot fit the living room and kitchen size limits. Use 100 cm cells and a larger envelope, or adjust Room Sizing."); return false; }
+	{
+		Error = S.bRequireExactFootprint
+			? TEXT("The resolved width/depth cannot fit the living room and kitchen size limits. Adjust Generation Ranges, Cell Size or Room Sizing; exact dimensions are not stretched.")
+			: TEXT("The footprint envelope/grid cannot fit the living room and kitchen size limits. Use 100 cm cells and a larger envelope, or adjust Room Sizing.");
+		return false;
+	}
 	FRandomStream Random(S.Seed);
 	FString ProfileError;
 	for (int32 Attempt = 0; Attempt < 512; ++Attempt)
@@ -118,6 +124,20 @@ bool FHouseResidentialPlan::Build(const FHouseGenerationSettings& S, FHouseLayou
 			MinimumDepth += Section.Depths[0];
 		}
 		if (!bFits || MinimumDepth > S.DepthCells) continue;
+		// Range mode fills the resolved depth exactly, choosing only section sizes whose
+		// remaining suffix can still complete it. Every room keeps its usable-size limits.
+		TArray<TArray<uint8>> ExactReach;
+		if (S.bRequireExactFootprint)
+		{
+			ExactReach.SetNum(Sections.Num() + 1);
+			for (auto& Row : ExactReach) Row.Init(0, S.DepthCells + 1);
+			ExactReach.Last()[0] = 1;
+			for (int32 I = Sections.Num() - 1; I >= 0; --I)
+				for (int32 Sum = 1; Sum <= S.DepthCells; ++Sum)
+					for (int32 D : Sections[I].Depths)
+						if (D <= Sum && ExactReach[I + 1][Sum - D]) { ExactReach[I][Sum] = 1; break; }
+			if (!ExactReach[0][S.DepthCells - Front.Depth]) continue;
+		}
 		L.Rooms[0].Min = FIntPoint(0, 0); L.Rooms[0].Max = FIntPoint(Front.Left + HallWidth, Front.Depth);
 		L.Rooms[1].Min = FIntPoint(Front.Left + HallWidth, 0); L.Rooms[1].Max = FIntPoint(Front.Left + HallWidth + Front.Right, Front.Depth);
 		int32 Y = Front.Depth;
@@ -127,7 +147,10 @@ bool FHouseResidentialPlan::Build(const FHouseGenerationSettings& S, FHouseLayou
 		{
 			FSection& Section = Sections[I];
 			TArray<int32> Options;
-			for (int32 D : Section.Depths) if (D <= Section.Depths[0] + Spare) Options.Add(D);
+			for (int32 D : Section.Depths)
+				if (S.bRequireExactFootprint
+					? (D <= S.DepthCells - Y && ExactReach[I + 1][S.DepthCells - Y - D])
+					: D <= Section.Depths[0] + Spare) Options.Add(D);
 			const int32 Depth = Options[Random.RandRange(0, Options.Num() - 1)];
 			Spare -= Depth - Section.Depths[0];
 			L.Rooms[2 + I].Min = FIntPoint(Front.Left, Y); L.Rooms[2 + I].Max = FIntPoint(Front.Left + HallWidth, Y + Depth);
@@ -147,6 +170,10 @@ bool FHouseResidentialPlan::Build(const FHouseGenerationSettings& S, FHouseLayou
 		Out = MoveTemp(L); Connections = MoveTemp(Edges); Error.Reset();
 		return true;
 	}
-	Error = ProfileError.IsEmpty() ? TEXT("No residential packing found within the size limits and footprint envelope (512 attempts). Try 100 cm cells and a 24 x 24 envelope; check purpose overrides, lower Room Count/difficulty, or adjust Room Sizing. The house is never stretched to fill spare space.") : ProfileError;
+	Error = ProfileError.IsEmpty()
+		? (S.bRequireExactFootprint
+			? TEXT("No residential packing found for the exact resolved footprint and room count (512 attempts). Adjust Generation Ranges, difficulty or Room Sizing. Requested dimensions/count were not changed.")
+			: TEXT("No residential packing found within the size limits and footprint envelope (512 attempts). Try 100 cm cells and a 24 x 24 envelope; check purpose overrides, lower Room Count/difficulty, or adjust Room Sizing. The house is never stretched to fill spare space."))
+		: ProfileError;
 	return false;
 }

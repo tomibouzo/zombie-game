@@ -14,6 +14,86 @@ for this map; the existing starting inventory and controls remain available.
 
 ## Settings
 
+### Generation presets
+
+Select the encounter (or a standalone House Builder) and pick one asset in
+the **Preset** dropdown. Only one preset is active at a time; **None (Custom)**
+uses the actor's own controls. With a preset selected, generation reads only **Seed**
+from House Settings; Zombie Count and Item Count are greyed out because the preset
+decides them. Choosing None (Custom), or the reset arrow beside Preset, switches
+to Custom starting from that preset's
+values: its fixed settings and size ranges, the midpoint connection chance and
+density, and the population at the midpoint size. Save the map to keep the choice.
+
+Presets live in `Content/Procedural/Presets` and can be tuned in the editor
+without recompiling:
+
+| Preset | Layout | Width × depth (cells) | Rooms | Zombies | Items |
+| --- | --- | --- | --- | --- | --- |
+| `DA_HousePreset_SmallOffice` | Connected Office Suite, required desks | 8–13 × 6–11 | 5–8 | 0.5–0.8 per room, 2–5 | 1.0–1.5 per room, 4–10 |
+| `DA_HousePreset_CompactHouse` | Central Hub (Easy), Couple | 8–11 × 9–15 | 6–7 | 0.4–0.7 per room, 2–6 | 0.8–1.2 per room, 3–10 |
+| `DA_HousePreset_FamilyHouse` | Deep Branches (Normal), Family with 2 children | 10–11 × 13–17 | 9–11 | 0.4–0.7 per room, 3–4 | 0.8–1.2 per room, 5–14 |
+
+The seed resolves every range: connection chance, furnishing density, and the
+zombie and item rates. Zombies are counted per room excluding the entrance room;
+items per room including it. Each count is rounded, then clamped to the preset's
+minimum and maximum, so population follows the building's size. Width, depth and
+room count are not independent: offices only build when room count matches floor
+area, and the residential template only builds narrow houses with matching depths.
+The seed therefore tries the size combinations inside the ranges in a seeded order
+and keeps the first one that builds (at most 64 tried). Result > Preset Summary
+shows the resolved values; **Try another seed** re-rolls all of them within the
+preset. The same seed and preset always give the same values.
+
+The shipped ranges come from a Nov 9 feasibility sweep. Family houses are only
+10–11 cells wide because the default room sizing (bedroom area and proportion
+limits) prevents wider residential layouts; widening them needs Room Sizing
+changes in the preset's fixed settings. Density only filters optional household
+furniture, so the office preset keeps it at Standard. Wider custom ranges may
+fail more often; `Prototype.House.Presets.LayoutSweep` (200 seeds per preset) and
+`Prototype.Encounter.PresetSweep` (20 full encounters per preset) check the saved
+assets. Recreate missing assets with
+`-CreateHousePresetAssets -ExecCmds="Automation RunTests Prototype.House.Presets.CreateAssets"`;
+existing assets are never overwritten.
+
+### Small office layout
+
+The office preset uses **Navigation > Pattern > Connected Office Suite** with four
+furniture arrangements. It produces one reception, one bathroom, one storage room
+and offices. Every office requires a desk through a normal room rule. Existing placeholder
+sofas, desks, chairs, shelves and bathroom furniture are reused. Custom catalogues
+can use the new Reception, Office and Storage room types; switching just the
+pattern on an old map does not replace that map's saved catalogue.
+
+Office packing recursively splits the footprint into size-constrained rectangles,
+then connects reception and offices through shared boundaries that can fit a door.
+Bathroom and storage each have one door to reception/an office and cannot become
+through routes. Extra Connection Chance can add alternate workroom routes/loops.
+This deliberately permits traffic through offices; it is a compact connected-suite
+prototype, not a corridor-access office standard. Each generated graph must be
+connected and still passes furniture walking checks and runtime encounter navigation.
+
+Use **Room Sizing > Living Room** for reception limits, and Office, Storage and
+Bathroom for those rooms. Office suites accept 4..12 rooms; count includes reception,
+bathroom and storage. Residential household profiles/overrides are rejected.
+Residential Difficulty/Custom Route Depth/Max Dead Ends do not apply; reported
+depth and loops describe the generated graph. Office packing always fills the
+requested width/depth, does not auto-grow or increase room count, and supports the
+existing seeded ranges. Min Room Cells is a legacy partition control; office
+rooms instead obey their room-size limits and opening widths.
+
+There are at most 64 packing attempts per layout, each with a 1,024-call recursive
+search budget. The existing bounded seed/layout retries and full rollback still
+apply. Incompatible dimensions, counts, furniture or room rules can fail safely.
+Automatic tags include `Room.Type.Reception`, `Room.Type.Office` and
+`Room.Type.Storage`; offices/storage also have their matching purpose tags.
+Reception receives `Room.Role.Entrance` and remains excluded from initial zombies.
+Room-rule exclusions, real collectible pickup and exit choices work as before.
+
+Existing residential modes remain available. This adds one non-house program and
+a different partition/connection strategy; shops, arbitrary room programs,
+nonrectangular footprints and multiple floors remain future work.
+
 | Setting | Default / contract |
 | --- | --- |
 | House Settings | Existing builder settings, including Seed (12345), furniture, room count and navigation pattern |
@@ -42,29 +122,165 @@ floor inventory or direct hand pickup controls. No new item actions are added.
 
 ## Placement and failure contract
 
+### Generation ranges and placement rework
+
+Enable **House Settings > Use Generation Ranges**, then expand **Generation
+Ranges** for Width Cells, Depth Cells and Room Count minimum/maximum values.
+The first time ranges are enabled in Details, both bounds inherit the existing
+fixed width, depth and room count. Later off/on toggles preserve edited ranges;
+fixed controls remain separate. Existing saved custom ranges are retained.
+Equal bounds mean a fixed value. A cell is **Cell Size** centimetres (100 cm by
+default). Width/depth describe the actual house footprint between exterior wall
+centre lines, not individual room dimensions or merely a maximum envelope.
+Hallways count as rooms. Room Sizing continues to constrain planned room interiors.
+
+The seed resolves all three ranges once. Generation retries keep those dimensions
+and count; they cannot silently grow, shrink or raise the requested count. An
+incompatible sampled combination fails with its resolved values. Existing maps
+keep their previous controls until range mode is enabled. Central Hub and Deep
+Branches retain their residential hallway topology; Connected Office Suite uses
+its own room program and workroom graph. Arbitrary building programs remain future work.
+
+Loot now uses each selected type's actual oriented box, supported at its centre
+and corners, plus a separate reachable player standing position within pickup
+range and with a clear view. Furniture bodies, front access and door approaches
+remain reserved. Loot uses a 50 cm candidate lattice; zombies retain 75 cm.
+Four deterministic arrangement attempts alternate zombie/loot priority without
+changing that building or counts. If all fail, the encounter tries another house
+arrangement, up to four houses total. Each house uses the existing builder's
+bounded generation retries and a fresh navigation build. In range mode all four
+houses keep the same resolved dimensions/count; loot selection and requested
+zombie/item counts also stay fixed. Failed layouts are cleaned before the next
+attempt. Larger items are placed first. Pickup approaches
+stay clear of other initial occupants. Result > Placement includes Item Access Feet;
+Placement Report records attempts and best counts. These are search results,
+not a measurement of the building's theoretical capacity.
+
+During preparation a centered status prompt owns movement/look input. Success
+removes it and restores control. Exhausting the attempts shows the failure reason,
+**Try another seed**, and **End Play** (or **Exit game** outside the editor).
+Retry starts a deterministic new request seed with the original snapshotted
+settings; it can choose new values within the original ranges. It never changes
+editor controls or drops requested occupants. The retry button is disabled during
+preparation and after success. Invalid configuration requires ending Play to fix
+settings; a fixed one-room house with zombies is rejected before geometry is built.
+Result > Request Seed, Layout Attempts and Generation Status identify the request
+and outcome. Re-enter the reported Request Seed to reproduce a manual retry.
+
+On a generated House Builder, **Draw Layout Debug** shows red furniture bodies,
+orange furniture access and green doorway approaches for 30 seconds. These shared
+clearance regions are mathematical rules, not extra physical obstacles.
+
+### Room tags and rules
+
+Expand **House Settings > Room Rules** on the encounter (or **Settings > Room
+Rules** on a standalone builder). **Room Rules** and **Room Tag Assignments** are
+empty by default. They are saved with the map and included in the encounter's
+prepared settings snapshot. The seed and settings determine their results.
+
+Generated rooms receive `Room.Type.*`, `Room.Purpose.*` and, for the entrance,
+`Room.Role.Entrance`. Room type is the physical residential category; purpose
+refines private bedrooms into primary/guest/child bedrooms, offices or storage.
+An optional bedroom converted to an office receives updated tags and rules.
+Inspect **Layout > Rooms** on the generated builder, or use **Draw Layout Debug**
+to see tags and initial spawn permissions alongside the clearance boxes.
+
+Each rule needs a unique **Rule Name** and nonempty **Match Tags**. All selected
+tags must match; a parent such as `Room.Type` matches any type beneath it.
+Multiple matching rules combine: a spawn denial always wins, furniture
+requirements accumulate, and every neighbor restriction must be satisfied.
+**Require Matching Room** rejects a completed house with no matching room;
+otherwise an unmatched rule is simply unused.
+
+| Control | Effect |
+| --- | --- |
+| Required Furniture | Requires at least one piece of each selected type in every matching room. Required types are attempted before optional pieces. |
+| Allowed Neighbor Tags | Each room connected by an interior doorway must match at least one listed tag. Empty means unrestricted. Both ends' rules apply; sharing a solid wall does not count. |
+| Allow Zombie Spawns | Turning this off excludes the whole room plus a capsule margin at doorways. The entrance room remains excluded even if all matching rules allow zombies. |
+| Allow Item Spawns | Turning this off excludes collectible bodies from that room. It does not remove furniture or restrict walking. |
+
+Required furniture still follows catalogue type/purpose/style eligibility,
+unfurnished overrides, physical clearance and walking routes. It overrides the
+density threshold only. Disabling furniture generation or requesting an
+ineligible/oversized required piece fails with the rule name and room/type.
+Bedroom-to-office fallback cannot evade a required bed. The generator does not
+silently omit requirements, reduce population, or relax geometry checks.
+
+For example, create a rule named **Quiet kitchen**, set Match Tags to
+`Room.Type.Kitchen`, and disable Allow Zombie Spawns. To require a furnished
+living room, match `Room.Type.LivingRoom` and add `Sofa` to Required Furniture.
+For hallway-only bedroom access, match `Room.Type.Bedroom` and allow neighbor
+`Room.Type.Hallway`; use a planned residential pattern that supports that rule.
+
+For custom labels, add a **Room Tag Assignment**: use automatic type/purpose/role
+tags as its filter, optionally restrict it to a room ID, and add a child of
+`Room.Label`. The included `Room.Label.Safe` and `Room.Label.Loot` are examples;
+they have no effect until a rule matches them. More labels can be registered in
+Project Settings > Gameplay Tags. Room ID `-1` means all matching rooms, and an
+empty assignment filter matches all types. IDs belong to the current layout and
+can change on a different seed/retry; use semantic tags for portable rules.
+Assignments cannot replace automatic tags or depend on other added labels, so
+their order cannot change the result. Limits: 32 rules, 32 assignments, 16 tags
+per selector/label list; required furniture types must be unique.
+
+### Bounded furniture rearrangement
+
+**House Settings > Furniture Arrangement Attempts** accepts 1..8; set it to **4**
+to try room rearrangement. The default of 1 preserves existing seed results.
+If the first arrangement skips eligible furniture or misses a required piece,
+the generator tries new seeded candidate orders from an empty version of that
+room. Earlier rooms stay intact. Every placement still checks furniture bodies,
+front access, door approaches and walking routes.
+
+Selection first minimizes missing required furniture (including planned bedroom
+beds and office desks), then skipped eligible pieces. Ties keep the earlier
+arrangement. A complete arrangement ends the search early. Retry random streams
+are separate from the original stream, so retries do not consume the random
+draws reserved for subsequent rooms. Original settings are never overwritten.
+Required furniture failure and bedroom-to-office fallback happen only after
+these attempts; impossible requirements still reject the entire house.
+
+The generated layout reports **Furniture Arrangements Tried** and **Furniture
+Rooms Improved**, alongside Skipped Furniture Count. More attempts cost more
+generation time. This is a bounded search over alternative whole-room
+arrangements, not exhaustive backtracking, furniture-group design, or a guarantee
+that every physically possible placement will be found. It does not yet choose
+furniture arrangements based on the requested zombie/loot population.
+
+These rules constrain the existing generator. Door restrictions validate its
+completed graph and participate in bounded generation retries; they do not
+rewire doors or invent new building types. Furniture rearrangement stays within
+each room and does not change the room graph.
+Contradictory rules may reject every attempt. Population restrictions use the
+existing all-or-nothing encounter recovery flow. They affect initial placement,
+not subsequent zombie movement or player-dropped items.
+
+### Placement guarantees
+
 - The house uses the current builder, including furniture and deterministic builder
   retries. `House.GeneratedSettings` records the effective house settings.
-- A fixed 75 cm candidate lattice is shuffled by the requested seed. Candidates
+- The zombie candidate lattice is shuffled by the requested seed. Candidates
   must have supported floors, capsule clearance from static/dynamic/pawn/physics
   geometry, a complete Recast path to the entrance, and a capsule sweep along that
-  path. NPC and player dimensions are both considered. Loot uses conservatively
-  cleared standing space and a separate actual body check.
+  path. NPC and player dimensions are both considered. Loot uses the separate
+  body and pickup-access checks described above.
 - Player and exit positions reserve the doorway. Spawn centres stay at least
-  250 cm from the player and are separated by at least 110 cm (increased for
-  larger capsules). Loot, NPCs and player never share a spawn position.
+  250 cm from the player. Zombies are separated by at least 110 cm (increased for
+  larger capsules); loot spacing follows its physical size and pickup access.
+  Loot, NPCs and player never share a spawn position.
 - Zombies cannot initially spawn anywhere in the player's starting room. The
   exclusion includes a zombie capsule margin at doorways and supports translated
   and rotated houses. Zombies can enter that room afterward through normal AI
   navigation. Loot remains eligible there, subject to the existing clearance and
-  250 cm player-distance checks. Zombie and loot passes revisit the same seeded
-  candidates, so the zombie-only room exclusion does not discard loot positions.
+  250 cm player-distance checks. Loot has its own candidates, so the zombie-only
+  room exclusion does not discard loot positions.
 - A single-room house with any requested zombies cannot satisfy this rule and
   fails safely. Counts remain exact; no zombie is placed in the starting room as
   a fallback.
 - Generation, navigation and all spawn counts must succeed before the player is
-  moved. Failure destroys the encounter's house, landing and spawned actors,
-  preserves unrelated world actors and the player's location/loadout, sets
-  `State = Failed`, and reports `LastError`. It never silently reduces counts.
+  moved. A rejected layout destroys the encounter's house, landing and spawned actors,
+  preserves unrelated world actors and the player's location/loadout. Exhausted
+  recovery sets `State = Failed` and reports `LastError`. It never silently reduces counts.
 - The search is deliberately bounded and conservative. It may reject a house that
   a finer placement solver could use. Change the seed or lower counts and restart
   Play after failure. Do not regenerate an active encounter's owned house.
@@ -107,6 +323,62 @@ walking through the exit again cannot reopen the decision. This is local,
 single-player state for the lifetime of that encounter.
 
 ## Verification
+
+### Verified November 4, 2026 — recovery and range controls
+
+Win64 Development Editor build passed with no compiler warnings. All **36/36**
+checks passed: `Prototype.House`, `Prototype.Encounter`,
+`Prototype.Inventory.PauseMenu`, `Prototype.Inventory.InputPreferences`.
+The real Details properties inherit fixed dimensions/counts on first enable on
+both actor types and retain authored ranges across subsequent toggles.
+Seed 2235 at 12 x 10 cells, 4 rooms and 3 zombies/6 items succeeds on its second
+house arrangement. This does not establish that the previously requested 15/23
+population fits that footprint.
+
+Blocked-world tests exhaust four distinct layouts, preserve dimensions and player
+position, remove failed actors, and reproduce successful manual retries while
+retaining snapshotted counts. An automated Play test uses the actual status/retry
+widget, checks disabled retry during preparation, and verifies control restoration
+after success. The zombie movement fixture now uses explicit in-memory settings
+instead of depending on personal map edits; the authored map is never saved.
+
+Reports: `Saved/GenerationRecoveryVerification/Build.log`, `Checks/index.json`,
+`Checks.log`; adjacent `RunChecks.ps1` repeats with isolated preferences and map/
+settings hash guards. 22 checks passed cleanly and 14 with 17 existing crowd-manager
+teardown warnings; none failed or were unrun. No compiler warnings remain.
+Initial verification caught an editor property callback issue and a NullRHI UI
+attribute-refresh issue in the test; both were corrected and the full suite rerun.
+Earlier reports are retained. No manual visual or packaged-build validation was done.
+
+### Verified November 3, 2026 — generation rework first pass
+
+Win64 Development Editor build passed with zero compiler warnings. All **32/32**
+checks passed: `Prototype.House`, `Prototype.Encounter`,
+`Prototype.Inventory.PauseMenu`, `Prototype.Inventory.InputPreferences`.
+Coverage includes 128 range-resolution seeds, 24 reproducible furnished ranged
+layouts, exact planned footprints across both residential patterns/difficulties,
+range serialization and invalid/incompatible settings, shared clearance geometry,
+existing generator regressions, rollback, starting-room exclusion, ownership,
+exit choices, actual zombie movement and saved Debug preferences.
+
+Compact DeepBranches seed 217 now passes at the full 3 zombies/6 items, including
+pickup from each recorded approach. All nine collectible bodies pass rotated-house
+placement, reproducibility, approach clearance, failed/successful pickup and unique
+ownership checks. This replaces the historical compact-house limitation below.
+
+Reports: `Saved/GenerationReworkVerification/Build.log`, `Checks/index.json`,
+`Checks.log`; repeat with adjacent `RunChecks.ps1`. The first run had one stale
+test assertion checking provisional positions instead of actual typed placements;
+it was corrected and the full suite rerun. Eleven tests passed with warnings:
+13 existing crowd-manager teardown messages and one Recast tile recreation.
+Startup also lists unavailable non-Windows SDKs; Win64 is valid. No warnings were
+suppressed. Actual local map and user settings hashes remained unchanged.
+No manual Play/visual or packaged-build check was performed.
+
+This remains a bounded search: some feasible placements may still be missed,
+incompatible range samples fail, and furnishing/topology are not redesigned.
+Physics motion after spawning is outside seed reproducibility. Initial pickup
+positions are validated; dynamic zombie movement can subsequently occupy them.
 
 ### Verified November 3, 2026 — saved Debug preferences
 
@@ -188,6 +460,62 @@ establish visual quality, gameplay feel, NPC movement behavior, or packaged buil
 The user performs Play testing. Verified commands/results are recorded separately
 in the project continuity notes and the run's `Saved/HouseEncounterVerification`.
 
+### Office-suite verification — November 5, 2026
+
+Win64 Development Editor build passed with zero compiler warnings. The 44-check
+House/Encounter/PauseMenu/InputPreferences suite passed (28 clean, 16 with warnings).
+There were 19 familiar crowd-manager teardown warnings, none suppressed; startup
+reports missing non-Windows SDKs while Win64 is valid. Twenty-four office seeds produced 24 distinct
+partitions, five with loops, with repeated full-layout equality, size/clearance/
+connectivity validation, required desks, entrance protection and reflected data
+serialization checks. Two rotated office encounters (seeds 12345 and 7) activated
+with the default 3 zombies/6 items and passed actual NPC path, pickup and exit
+checks. The preset actions preserve seeds and encounter population/loot selection.
+Exact range settings and incompatible program/footprint failures are covered.
+
+Reports and isolated-settings runner: `Saved/OfficeSuiteVerification`. Existing
+residential and saved-preference regressions pass; real map/preferences hashes
+remain unchanged. No manual visual playtest or packaged build was performed.
+
+### Furniture-recovery verification — November 4, 2026
+
+Win64 Development Editor build passed without compiler warnings. The 42-check
+house/encounter/pause/input-preference suite passed. Four arrangements improved
+furniture count in 10 of 64 crowded fixtures over one arrangement, with no count
+regressions in those fixtures. Checks also cover deterministic repeated results,
+bounded attempts, full clearance/walking validation and impossible required-piece
+rollback. This fixture result is not a general building success-rate claim.
+Default one-attempt behavior passes the existing regression suite.
+
+Reports and the isolated-settings runner are in `Saved/FurnitureRecoveryVerification`.
+The user's map and real preferences remain unchanged. The familiar crowd-manager
+teardown warnings remain; no manual visual playtest or packaged build was performed.
+
+### Room-rule verification — November 4, 2026
+
+Win64 Development Editor build passed with no compiler warnings. All **41**
+checks in `Prototype.House`, `Prototype.Encounter`, `Prototype.Inventory.PauseMenu`
+and `Prototype.Inventory.InputPreferences` passed: 26 clean and 15 with existing
+crowd-manager warnings during temporary-world teardown; none failed or were unrun.
+No warnings were suppressed. Startup also reports absent non-Windows SDKs; Win64
+is valid. The user's map and actual saved preferences were hash-checked unchanged.
+
+New checks cover automatic/custom tags across 12 repeated layouts spanning all
+three patterns, unchanged geometry for nonrestrictive rules, hierarchical/all-tag
+matching, deny precedence, invalid settings, required furniture and safe failure,
+reciprocal door restrictions, and rotated encounter placement/reproducibility with
+room exclusions and full zombie paths. Extended checks cover office-fallback tag
+updates, required-bed protection, and actual map save/unload/reload of rules and
+generated metadata. Existing pickup/ownership, retry UI, exit decisions, real
+zombie Play integration and persisted Debug preferences also pass.
+
+Reports: `Saved/HouseRoomRulesVerification/{Build.log,Checks/index.json,Checks.log}`.
+Adjacent `RunChecks.ps1` repeats the selection with isolated user settings.
+Initial test compilation caught a shadowed local name; the first run caught an
+aliased-array insertion in the new duplicate-rule test. Both test issues were
+fixed, and the complete suite rerun successfully; initial logs are retained.
+No manual visual playtest or packaged build was performed for this pass.
+
 ### Historical verification — October 30, 2026 (placeholder version)
 
 `Scripts/VerifyHouseEncounter.ps1 -EngineRoot C:\UE_5.8` completed successfully:
@@ -220,6 +548,8 @@ packaged builds. No assistant Play session was run; user Play testing is pending
 
 ## Code
 
+- `Gameplay/Procedural/HouseRoomRules.*`: automatic/custom tags, rule validation,
+  required furniture, connection restrictions and initial spawn permissions.
 - `Gameplay/Procedural/Encounter/HouseEncounter.*`: lifecycle, transactional spawning,
   lighting, entrance crossing and terminal decision.
 - `HouseEncounterPlacement.*`: occupied geometry, floor support, Recast routes,

@@ -46,6 +46,11 @@ public:
 	void ClosePauseMenu();
 	void ShowHouseExitChoice(AHouseEncounter* Encounter);
 	void CloseHouseExitChoice();
+	void ShowHouseGenerationStatus(AHouseEncounter* Encounter);
+	void CloseHouseGenerationStatus(AHouseEncounter* Encounter);
+#if WITH_DEV_AUTOMATION_TESTS
+	TSharedPtr<class SWidget> GetHouseGenerationWidgetForTest() const { return GenerationEncounter.IsValid() ? HouseExitMenu : nullptr; }
+#endif
 	void ExitPlaySession();
 	void ExitToDesktop();
 	virtual bool InputKey(const FInputKeyEventArgs& Params) override;
@@ -65,6 +70,7 @@ protected:
 	bool bCursorBeforePause = false;
 	TSharedPtr<class SPauseMenu> PauseMenu;
 	TSharedPtr<class SWidget> HouseExitMenu;
+	TWeakObjectPtr<AHouseEncounter> GenerationEncounter;
 	bool bCursorBeforeHouseExit = false;
 	TSharedPtr<class IInputProcessor> InterfaceInputProcessor;
 	TSet<FKey> QuickKeysDown;

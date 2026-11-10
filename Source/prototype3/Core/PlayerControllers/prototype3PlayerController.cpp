@@ -587,9 +587,69 @@ void Aprototype3PlayerController::CloseHouseExitChoice()
 	if (!HouseExitMenu.IsValid()) return;
 	if (GetWorld() && GetWorld()->GetGameViewport()) GetWorld()->GetGameViewport()->RemoveViewportWidgetContent(HouseExitMenu.ToSharedRef());
 	HouseExitMenu.Reset();
+	GenerationEncounter.Reset();
 	SetIgnoreMoveInput(false);
 	SetIgnoreLookInput(false);
 	bShowMouseCursor = bCursorBeforeHouseExit;
 	SetInputMode(FInputModeGameOnly());
 	FlushPressedKeys();
+}
+
+void Aprototype3PlayerController::ShowHouseGenerationStatus(AHouseEncounter* Encounter)
+{
+	if (!IsValid(Encounter) || !IsLocalController() || !GetWorld() || !GetWorld()->GetGameViewport()
+		|| (Encounter->State != EHouseEncounterState::Preparing && Encounter->State != EHouseEncounterState::Failed)) return;
+	if (GenerationEncounter.Get() == Encounter && HouseExitMenu.IsValid()) return;
+	if (HouseExitMenu.IsValid()) return;
+	ClosePauseMenu();
+	CloseInventoryDemo();
+	if (auto* Use = ItemUse(this)) { Use->CloseBackpack(); Use->CancelUse(); Use->CancelQuickItemHold(); }
+	if (auto* ControlledCharacter = Cast<ACharacter>(GetPawn()))
+	{
+		ControlledCharacter->GetCharacterMovement()->StopMovementImmediately();
+		if (auto* Melee = ControlledCharacter->FindComponentByClass<UPlayerMeleeComponent>()) Melee->StopAttacking();
+	}
+	bCursorBeforeHouseExit = bShowMouseCursor;
+	FlushPressedKeys();
+	SetIgnoreMoveInput(true);
+	SetIgnoreLookInput(true);
+	bShowMouseCursor = true;
+	GenerationEncounter = Encounter;
+	const TWeakObjectPtr<AHouseEncounter> Weak = Encounter;
+	TSharedRef<SVerticalBox> Content = SNew(SVerticalBox);
+	Content->AddSlot().AutoHeight().Padding(8)[SNew(STextBlock).Justification(ETextJustify::Center)
+		.Text_Lambda([Weak] { return FText::FromString(Weak.IsValid() ? Weak->GenerationStatus : TEXT("House is no longer available.")); })];
+	Content->AddSlot().AutoHeight().Padding(8)[SNew(STextBlock).Justification(ETextJustify::Center).WrapTextAt(600)
+		.Text_Lambda([Weak]
+		{
+			if (!Weak.IsValid() || Weak->State != EHouseEncounterState::Failed) return FText::FromString(TEXT("Finding a house with room for all zombies and items."));
+			return FText::FromString(Weak->CanRetryGeneration()
+				? TEXT("Try another seed with the same settings, or end Play to adjust the house size or spawn counts.")
+				: TEXT("End Play to correct the encounter settings."));
+		})];
+	Content->AddSlot().AutoHeight().Padding(8)[SNew(STextBlock).Justification(ETextJustify::Center).WrapTextAt(600)
+		.Text_Lambda([Weak] { return FText::FromString(Weak.IsValid() && Weak->State == EHouseEncounterState::Failed ? Weak->LastError : TEXT("")); })];
+	TSharedRef<SButton> Retry = SNew(SButton).HAlign(HAlign_Center).Text(FText::FromString(TEXT("Try another seed")))
+		.IsEnabled_Lambda([Weak] { return Weak.IsValid() && Weak->CanRetryGeneration(); })
+		.OnClicked_Lambda([Weak] { if (Weak.IsValid()) Weak->RetryGeneration(); return FReply::Handled(); });
+	Content->AddSlot().AutoHeight().Padding(8)[Retry];
+	TSharedRef<SButton> End = SNew(SButton).HAlign(HAlign_Center)
+		.Text(FText::FromString(GetWorld()->WorldType == EWorldType::PIE ? TEXT("End Play") : TEXT("Exit game")))
+		.OnClicked_Lambda([this]
+		{
+			if (GetWorld() && GetWorld()->WorldType == EWorldType::PIE) ExitPlaySession(); else ExitToDesktop();
+			return FReply::Handled();
+		});
+	Content->AddSlot().AutoHeight().Padding(8)[End];
+	HouseExitMenu = SNew(SOverlay) + SOverlay::Slot().HAlign(HAlign_Center).VAlign(VAlign_Center)
+		[SNew(SBorder).Padding(24)[Content]];
+	GetWorld()->GetGameViewport()->AddViewportWidgetContent(HouseExitMenu.ToSharedRef(), 210);
+	FInputModeUIOnly Mode;
+	Mode.SetWidgetToFocus(End); // Always enabled, including while navigation is building.
+	SetInputMode(Mode);
+}
+
+void Aprototype3PlayerController::CloseHouseGenerationStatus(AHouseEncounter* Encounter)
+{
+	if (GenerationEncounter.Get() == Encounter) CloseHouseExitChoice();
 }

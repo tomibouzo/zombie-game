@@ -2,6 +2,7 @@
 #include "Gameplay/Procedural/HouseHousehold.h"
 #include "Gameplay/Procedural/HouseSizing.h"
 #include "Gameplay/Procedural/HouseFurnishing.h"
+#include "Gameplay/Procedural/HouseRoomRules.h"
 #include "Gameplay/Procedural/HouseNavigation.h"
 
 #include "Math/RandomStream.h"
@@ -45,6 +46,12 @@ FHouseGenerationSettings::FHouseGenerationSettings()
 	HouseholdRule(EHouseFurnitureType::StorageShelf, FVector(100, 40, 160), {EHouseRoomPurpose::Storage, EHouseRoomPurpose::Office}, true);
 	HouseholdRule(EHouseFurnitureType::Desk, FVector(100, 50, 75), {EHouseRoomPurpose::ChildBedroom}, false);
 	FurnitureRules.Last().MinimumDensity = EHouseFurnishingDensity::Full;
+	for (auto& Furniture : FurnitureRules)
+	{
+		if (Furniture.Type==EHouseFurnitureType::Sofa || Furniture.Type==EHouseFurnitureType::CoffeeTable) Furniture.AllowedRooms.Add(EHouseRoomType::Reception);
+		if (Furniture.Type==EHouseFurnitureType::Desk || Furniture.Type==EHouseFurnitureType::Chair || Furniture.Type==EHouseFurnitureType::StorageShelf) Furniture.AllowedRooms.Add(EHouseRoomType::Office);
+		if (Furniture.Type==EHouseFurnitureType::StorageShelf) Furniture.AllowedRooms.Add(EHouseRoomType::Storage);
+	}
 
 }
 
@@ -181,9 +188,62 @@ namespace
 
 }
 
+void FHouseGenerationSettings::InitializeGenerationRanges()
+{
+	if (!bUseGenerationRanges || bGenerationRangesInitialized) return;
+	GenerationRanges.WidthCells = FHouseIntegerRange(WidthCells, WidthCells);
+	GenerationRanges.DepthCells = FHouseIntegerRange(DepthCells, DepthCells);
+	GenerationRanges.RoomCount = FHouseIntegerRange(RoomCount, RoomCount);
+	bGenerationRangesInitialized = true;
+}
+
+void FHouseGenerationSettings::PreserveLoadedGenerationRanges()
+{
+	const FHouseGenerationRanges Defaults;
+	const auto Different = [](const FHouseIntegerRange& A, const FHouseIntegerRange& B) { return A.Min != B.Min || A.Max != B.Max; };
+	// Migration for maps saved before the initialization marker existed, including disabled custom ranges.
+	if (bUseGenerationRanges || Different(GenerationRanges.WidthCells, Defaults.WidthCells)
+		|| Different(GenerationRanges.DepthCells, Defaults.DepthCells) || Different(GenerationRanges.RoomCount, Defaults.RoomCount))
+		bGenerationRangesInitialized = true;
+}
+
+bool FHouseLayoutGenerator::ResolveRanges(const FHouseGenerationSettings& Requested,
+	FHouseGenerationSettings& Resolved, FString& OutError)
+{
+	Resolved = Requested;
+	OutError.Reset();
+	if (!Requested.bUseGenerationRanges) return true;
+	const FHouseGenerationRanges& R = Requested.GenerationRanges;
+	auto Valid = [](const FHouseIntegerRange& Bounds, int32 Minimum, int32 Maximum)
+	{
+		return Bounds.Min >= Minimum && Bounds.Max <= Maximum && Bounds.Min <= Bounds.Max;
+	};
+	if (!Valid(R.WidthCells, 3, 64) || !Valid(R.DepthCells, 3, 64) || !Valid(R.RoomCount, 1, 32))
+	{
+		OutError = TEXT("Generation ranges require Min <= Max, width/depth of 3..64 cells, and 1..32 rooms. Equal bounds select a fixed value.");
+		return false;
+	}
+	// A separate stream keeps range selection independent of layout/furniture draws and retry seeds.
+	FRandomStream Random(static_cast<int32>(static_cast<uint32>(Requested.Seed) ^ 0xA511E9B3u));
+	Resolved.WidthCells = Random.RandRange(R.WidthCells.Min, R.WidthCells.Max);
+	Resolved.DepthCells = Random.RandRange(R.DepthCells.Min, R.DepthCells.Max);
+	Resolved.RoomCount = Random.RandRange(R.RoomCount.Min, R.RoomCount.Max);
+	Resolved.bUseGenerationRanges = false;
+	Resolved.bRequireExactFootprint = true;
+	Resolved.bAllowLargerFootprint = false;
+	return true;
+}
+
 bool FHouseLayoutGenerator::ValidateSettings(const FHouseGenerationSettings& S, FString& OutError)
 {
+	if (S.FurnitureArrangementAttempts < 1 || S.FurnitureArrangementAttempts > 8)
+	{ OutError = TEXT("Furniture Arrangement Attempts must be between 1 and 8."); return false; }
 	OutError.Reset();
+	if (S.bUseGenerationRanges)
+	{
+		FHouseGenerationSettings Resolved;
+		return ResolveRanges(S, Resolved, OutError) && ValidateSettings(Resolved, OutError);
+	}
 	if (S.MinRoomCells < 3 || S.MinRoomCells > 32 || S.WidthCells < 3 ||
 		S.DepthCells < 3 || S.WidthCells > 64 || S.DepthCells > 64 ||
 		S.RoomCount < 1 || S.RoomCount > 32 ||
@@ -234,9 +294,9 @@ bool FHouseLayoutGenerator::ValidateSettings(const FHouseGenerationSettings& S, 
 		for (EHouseFurnitureStyle Style : Rule.AllowedStyles)
 			if (Style > EHouseFurnitureStyle::MixedSecondhand) { OutError = TEXT("Unknown furniture style."); return false; }
 		for (EHouseRoomType Type : Rule.AllowedRooms)
-			if (Type > EHouseRoomType::Hallway) { OutError = TEXT("Unknown room type in furniture rule."); return false; }
+			if (Type > EHouseRoomType::Storage) { OutError = TEXT("Unknown room type in furniture rule."); return false; }
 	}
-	return FHouseSizing::ValidateSettings(S, OutError) && FHouseHousehold::ValidateSettings(S, OutError) && FHouseNavigation::ValidateSettings(S, OutError);
+	return FHouseSizing::ValidateSettings(S, OutError) && FHouseHousehold::ValidateSettings(S, OutError) && FHouseNavigation::ValidateSettings(S, OutError) && FHouseRoomRules::ValidateSettings(S, OutError);
 }
 
 bool FHouseLayoutGenerator::GenerateWithRetries(const FHouseGenerationSettings& Requested,
@@ -244,15 +304,15 @@ bool FHouseLayoutGenerator::GenerateWithRetries(const FHouseGenerationSettings& 
 {
 	OutLayout = FHouseLayout();
 	Attempts = 0;
-	EffectiveSettings = Requested;
+	if (!ResolveRanges(Requested, EffectiveSettings, OutError)) return false;
 	// Repair the common preset/count mismatch, but do not disguise malformed values.
-	if (Requested.RoomCount >= 1 && Requested.RoomCount <= 32 &&
+	if (!EffectiveSettings.bRequireExactFootprint && Requested.RoomCount >= 1 && Requested.RoomCount <= 32 &&
 		Requested.Navigation.Pattern <= EHouseLayoutPattern::DeepBranches &&
 		Requested.Navigation.Difficulty <= EHouseNavigationDifficulty::Custom &&
 		FHouseNavigation::TargetDepth(Requested.Navigation) >= 2 && FHouseNavigation::TargetDepth(Requested.Navigation) <= 12)
 		EffectiveSettings.RoomCount = FMath::Max(Requested.RoomCount, FHouseNavigation::MinimumRoomCount(Requested));
 	// Validate against the permitted envelope first, while still rejecting invalid input dimensions.
-	const bool bCanGrow = Requested.bAllowLargerFootprint && Requested.Navigation.Pattern != EHouseLayoutPattern::LegacyRandom &&
+	const bool bCanGrow = !EffectiveSettings.bRequireExactFootprint && Requested.bAllowLargerFootprint && Requested.Navigation.Pattern != EHouseLayoutPattern::LegacyRandom && Requested.Navigation.Pattern != EHouseLayoutPattern::ConnectedOffice &&
 		Requested.WidthCells >= 3 && Requested.WidthCells <= 64 && Requested.DepthCells >= 3 && Requested.DepthCells <= 64;
 	FHouseGenerationSettings ValidationSettings = EffectiveSettings;
 	if (bCanGrow)
@@ -260,7 +320,13 @@ bool FHouseLayoutGenerator::GenerateWithRetries(const FHouseGenerationSettings& 
 		ValidationSettings.WidthCells = FMath::Max(24, Requested.WidthCells);
 		ValidationSettings.DepthCells = FMath::Max(24, Requested.DepthCells);
 	}
-	if (!ValidateSettings(ValidationSettings, OutError)) return false;
+	if (!ValidateSettings(ValidationSettings, OutError))
+	{
+		if (EffectiveSettings.bRequireExactFootprint)
+			OutError = FString::Printf(TEXT("Resolved %d x %d cells and %d rooms: %s"),
+				EffectiveSettings.WidthCells, EffectiveSettings.DepthCells, EffectiveSettings.RoomCount, *OutError);
+		return false;
+	}
 	for (int32 Attempt = 0; Attempt < 16; ++Attempt)
 	{
 		++Attempts;
@@ -277,13 +343,20 @@ bool FHouseLayoutGenerator::GenerateWithRetries(const FHouseGenerationSettings& 
 			return true;
 		}
 	}
-	OutError = FString::Printf(TEXT("No suitable house found after %d seed attempts. Last reason: %s"), Attempts, *OutError);
+	OutError = FString::Printf(TEXT("No suitable house found after %d seed attempts (%d x %d cells, %d rooms%s). Last reason: %s"),
+		Attempts, EffectiveSettings.WidthCells, EffectiveSettings.DepthCells, EffectiveSettings.RoomCount,
+		EffectiveSettings.bRequireExactFootprint ? TEXT(", exact resolved values") : TEXT(""), *OutError);
 	return false;
 }
 
 bool FHouseLayoutGenerator::Generate(const FHouseGenerationSettings& S, FHouseLayout& OutLayout, FString& OutError)
 {
 	OutLayout = FHouseLayout();
+	if (S.bUseGenerationRanges)
+	{
+		FHouseGenerationSettings Resolved;
+		return ResolveRanges(S, Resolved, OutError) && Generate(Resolved, OutLayout, OutError);
+	}
 	if (!ValidateSettings(S, OutError)) return false;
 	if (S.Navigation.Pattern != EHouseLayoutPattern::LegacyRandom)
 	{
@@ -305,6 +378,7 @@ bool FHouseLayoutGenerator::Generate(const FHouseGenerationSettings& S, FHouseLa
 		}
 		if (Connected != Connections.Num()) { OutError = TEXT("A planned room connection has no shared wall."); return false; }
 		if (!FHouseHousehold::Assign(S, Layout, OutError)) return false;
+		FHouseRoomRules::Refresh(S, Layout);
 		GenerateWindows(S, Layout);
 		if (!FHouseFurnishing::Generate(S, Layout, OutError)) return false;
 		Layout.Navigation = FHouseNavigation::Measure(Layout);
@@ -312,6 +386,9 @@ bool FHouseLayoutGenerator::Generate(const FHouseGenerationSettings& S, FHouseLa
 		const FIntPoint Actual = FHouseSizing::Footprint(S, Layout);
 		Layout.SizeSummary = FString::Printf(TEXT("%.1f x %.1f m | %.1f m2 footprint | envelope %.1f x %.1f m. Room labels show clear internal dimensions."),
 			Actual.X * S.CellSize / 100.f, Actual.Y * S.CellSize / 100.f, Actual.X * Actual.Y * FMath::Square(S.CellSize / 100.f), S.WidthCells * S.CellSize / 100.f, S.DepthCells * S.CellSize / 100.f);
+		if (S.bRequireExactFootprint)
+			Layout.SizeSummary = FString::Printf(TEXT("Exact footprint %d x %d cells (%.1f x %.1f m); %d rooms including hallways. Room labels show clear internal dimensions."),
+				Actual.X, Actual.Y, Actual.X * S.CellSize / 100.f, Actual.Y * S.CellSize / 100.f, Layout.Rooms.Num());
 		if (!Validate(S, Layout, OutError)) return false;
 		OutLayout = MoveTemp(Layout);
 		return true;
@@ -322,6 +399,7 @@ bool FHouseLayoutGenerator::Generate(const FHouseGenerationSettings& S, FHouseLa
 	for (int32 Attempt = 0; Attempt < 64; ++Attempt)
 	{
 		FHouseLayout Layout;
+		Layout.FootprintCells = FIntPoint(S.WidthCells, S.DepthCells);
 		FHouseRoom Root;
 		Root.Max = FIntPoint(S.WidthCells, S.DepthCells);
 		Layout.Rooms.Add(Root);
@@ -397,6 +475,7 @@ bool FHouseLayoutGenerator::Generate(const FHouseGenerationSettings& S, FHouseLa
 		}
 		AssignRoomTypes(Layout, Entrance.RoomA);
 		if (!FHouseHousehold::Assign(S, Layout, OutError)) return false;
+		FHouseRoomRules::Refresh(S, Layout);
 		GenerateWindows(S, Layout);
 		if (!FHouseFurnishing::Generate(S, Layout, OutError)) return false;
 		Layout.Navigation = FHouseNavigation::Measure(Layout);
@@ -404,6 +483,10 @@ bool FHouseLayoutGenerator::Generate(const FHouseGenerationSettings& S, FHouseLa
 		const FIntPoint Actual = FHouseSizing::Footprint(S, Layout);
 		Layout.SizeSummary = FString::Printf(TEXT("%.1f x %.1f m | %.1f m2 footprint | envelope %.1f x %.1f m. Room labels show clear internal dimensions."),
 			Actual.X * S.CellSize / 100.f, Actual.Y * S.CellSize / 100.f, Actual.X * Actual.Y * FMath::Square(S.CellSize / 100.f), S.WidthCells * S.CellSize / 100.f, S.DepthCells * S.CellSize / 100.f);
+		if (S.bRequireExactFootprint)
+			Layout.SizeSummary = FString::Printf(TEXT("Exact footprint %d x %d cells (%.1f x %.1f m); %d rooms. Room labels show clear internal dimensions."),
+				Actual.X, Actual.Y, Actual.X * S.CellSize / 100.f, Actual.Y * S.CellSize / 100.f, Layout.Rooms.Num());
+		if (!FHouseRoomRules::Validate(S, Layout, OutError)) return false;
 		if (Validate(S, Layout, OutError))
 		{
 			OutLayout = MoveTemp(Layout);
@@ -416,6 +499,11 @@ bool FHouseLayoutGenerator::Generate(const FHouseGenerationSettings& S, FHouseLa
 
 bool FHouseLayoutGenerator::Validate(const FHouseGenerationSettings& S, const FHouseLayout& Layout, FString& OutError)
 {
+	if (S.bUseGenerationRanges)
+	{
+		FHouseGenerationSettings Resolved;
+		return ResolveRanges(S, Resolved, OutError) && Validate(Resolved, Layout, OutError);
+	}
 	if (!ValidateSettings(S, OutError)) return false;
 	if (Layout.Rooms.Num() != S.RoomCount)
 	{
@@ -425,6 +513,8 @@ bool FHouseLayoutGenerator::Validate(const FHouseGenerationSettings& S, const FH
 	const FIntPoint Actual = FHouseSizing::Footprint(S, Layout);
 	if (Actual.X < 1 || Actual.Y < 1 || Actual.X > S.WidthCells || Actual.Y > S.DepthCells)
 	{ OutError = TEXT("Generated footprint is outside the requested envelope."); return false; }
+	if (S.bRequireExactFootprint && Actual != FIntPoint(S.WidthCells, S.DepthCells))
+	{ OutError = TEXT("Generated footprint does not equal the resolved width and depth."); return false; }
 	FHouseGenerationSettings Bounds = S;
 	Bounds.WidthCells = Actual.X; Bounds.DepthCells = Actual.Y;
 	TSet<FIntPoint> Occupied;
@@ -503,7 +593,8 @@ bool FHouseLayoutGenerator::Validate(const FHouseGenerationSettings& S, const FH
 		}
 		if (Wall.Opening == EHouseOpening::Door && Wall.RoomB == INDEX_NONE)
 		{
-			if (Layout.Rooms[Wall.RoomA].RoomType != EHouseRoomType::LivingRoom) { OutError = TEXT("Entrance must lead to the living room."); return false; }
+			const auto EntranceType = S.Navigation.Pattern==EHouseLayoutPattern::ConnectedOffice ? EHouseRoomType::Reception : EHouseRoomType::LivingRoom;
+			if (Layout.Rooms[Wall.RoomA].RoomType != EntranceType) { OutError = TEXT("Entrance must lead to the building's living room or reception."); return false; }
 			++EntranceCount;
 			Reached.Add(Wall.RoomA);
 		}
@@ -518,23 +609,23 @@ bool FHouseLayoutGenerator::Validate(const FHouseGenerationSettings& S, const FH
 				Reached.Add(Wall.RoomB);
 			}
 	if (Reached.Num() != Layout.Rooms.Num()) { OutError = TEXT("A room is unreachable from the entrance."); return false; }
-	int32 Counts[5] = {};
+	int32 Counts[8] = {};
 	for (const FHouseRoom& Room : Layout.Rooms)
 	{
 		const int32 Type = static_cast<int32>(Room.RoomType);
-		if (Type < 0 || Type > 4) { OutError = TEXT("Unknown room type."); return false; }
+		if (Type < 0 || Type > 7 || (S.Navigation.Pattern!=EHouseLayoutPattern::ConnectedOffice && Type>4)) { OutError = TEXT("Unknown or incompatible room type."); return false; }
 		++Counts[Type];
 	}
-	if (Counts[0] != 1 || Counts[1] != (Layout.Rooms.Num() >= 2 ? 1 : 0) || Counts[3] != (Layout.Rooms.Num() >= 4 ? 1 : 0))
+	if (S.Navigation.Pattern!=EHouseLayoutPattern::ConnectedOffice && (Counts[0] != 1 || Counts[1] != (Layout.Rooms.Num() >= 2 ? 1 : 0) || Counts[3] != (Layout.Rooms.Num() >= 4 ? 1 : 0)))
 	{
 		OutError = TEXT("Room type counts do not match the house program.");
 		return false;
 	}
-	if (S.Navigation.Pattern != EHouseLayoutPattern::LegacyRandom && Counts[2] == 0)
+	if (S.Navigation.Pattern != EHouseLayoutPattern::LegacyRandom && S.Navigation.Pattern != EHouseLayoutPattern::ConnectedOffice && Counts[2] == 0)
 	{
 		OutError = TEXT("Planned houses require at least one bedroom.");
 		return false;
 	}
 	if (!FHouseNavigation::ValidatePlan(S, Layout, OutError)) return false;
-	return FHouseSizing::Validate(S, Layout, OutError) && FHouseHousehold::Validate(S, Layout, OutError) && FHouseFurnishing::Validate(S, Layout, OutError);
+	return FHouseSizing::Validate(S, Layout, OutError) && FHouseHousehold::Validate(S, Layout, OutError) && FHouseFurnishing::Validate(S, Layout, OutError) && FHouseRoomRules::Validate(S, Layout, OutError);
 }

@@ -42,6 +42,7 @@ public:
 	FName GetInventoryProfileId() const { return InventoryProfileId; }
 	UBoxComponent* GetBody() const { return Body; }
 	float GetCleanupZ() const { return CleanupZ; }
+	float GetPickupRadius() const { return PickupRadius; }
 
 protected:
 	/** Nearby floor interaction distance in centimetres, measured from the player's feet. */

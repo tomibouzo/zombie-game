@@ -2,6 +2,7 @@
 
 #include "Algo/Reverse.h"
 #include "Gameplay/Procedural/HouseResidentialPlan.h"
+#include "Gameplay/Procedural/HouseOfficePlan.h"
 #include "Gameplay/Procedural/HouseHousehold.h"
 #include "Math/RandomStream.h"
 
@@ -30,18 +31,25 @@ int32 FHouseNavigation::TargetDepth(const FHouseNavigationSettings& S)
 int32 FHouseNavigation::MinimumRoomCount(const FHouseGenerationSettings& S)
 {
 	if (S.Navigation.Pattern == EHouseLayoutPattern::LegacyRandom) return 1;
+	if (S.Navigation.Pattern == EHouseLayoutPattern::ConnectedOffice) return 4;
 	const int32 Halls = TargetDepth(S.Navigation) - 1;
 	return FMath::Max(2 + 3 * Halls, Halls + 3 + FHouseHousehold::RequiredPrivateRooms(S.Household));
 }
 
 bool FHouseNavigation::ValidateSettings(const FHouseGenerationSettings& S, FString& OutError)
 {
-	if (S.Navigation.Pattern > EHouseLayoutPattern::DeepBranches || S.Navigation.Difficulty > EHouseNavigationDifficulty::Custom)
+	if (S.Navigation.Pattern > EHouseLayoutPattern::ConnectedOffice || S.Navigation.Difficulty > EHouseNavigationDifficulty::Custom)
 	{
 		OutError = TEXT("Unknown navigation pattern or difficulty.");
 		return false;
 	}
 	if (S.Navigation.Pattern == EHouseLayoutPattern::LegacyRandom) return true;
+	if (S.Navigation.Pattern == EHouseLayoutPattern::ConnectedOffice)
+	{
+		if (S.RoomCount<4 || S.RoomCount>12 || S.Household.Profile!=EHouseholdProfile::None || !S.Household.RoomOverrides.IsEmpty())
+		{ OutError=TEXT("Office suites need 4..12 rooms and no residential household or household room overrides."); return false; }
+		return true;
+	}
 	if (S.MinRoomCells < 3 || S.RoomCount < 1 || S.RoomCount > 32 || S.WidthCells > 64 || S.DepthCells > 64)
 	{
 		OutError = TEXT("Validate the footprint, room count and minimum room size before planning navigation.");
@@ -74,6 +82,7 @@ bool FHouseNavigation::BuildPlan(const FHouseGenerationSettings& S, FHouseLayout
 	TArray<FIntPoint>& Connections, FString& OutError)
 {
 	if (!ValidateSettings(S, OutError)) return false;
+	if (S.Navigation.Pattern == EHouseLayoutPattern::ConnectedOffice) return FHouseOfficePlan::Build(S,L,Connections,OutError);
 	return FHouseResidentialPlan::Build(S, L, Connections, OutError);
 }
 
@@ -130,6 +139,7 @@ bool FHouseNavigation::IsResidentialConnectionAllowed(EHouseRoomType A, EHouseRo
 
 bool FHouseNavigation::ValidatePlan(const FHouseGenerationSettings& S, const FHouseLayout& L, FString& OutError)
 {
+	if (S.Navigation.Pattern == EHouseLayoutPattern::ConnectedOffice) return FHouseOfficePlan::Validate(L,OutError);
 	if (S.Navigation.Pattern == EHouseLayoutPattern::LegacyRandom) return true;
 	const FHouseNavigationReport R = Measure(L);
 	const TArray<TArray<int32>> Graph = DoorGraph(L);
@@ -184,6 +194,8 @@ bool FHouseNavigation::ValidatePlan(const FHouseGenerationSettings& S, const FHo
 FString FHouseNavigation::Describe(const FHouseGenerationSettings& S, const FHouseNavigationReport& R)
 {
 	const FString Pattern = StaticEnum<EHouseLayoutPattern>()->GetDisplayNameTextByValue(static_cast<int64>(S.Navigation.Pattern)).ToString();
+	if (S.Navigation.Pattern == EHouseLayoutPattern::ConnectedOffice)
+		return FString::Printf(TEXT("%s | Deepest: %d interior doors | Dead ends: %d | Loops: %d. Connected workrooms; service rooms are private leaves. No residential difficulty target."),*Pattern,R.MaxDoorDepth,R.DeadEndRooms.Num(),R.LoopCount);
 	const FString Difficulty = S.Navigation.Pattern == EHouseLayoutPattern::LegacyRandom ? TEXT("unrated") :
 		StaticEnum<EHouseNavigationDifficulty>()->GetDisplayNameTextByValue(static_cast<int64>(S.Navigation.Difficulty)).ToString();
 	const FString Target = S.Navigation.Pattern == EHouseLayoutPattern::LegacyRandom ? TEXT("") :

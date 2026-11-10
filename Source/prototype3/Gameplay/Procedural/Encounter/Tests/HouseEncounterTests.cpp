@@ -7,6 +7,9 @@
 #include "Gameplay/Procedural/Encounter/HouseEncounterSupport.h"
 #include "Gameplay/Procedural/Encounter/HouseEncounterGameMode.h"
 #include "Gameplay/Procedural/HouseGenerator.h"
+#include "Gameplay/Procedural/HouseOfficePlan.h"
+#include "Gameplay/Procedural/HouseGenerationPreset.h"
+#include "Gameplay/Procedural/HouseSpatial.h"
 #include "Gameplay/Items/World/DroppedItem.h"
 #include "Gameplay/Items/ItemDefinition.h"
 #include "Gameplay/Player/Inventory/InventoryComponent.h"
@@ -81,6 +84,15 @@ struct FWorld
 		E->HouseSettings.Seed = Seed;
 		E->DispatchBeginPlay();
 		return E;
+	}
+	bool Activate(AHouseEncounter* Encounter)
+	{
+		for (int32 Step=0; Step<9 && Encounter->State==EHouseEncounterState::Preparing; ++Step)
+		{
+			Build();
+			Encounter->Activate();
+		}
+		return Encounter->State==EHouseEncounterState::Active;
 	}
 	void Build()
 	{
@@ -166,7 +178,7 @@ bool FHouseEncounterIntegrationTest::RunTest(const FString&)
 			TestTrue(TEXT("Zombie capsule clears furnished geometry"), HouseEncounterPlacement::ClearCapsule(Fixture.World,Feet,34,96,Fixture.Player));
 			TestTrue(TEXT("Zombie has complete collision-checked navigation path to player"), HouseEncounterPlacement::Reachable(Fixture.World,Feet,First.PlayerFeet,34,96,Fixture.Player));
 		}
-		if (!TestTrue(TEXT("Entire encounter activates"), Encounter->Activate())) { AddError(Encounter->LastError); return false; }
+		if (!TestTrue(TEXT("Entire encounter activates"), Fixture.Activate(Encounter))) { AddError(Encounter->LastError); return false; }
 		EncounterTests::CheckStartingRoom(*this, Encounter->House, Encounter->Placement,
 			Encounter->Zombies[0]->GetSimpleCollisionRadius());
 		TestEqual(TEXT("Exact zombie count"), Encounter->Zombies.Num(),Zombies);
@@ -174,8 +186,10 @@ bool FHouseEncounterIntegrationTest::RunTest(const FString&)
 		for (int32 Index = 0; Index < Encounter->Zombies.Num(); ++Index)
 		{
 			auto* Zombie = Encounter->Zombies[Index].Get();
-			TestTrue(TEXT("Spawned capsule is clear of other occupants"), HouseEncounterPlacement::ClearCapsule(Fixture.World,First.ZombieFeet[Index],34,96,Zombie));
-			auto* Path = Fixture.Nav->FindPathToLocationSynchronously(Fixture.World,First.ZombieFeet[Index],First.PlayerFeet,Zombie);
+			// Activation plans with actual selected loot sizes; the count-only helper above uses conservative boxes.
+			const FVector ActualFeet = Encounter->Placement.ZombieFeet[Index];
+			TestTrue(TEXT("Spawned capsule is clear of other occupants"), HouseEncounterPlacement::ClearCapsule(Fixture.World,ActualFeet,34,96,Zombie));
+			auto* Path = Fixture.Nav->FindPathToLocationSynchronously(Fixture.World,ActualFeet,Encounter->Placement.PlayerFeet,Zombie);
 			TestTrue(TEXT("Spawned NPC queries a complete path to player"), Path && Path->IsValid() && !Path->IsPartial());
 		}
 		TestEqual(TEXT("Spawning does not add owned player items"), Fixture.Inventory->GetEntries().Num(),OwnedBefore);
@@ -194,7 +208,7 @@ bool FHouseEncounterIntegrationTest::RunTest(const FString&)
 		TestEqual(TEXT("Unique world ownership"), Unique.Num(),Items);
 		ADroppedItem* Item = Encounter->Items[0];
 		const FGuid PickedId = Item->GetItem().InstanceId;
-		Fixture.Player->SetActorLocation(Item->GetActorLocation()+FVector(60,0,96));
+		Fixture.Player->SetActorLocation(Encounter->Placement.ItemAccessFeet[0]+FVector(0,0,98));
 		TestTrue(TEXT("World loot uses current direct hand pickup"), Fixture.Use->PickUpToHands(Item));
 		TestEqual(TEXT("Pickup preserves instance identity"), Fixture.Use->GetHeldId(), PickedId);
 		TestFalse(TEXT("Picked actor cannot be picked twice"), Fixture.Use->PickUpToHands(Item));
@@ -232,7 +246,7 @@ bool FHouseEncounterReproTest::RunTest(const FString&)
 		Encounter->ItemSelection.Empty(); Encounter->ZombieClass = nullptr;
 		Encounter->HouseSettings.Seed = 999; Encounter->ItemCount = 0; Encounter->ZombieCount = 0;
 		Fixture.Build();
-		if (!TestTrue(TEXT("Prepared settings remain stable"),Encounter->Activate())) { AddError(Encounter->LastError); return false; }
+		if (!TestTrue(TEXT("Prepared settings remain stable"),Fixture.Activate(Encounter))) { AddError(Encounter->LastError); return false; }
 		const auto& Current = Encounter->Placement;
 		EncounterTests::CheckStartingRoom(*this, Encounter->House, Current,
 			Encounter->Zombies[0]->GetSimpleCollisionRadius());
@@ -257,7 +271,7 @@ bool FHouseEncounterStartingRoomTest::RunTest(const FString&)
 	Encounter->SetActorLocationAndRotation(FVector(400,100,0), FRotator(0,37,0));
 	Encounter->HouseSettings.RoomCount = 1;
 	Encounter->HouseSettings.bGenerateFurniture = false;
-	Encounter->ZombieCount = 1;
+	Encounter->ZombieCount = 0;
 	Encounter->ItemCount = 6;
 	if (!TestTrue(TEXT("Large single-room house prepares"), Encounter->Prepare(Fixture.Player)))
 	{ AddError(Encounter->LastError); return false; }
@@ -274,7 +288,12 @@ bool FHouseEncounterStartingRoomTest::RunTest(const FString&)
 		Encounter->House, Fixture.Player,34,96,1,6,12345,Plan,Error));
 	TestTrue(TEXT("Failed plan clears prior loot and zombie positions"), Plan.ItemFeet.IsEmpty() && Plan.ZombieFeet.IsEmpty());
 	TestTrue(TEXT("Room exclusion failure reports zero valid zombies"), Error.Contains(TEXT("0/1 zombies")));
-	TestFalse(TEXT("Encounter rolls back when all zombie space is in the player room"), Encounter->Activate());
+	const FHouseGenerationSettings SingleRoomSettings = Encounter->HouseSettings;
+	Encounter->Destroy();
+	Encounter = Fixture.Create(12345);
+	Encounter->HouseSettings = SingleRoomSettings;
+	Encounter->ZombieCount = 1;
+	TestFalse(TEXT("Impossible one-room zombie request fails before building"), Encounter->Prepare(Fixture.Player));
 	TestEqual(TEXT("Failure is terminal"), Encounter->State,EHouseEncounterState::Failed);
 	TestTrue(TEXT("Room exclusion failure removes house and all partial occupants"), !Encounter->House && Encounter->Zombies.IsEmpty() && Encounter->Items.IsEmpty());
 	TestTrue(TEXT("Room exclusion failure preserves player position"), Fixture.Player->GetActorLocation().Equals(Original));
@@ -298,7 +317,7 @@ bool FHouseEncounterRollbackTest::RunTest(const FString&)
 	Box->SetWorldLocation(FVector(600,500,100));
 	Box->RegisterComponent();
 	Fixture.Build();
-	TestFalse(TEXT("Blocked encounter fails"), Encounter->Activate());
+	TestFalse(TEXT("Blocked encounter fails"), Fixture.Activate(Encounter));
 	TestEqual(TEXT("Terminal failed state"), Encounter->State,EHouseEncounterState::Failed);
 	TestTrue(TEXT("Failure reports reason"), !Encounter->LastError.IsEmpty());
 	TestNull(TEXT("House rolled back"), Encounter->House.Get());
@@ -311,9 +330,7 @@ bool FHouseEncounterRollbackTest::RunTest(const FString&)
 	Crowded->HouseSettings.WidthCells = Crowded->HouseSettings.DepthCells = 3;
 	Crowded->HouseSettings.RoomCount = 1;
 	Crowded->ZombieCount = 32; Crowded->ItemCount = 64;
-	if (!TestTrue(TEXT("Valid small house prepares"), Crowded->Prepare(Fixture.Player))) { AddError(Crowded->LastError); return false; }
-	Fixture.Build();
-	TestFalse(TEXT("Insufficient capacity rejects the complete encounter"), Crowded->Activate());
+	TestFalse(TEXT("Impossible one-room population rejects before building"), Crowded->Prepare(Fixture.Player));
 	TestTrue(TEXT("Capacity failure removes house and all spawned actors"), !Crowded->House && Crowded->Zombies.IsEmpty() && Crowded->Items.IsEmpty());
 	TestTrue(TEXT("Capacity failure preserves player position"), Fixture.Player->GetActorLocation().Equals(Original));
 	return true;
@@ -415,6 +432,390 @@ bool FHouseEncounterMapTest::RunTest(const FString&)
 	TestEqual(TEXT("One encounter"),Encounters,1);
 	TestEqual(TEXT("One dynamic navmesh"),DynamicMeshes,1);
 	TestEqual(TEXT("One navigation bounds actor"),Bounds,1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHouseEncounterCompactLootTest, "Prototype.Encounter.CompactLootAccess",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FHouseEncounterCompactLootTest::RunTest(const FString&)
+{
+	EncounterTests::FWorld Fixture;
+	auto* Encounter = Fixture.Create(217);
+	Encounter->HouseSettings.Navigation.Pattern = EHouseLayoutPattern::DeepBranches;
+	Encounter->HouseSettings.WidthCells = Encounter->HouseSettings.DepthCells = 24;
+	Encounter->HouseSettings.RoomCount = 8;
+	Encounter->ZombieCount = 3;
+	Encounter->ItemCount = 6;
+	if (!TestTrue(TEXT("Compact furnished house prepares"), Encounter->Prepare(Fixture.Player)))
+	{ AddError(Encounter->LastError); return false; }
+	Fixture.Build();
+	if (!TestTrue(TEXT("Compact house accommodates all requested zombies and loot"), Fixture.Activate(Encounter)))
+	{ AddError(Encounter->LastError); return false; }
+	TestEqual(TEXT("No zombie count reduction"), Encounter->Zombies.Num(), 3);
+	TestEqual(TEXT("No item count reduction"), Encounter->Items.Num(), 6);
+	if (!TestEqual(TEXT("Every item has a recorded pickup approach"), Encounter->Placement.ItemAccessFeet.Num(), 6)) return false;
+	EncounterTests::CheckStartingRoom(*this, Encounter->House, Encounter->Placement,
+		Encounter->Zombies[0]->GetSimpleCollisionRadius());
+	const int32 OwnedBefore = Fixture.Inventory->GetEntries().Num();
+	for (int32 I = 0; I < Encounter->Items.Num(); ++I)
+	{
+		auto* Item = Encounter->Items[I].Get();
+		const FVector Access = Encounter->Placement.ItemAccessFeet[I];
+		TestTrue(TEXT("Pickup approach is not occupied by furniture or another spawn"),
+			HouseEncounterPlacement::ClearCapsule(Fixture.World, Access, 34, 96, Fixture.Player));
+		Fixture.Player->SetActorLocation(Access + FVector(0,0,98));
+		TestTrue(TEXT("Actual item accepts interaction from planned approach"), Item->CanInteract(Fixture.Player));
+		const FGuid Id = Item->GetItem().InstanceId;
+		TestTrue(TEXT("Compact loot uses ordinary hand pickup"), Fixture.Use->PickUpToHands(Item));
+		TestEqual(TEXT("Compact pickup retains ownership identity"), Fixture.Use->GetHeldId(), Id);
+		Fixture.Use->ClearHeld();
+		FItemInstance Removed;
+		Fixture.Inventory->RemoveItem(Id, Removed, true);
+	}
+	TestEqual(TEXT("Checking pickups leaves original loadout intact"), Fixture.Inventory->GetEntries().Num(), OwnedBefore);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHouseEncounterItemBodiesTest, "Prototype.Encounter.ItemBodiesAndAccess",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FHouseEncounterItemBodiesTest::RunTest(const FString&)
+{
+	EncounterTests::FWorld Fixture;
+	auto* Encounter = Fixture.Create(12345);
+	Encounter->SetActorLocationAndRotation(FVector(400,100,0), FRotator(0,37,0));
+	if (!TestTrue(TEXT("Rotated furnished house prepares"), Encounter->Prepare(Fixture.Player)))
+	{ AddError(Encounter->LastError); return false; }
+	Fixture.Build();
+	auto* Catalog = NewObject<UInventoryComponent>(Fixture.Player);
+	if (!TestTrue(TEXT("Existing collectible catalog loads"), InventoryDemo::Populate(Catalog))) return false;
+	TArray<FInventoryItemProfile> Profiles;
+	TArray<FVector> Extents;
+	TSet<FName> Types;
+	for (const FInventoryEntry& Entry : Catalog->GetEntries())
+	{
+		const FName Type = Entry.Item.Definition->ItemId;
+		if (Type.ToString().StartsWith(TEXT("Demo_")) || Types.Contains(Type)) continue;
+		Types.Add(Type);
+		FInventoryItemProfile Profile;
+		FVector Extent;
+		if (!TestTrue(TEXT("Collectible has current physical dimensions"), Catalog->GetProfile(Entry.ProfileId, Profile)
+			&& ADroppedItem::GetWorldHalfExtent(Profile.Definition, Extent))) return false;
+		Profiles.Add(Profile);
+		Extents.Add(Extent);
+	}
+	TestEqual(TEXT("Plan exercises all nine existing collectible bodies"), Profiles.Num(), 9);
+	FHouseEncounterPlacement First, Second;
+	FString Error;
+	if (!TestTrue(TEXT("Exact item bodies fit with reachable pickup approaches"), HouseEncounterPlacement::Plan(
+		Encounter->House, Fixture.Player, 34, 96, 3, Extents, 12345, First, Error)))
+	{ AddError(Error); return false; }
+	if (!TestTrue(TEXT("Same typed request plans again"), HouseEncounterPlacement::Plan(
+		Encounter->House, Fixture.Player, 34, 96, 3, Extents, 12345, Second, Error)))
+	{ AddError(Error); return false; }
+	TestTrue(TEXT("Positions and pickup approaches are reproducible"), First.ItemFeet == Second.ItemFeet
+		&& First.ItemAccessFeet == Second.ItemAccessFeet && First.ZombieFeet == Second.ZombieFeet);
+	if (!TestEqual(TEXT("One pickup approach per body"), First.ItemAccessFeet.Num(), Extents.Num())) return false;
+	EncounterTests::CheckStartingRoom(*this, Encounter->House, First, 34);
+	for (const FVector& Access : First.ItemAccessFeet)
+	{
+		TestTrue(TEXT("Player capsule fits at pickup approach"),
+			HouseEncounterPlacement::ClearCapsule(Fixture.World, Access, 34, 96, Fixture.Player));
+		TestTrue(TEXT("Pickup approach has a complete collision-checked entrance route"),
+			HouseEncounterPlacement::Reachable(Fixture.World, Access, First.PlayerFeet, 34, 96, Fixture.Player));
+	}
+	TArray<ADroppedItem*> Items;
+	TSet<FGuid> Ids;
+	const int32 OwnedBefore = Fixture.Inventory->GetEntries().Num();
+	for (int32 I = 0; I < Profiles.Num(); ++I)
+	{
+		const FInventoryItemProfile& Profile = Profiles[I];
+		FInventoryItemProfile Existing;
+		if (!Fixture.Inventory->GetProfile(Profile.Id, Existing))
+			TestEqual(TEXT("Current pickup profile registers"), Fixture.Inventory->RegisterProfile(Profile), EInventoryResult::Success);
+		const FTransform Transform(Encounter->GetActorRotation(), First.ItemFeet[I] + FVector(0,0,Extents[I].Z+2));
+		FCollisionQueryParams Query(SCENE_QUERY_STAT(EncounterTypedLootTest), false, Fixture.Player);
+		TestFalse(TEXT("Exact rotated item body clears world geometry and previously spawned loot"),
+			Fixture.World->OverlapAnyTestByObjectType(Transform.GetLocation(), Transform.GetRotation(),
+				FCollisionObjectQueryParams::AllObjects, FCollisionShape::MakeBox(Extents[I]+FVector(1)), Query));
+		auto* Item = ADroppedItem::SpawnWorldItem(Fixture.World, Profile, Transform);
+		if (!TestNotNull(TEXT("Planned body spawns through current world-item factory"), Item)) return false;
+		TestTrue(TEXT("World item uses its planned physical dimensions"), Item->GetBody()->GetUnscaledBoxExtent().Equals(Extents[I]));
+		Ids.Add(Item->GetItem().InstanceId);
+		Items.Add(Item);
+	}
+	TestEqual(TEXT("New loot has unique identities"), Ids.Num(), Profiles.Num());
+	TestEqual(TEXT("World spawning leaves player ownership unchanged"), Fixture.Inventory->GetEntries().Num(), OwnedBefore);
+	for (int32 I = 0; I < Items.Num(); ++I)
+	{
+		auto* Item = Items[I];
+		const FVector Access = First.ItemAccessFeet[I];
+		TestTrue(TEXT("Pickup approach stays clear after all loot exists"),
+			HouseEncounterPlacement::ClearCapsule(Fixture.World, Access, 34, 96, Fixture.Player));
+		Fixture.Player->SetActorLocation(Access + FVector(0,0,98));
+		TestTrue(TEXT("Actual interaction radius accepts planned approach"), Item->CanInteract(Fixture.Player));
+		const FGuid Id = Item->GetItem().InstanceId;
+		TestTrue(TEXT("Failed pickup leaves world ownership"),
+			Item->PickUp(Fixture.Inventory, Fixture.Player, TEXT("MissingPocket"), FVector2D(50), 0) != EInventoryResult::Success);
+		TestEqual(TEXT("Failed pickup preserves item identity"), Item->GetItem().InstanceId, Id);
+		TestTrue(TEXT("Every planned type can be picked up from its approach"), Fixture.Use->PickUpToHands(Item));
+		TestEqual(TEXT("Successful pickup preserves identity"), Fixture.Use->GetHeldId(), Id);
+		TestFalse(TEXT("Picked actor cannot transfer twice"), Fixture.Use->PickUpToHands(Item));
+		Fixture.Use->ClearHeld();
+		FItemInstance Removed;
+		Fixture.Inventory->RemoveItem(Id, Removed, true);
+	}
+	TestEqual(TEXT("Original loadout survives the complete pickup test"), Fixture.Inventory->GetEntries().Num(), OwnedBefore);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHouseEncounterInvalidItemBodiesTest, "Prototype.Encounter.InvalidItemBodies",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FHouseEncounterInvalidItemBodiesTest::RunTest(const FString&)
+{
+	EncounterTests::FWorld Fixture;
+	auto* Encounter = Fixture.Create(12345);
+	if (!TestTrue(TEXT("House prepares"), Encounter->Prepare(Fixture.Player)))
+	{ AddError(Encounter->LastError); return false; }
+	Fixture.Build();
+	FHouseEncounterPlacement Placement;
+	Placement.ItemFeet.Add(FVector(10,20,30));
+	Placement.ItemAccessFeet.Add(FVector(40,50,60));
+	Placement.ZombieFeet.Add(FVector(70,80,90));
+	FString Error;
+	const TArray<FVector> Invalid = {FVector(5,5,-1)};
+	TestFalse(TEXT("Invalid item body dimensions fail safely"), HouseEncounterPlacement::Plan(
+		Encounter->House, Fixture.Player, 34, 96, 1, Invalid, 12345, Placement, Error));
+	TestTrue(TEXT("Invalid body failure explains the rejected request"), !Error.IsEmpty());
+	TestTrue(TEXT("Failed plan clears stale bodies and approaches"), Placement.ItemFeet.IsEmpty()
+		&& Placement.ItemAccessFeet.IsEmpty() && Placement.ZombieFeet.IsEmpty());
+	return true;
+}
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHouseEncounterRecoveryTest, "Prototype.Encounter.LayoutRecovery",
+ EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FHouseEncounterRecoveryTest::RunTest(const FString&)
+{
+ EncounterTests::FWorld Fixture;
+ FHouseEncounterPlacement RepeatPlan;
+ int32 RepeatSeed=0;
+ for(int32 Run=0;Run<2;++Run)
+ {
+  Fixture.Player->SetActorLocation(FVector(-400,-400,100));
+  const FVector Original=Fixture.Player->GetActorLocation();
+  auto* Encounter=Fixture.Create(12345);
+  Encounter->HouseSettings.bUseGenerationRanges=true;
+  Encounter->HouseSettings.GenerationRanges.WidthCells=FHouseIntegerRange(12,12);
+  Encounter->HouseSettings.GenerationRanges.DepthCells=FHouseIntegerRange(10,10);
+  Encounter->HouseSettings.GenerationRanges.RoomCount=FHouseIntegerRange(4,4);
+  if(!TestTrue(TEXT("Recovery request prepares"),Encounter->Prepare(Fixture.Player))) return false;
+  auto* Blocker=Fixture.World->SpawnActor<AActor>();
+  auto* Box=NewObject<UBoxComponent>(Blocker); Blocker->SetRootComponent(Box);
+  Box->SetBoxExtent(FVector(2000,2000,110)); Box->SetCollisionProfileName(TEXT("BlockAll"));
+  Box->SetWorldLocation(FVector(600,500,100)); Box->RegisterComponent();
+  TSet<int32> LayoutSeeds;
+  int32 PreviousAttempt=0;
+  for(int32 Step=0;Step<9 && Encounter->State==EHouseEncounterState::Preparing;++Step)
+  {
+   if(Encounter->House)
+   {
+    const auto& S=Encounter->House->GeneratedSettings;
+    TestEqual(TEXT("Recovery preserves exact width"),S.WidthCells,12);
+    TestEqual(TEXT("Recovery preserves exact depth"),S.DepthCells,10);
+    TestEqual(TEXT("Recovery preserves room count"),S.RoomCount,4);
+    LayoutSeeds.Add(S.Seed);
+    TestTrue(TEXT("Attempt number advances"),Encounter->LayoutAttempts>PreviousAttempt);
+    PreviousAttempt=Encounter->LayoutAttempts;
+   }
+   Fixture.Build(); Encounter->Activate();
+   TestTrue(TEXT("Unsuccessful attempts never move the player"),Fixture.Player->GetActorLocation().Equals(Original));
+   TestTrue(TEXT("Unsuccessful attempts leave no partial occupants"),Encounter->Zombies.IsEmpty() && Encounter->Items.IsEmpty());
+  }
+  TestEqual(TEXT("Search exhausts exactly four layouts"),Encounter->LayoutAttempts,4);
+  TestEqual(TEXT("Each layout uses a different seed block"),LayoutSeeds.Num(),4);
+  TestEqual(TEXT("Exhaustion is an explicit failure"),Encounter->State,EHouseEncounterState::Failed);
+  TestTrue(TEXT("Failure removes owned house"),!Encounter->House);
+  TestTrue(TEXT("Failure permits explicit retry"),Encounter->CanRetryGeneration());
+  TestTrue(TEXT("Unrelated geometry is preserved"),IsValid(Blocker));
+  Blocker->Destroy();
+  // Edits while preparing must not change the in-flight or explicit retry request.
+  Encounter->ZombieCount=0; Encounter->ItemCount=0; Encounter->HouseSettings.WidthCells=3;
+  if(!TestTrue(TEXT("Manual retry starts a fresh request"),Encounter->RetryGeneration())) return false;
+  TestFalse(TEXT("Cannot queue a second retry while preparing"),Encounter->RetryGeneration());
+  TestNotEqual(TEXT("Manual retry changes the recorded request seed"),Encounter->RequestSeed,12345);
+  if(!TestTrue(TEXT("Retry succeeds once obstruction is removed"),Fixture.Activate(Encounter))) { AddError(Encounter->LastError); return false; }
+  TestEqual(TEXT("Retry keeps requested zombie count"),Encounter->Zombies.Num(),3);
+  TestEqual(TEXT("Retry keeps requested item count"),Encounter->Items.Num(),6);
+  TestFalse(TEXT("An active encounter cannot retry"),Encounter->RetryGeneration());
+  if(Run==0) { RepeatPlan=Encounter->Placement; RepeatSeed=Encounter->RequestSeed; }
+  else
+  {
+   TestEqual(TEXT("Manual retry seed sequence is deterministic"),Encounter->RequestSeed,RepeatSeed);
+   TestTrue(TEXT("Recovery reproduces bodies, access and loot selection"),RepeatPlan.ZombieFeet==Encounter->Placement.ZombieFeet
+    && RepeatPlan.ItemFeet==Encounter->Placement.ItemFeet && RepeatPlan.ItemAccessFeet==Encounter->Placement.ItemAccessFeet
+    && RepeatPlan.ItemTypes==Encounter->Placement.ItemTypes);
+  }
+  Encounter->Destroy();
+ }
+ return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHouseEncounterNaturalRecoveryTest, "Prototype.Encounter.AlternativeLayoutPlacement",
+ EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FHouseEncounterNaturalRecoveryTest::RunTest(const FString&)
+{
+ EncounterTests::FWorld Fixture;
+ auto* Encounter=Fixture.Create(2235);
+ Encounter->HouseSettings.bUseGenerationRanges=true;
+ if(!TestTrue(TEXT("Known awkward layout prepares"),Encounter->Prepare(Fixture.Player))) return false;
+ if(!TestTrue(TEXT("Alternative arrangement fits exact population"),Fixture.Activate(Encounter))) { AddError(Encounter->LastError); return false; }
+ AddInfo(FString::Printf(TEXT("Seed 2235 accepted after %d layouts."),Encounter->LayoutAttempts));
+ TestTrue(TEXT("A different room arrangement was needed"),Encounter->LayoutAttempts>1);
+ TestEqual(TEXT("Population unchanged"),Encounter->Items.Num(),6);
+ TestEqual(TEXT("Footprint unchanged"),Encounter->House->GeneratedSettings.WidthCells,12);
+ return true;
+}
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHouseEncounterRoomRulesTest, "Prototype.Encounter.RoomRulePlacement",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FHouseEncounterRoomRulesTest::RunTest(const FString&)
+{
+	EncounterTests::FWorld Fixture;
+	FHouseEncounterPlacement First;
+	for (int32 Run=0; Run<2; ++Run)
+	{
+		Fixture.Player->SetActorLocation(FVector(-400,-400,100));
+		auto* E = Fixture.Create(12345);
+		E->SetActorLocationAndRotation(FVector(400,100,0), FRotator(0,37,0));
+		E->HouseSettings.WidthCells=20; E->HouseSettings.DepthCells=20;
+		E->HouseSettings.RoomCount=4;
+		E->ZombieCount=2; E->ItemCount=2;
+		FHouseRoomRule Rule;
+		Rule.RuleName=TEXT("Quiet kitchen");
+		Rule.MatchTags.AddTag(FGameplayTag::RequestGameplayTag(TEXT("Room.Type.Kitchen")));
+		Rule.bAllowZombieSpawns=false; Rule.bRequireMatchingRoom=true;
+		E->HouseSettings.RoomRules.Add(Rule);
+		Rule.RuleName=TEXT("Clean entrance"); Rule.MatchTags.Reset();
+		Rule.MatchTags.AddTag(FGameplayTag::RequestGameplayTag(TEXT("Room.Role.Entrance")));
+		Rule.bAllowZombieSpawns=true; Rule.bAllowItemSpawns=false;
+		E->HouseSettings.RoomRules.Add(Rule);
+		if (!TestTrue(TEXT("Ruled house prepares"), E->Prepare(Fixture.Player))) { AddError(E->LastError); return false; }
+		// Changes during navigation must not mutate the prepared rule snapshot.
+		E->HouseSettings.RoomRules.Reset();
+		if (!TestTrue(TEXT("Ruled encounter activates"), Fixture.Activate(E))) { AddError(E->LastError); return false; }
+		TestEqual(TEXT("Exact requested zombies"), E->Zombies.Num(),2);
+		TestEqual(TEXT("Exact requested loot"), E->Items.Num(),2);
+		const auto* H=E->House.Get();
+		EncounterTests::CheckStartingRoom(*this,H,E->Placement,E->Zombies[0]->GetSimpleCollisionRadius());
+		for (const FVector& Feet : E->Placement.ZombieFeet)
+		{
+			const FVector2D Local(H->GetActorTransform().InverseTransformPosition(Feet));
+			for (const auto& Room : H->Layout.Rooms)
+				if (!Room.bAllowZombieSpawns)
+					TestFalse(TEXT("Zombie body avoids every excluded room including doorway margins"),
+						FHouseSpatial::RoomBounds(H->GeneratedSettings,Room).ExpandBy(E->Zombies[0]->GetSimpleCollisionRadius()).IsInsideOrOn(Local));
+		}
+		for (int32 I=0; I<E->Placement.ItemFeet.Num(); ++I)
+		{
+			const int32 Room=FHouseSpatial::RoomAt(H->GeneratedSettings,H->Layout,FVector2D(H->GetActorTransform().InverseTransformPosition(E->Placement.ItemFeet[I])));
+			if (TestTrue(TEXT("Loot stays inside a room"), H->Layout.Rooms.IsValidIndex(Room)))
+				TestTrue(TEXT("Loot respects room rule"), H->Layout.Rooms[Room].bAllowItemSpawns);
+		}
+		if (Run==0) First=E->Placement;
+		else TestTrue(TEXT("Rules preserve reproducible placements"), First.ZombieFeet==E->Placement.ZombieFeet && First.ItemFeet==E->Placement.ItemFeet && First.ItemAccessFeet==E->Placement.ItemAccessFeet);
+		for (int32 I=0; I<E->Zombies.Num(); ++I)
+		{
+			auto* Path=Fixture.Nav->FindPathToLocationSynchronously(Fixture.World,E->Placement.ZombieFeet[I],E->Placement.PlayerFeet,E->Zombies[I]);
+			TestTrue(TEXT("Allowed zombies have full navigation paths"),Path && Path->IsValid() && !Path->IsPartial());
+		}
+		E->Destroy();
+	}
+	// A valid layout with no allowed population locations must not expose a partial encounter.
+	Fixture.Player->SetActorLocation(FVector(-400,-400,100));
+	const FVector Before=Fixture.Player->GetActorLocation();
+	auto* E=Fixture.Create(12345);
+	E->ZombieCount=1; E->ItemCount=1;
+	FHouseRoomRule Deny;
+	Deny.RuleName=TEXT("No initial occupants"); Deny.MatchTags.AddTag(FGameplayTag::RequestGameplayTag(TEXT("Room")));
+	Deny.bAllowZombieSpawns=false; Deny.bAllowItemSpawns=false;
+	E->HouseSettings.RoomRules.Add(Deny);
+	if (!TestTrue(TEXT("Restricted layout itself is valid"),E->Prepare(Fixture.Player))) { AddError(E->LastError); return false; }
+	TestFalse(TEXT("Unsatisfiable population fails after bounded recovery"),Fixture.Activate(E));
+	TestEqual(TEXT("Failed state"),E->State,EHouseEncounterState::Failed);
+	TestTrue(TEXT("No partial geometry or occupants"),!E->House && E->Zombies.IsEmpty() && E->Items.IsEmpty());
+	TestTrue(TEXT("Failure leaves player in original position"),Fixture.Player->GetActorLocation().Equals(Before));
+	return true;
+}
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FOfficeEncounterTest,"Prototype.Encounter.OfficeSuite",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FOfficeEncounterTest::RunTest(const FString&)
+{
+	EncounterTests::FWorld Fixture;
+	for (int32 Seed : {12345,7})
+	{
+		Fixture.Player->SetActorLocation(FVector(-400,-400,100));
+		auto* E=Fixture.Create(Seed);
+		E->HouseSettings=FHouseOfficePlan::Preset(Seed);
+		E->SetActorLocationAndRotation(FVector(200,100,0),FRotator(0,25,0));
+		if (!TestTrue(TEXT("Office encounter prepares"),E->Prepare(Fixture.Player))) { AddError(E->LastError); return false; }
+		if (!TestTrue(TEXT("Office encounter activates with default population"),Fixture.Activate(E))) { AddError(E->LastError); return false; }
+		TestEqual(TEXT("Office zombies"),E->Zombies.Num(),3); TestEqual(TEXT("Office loot"),E->Items.Num(),6);
+		EncounterTests::CheckStartingRoom(*this,E->House,E->Placement,E->Zombies[0]->GetSimpleCollisionRadius());
+		for (int32 I=0; I<E->Zombies.Num(); ++I)
+		{
+			auto* Path=Fixture.Nav->FindPathToLocationSynchronously(Fixture.World,E->Placement.ZombieFeet[I],E->Placement.PlayerFeet,E->Zombies[I]);
+			TestTrue(TEXT("Office zombie has full route to reception"),Path && Path->IsValid() && !Path->IsPartial());
+		}
+		Fixture.Player->SetActorLocation(E->Placement.ItemAccessFeet[0]+FVector(0,0,98));
+		auto* Item=E->Items[0].Get(); const FGuid Id=Item->GetItem().InstanceId;
+		TestTrue(TEXT("Office loot is reachable through actual pickup system"),Fixture.Use->PickUpToHands(Item));
+		Fixture.Use->ClearHeld(); FItemInstance Removed; Fixture.Inventory->RemoveItem(Id,Removed,true);
+		Fixture.Player->SetActorLocation(E->Placement.PlayerFeet+FVector(0,0,96)); E->CheckExit();
+		Fixture.Player->SetActorLocation(E->Placement.ExitFeet+FVector(0,0,96));
+		TestTrue(TEXT("Leaving office offers next section"),E->CheckExit());
+		E->Destroy();
+	}
+	return true;
+}
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPresetEncounterSweepTest,"Prototype.Encounter.PresetSweep",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FPresetEncounterSweepTest::RunTest(const FString&)
+{
+	constexpr int32 Seeds = 20;
+	EncounterTests::FWorld Fixture;
+	for (int32 Index = 0; Index < HousePresetDefaults::AssetPaths().Num(); ++Index)
+	{
+		bool bAsset = false;
+		UHouseGenerationPreset* P = HousePresetDefaults::LoadOrDefault(Index, &bAsset);
+		const FString Name = FPackageName::GetShortName(HousePresetDefaults::AssetPaths()[Index]);
+		int32 Failures = 0, Layouts = 0, MaxLayouts = 0;
+		TArray<FString> Examples;
+		const double Start = FPlatformTime::Seconds();
+		for (int32 Seed = 1000; Seed < 1000 + Seeds; ++Seed)
+		{
+			Fixture.Player->SetActorLocation(FVector(-400,-400,100));
+			auto* E = Fixture.Create(Seed);
+			E->Preset = P;
+			const bool bActive = E->Prepare(Fixture.Player) && Fixture.Activate(E);
+			FHousePresetResult R; FString Error; P->Resolve(Seed, R, Error);
+			if (!bActive)
+			{
+				++Failures;
+				if (Examples.Num() < 6) Examples.Add(FString::Printf(TEXT("seed %d (%s): %s"), Seed, *R.Describe(), *E->LastError.Left(200)));
+			}
+			else
+			{
+				Layouts += E->LayoutAttempts; MaxLayouts = FMath::Max(MaxLayouts, E->LayoutAttempts);
+				TestEqual(TEXT("Preset zombie count spawned"), E->Zombies.Num(), R.ZombieCount);
+				TestEqual(TEXT("Preset item count spawned"), E->Items.Num(), R.ItemCount);
+				TestEqual(TEXT("Preset footprint used"), E->House->Layout.FootprintCells, FIntPoint(R.WidthCells, R.DepthCells));
+				TestFalse(TEXT("Preset summary reported"), E->PresetSummary.IsEmpty());
+			}
+			E->Destroy();
+		}
+		AddInfo(FString::Printf(TEXT("%s (%s): %d/%d encounters activated, mean %.2f / max %d house layouts, %.2f s total."),
+			*Name, bAsset ? TEXT("asset") : TEXT("built-in values"), Seeds - Failures, Seeds,
+			Seeds > Failures ? double(Layouts) / (Seeds - Failures) : 0.0, MaxLayouts, FPlatformTime::Seconds() - Start));
+		if (Failures)
+			AddError(FString::Printf(TEXT("%s: %d/%d encounters failed. Examples: %s"), *Name, Failures, Seeds, *FString::Join(Examples, TEXT(" | "))));
+	}
 	return true;
 }
 #endif

@@ -2,6 +2,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 #include "Gameplay/Procedural/HouseFurnishing.h"
 #include "Gameplay/Procedural/HouseHousehold.h"
+#include "Gameplay/Procedural/HouseRoomRules.h"
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHouseBedroomFallbackTest, "Prototype.House.BedroomOfficeFallback",
  EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -22,9 +23,20 @@ bool FHouseBedroomFallbackTest::RunTest(const FString& Parameters)
  for (FHouseFurnitureRule& Rule : S.FurnitureRules)
   if (Rule.Type == EHouseFurnitureType::SingleBed || Rule.Type == EHouseFurnitureType::Bed) Rule.Size = FVector(600, 600, 60);
  FString Error;
+ FHouseRoomRule OfficeRule;
+ OfficeRule.RuleName = TEXT("Office loot exclusion");
+ OfficeRule.MatchTags.AddTag(FGameplayTag::RequestGameplayTag(TEXT("Room.Purpose.Office")));
+ OfficeRule.bAllowItemSpawns = false;
+ OfficeRule.RequiredFurniture.Add(EHouseFurnitureType::Desk);
+ S.RoomRules.Add(OfficeRule);
+ FHouseRoomRules::Refresh(S, L);
  const FHouseLayout Original = L;
  if (!TestTrue(TEXT("Spare room can be furnished as an office"), FHouseFurnishing::Generate(S, L, Error))) return false;
  TestEqual(TEXT("Spare becomes office"), L.Rooms[0].Purpose, EHouseRoomPurpose::Office);
+ TestTrue(TEXT("Fallback updates automatic purpose tag"), L.Rooms[0].Tags.HasTagExact(FGameplayTag::RequestGameplayTag(TEXT("Room.Purpose.Office"))));
+ TestFalse(TEXT("Fallback removes stale bedroom purpose"), L.Rooms[0].Tags.HasTagExact(FGameplayTag::RequestGameplayTag(TEXT("Room.Purpose.GuestBedroom"))));
+ TestFalse(TEXT("Fallback applies office spawn rule"), L.Rooms[0].bAllowItemSpawns);
+ TestTrue(TEXT("Fallback satisfies required desk and metadata"), FHouseRoomRules::Validate(S, L, Error));
  TestTrue(TEXT("Office has a desk"), L.Furniture.ContainsByPredicate([](const FHouseFurniturePlacement& I) { return I.Type == EHouseFurnitureType::Desk; }));
  TestFalse(TEXT("Office has no bedroom furniture"), L.Furniture.ContainsByPredicate([](const FHouseFurniturePlacement& I) { return I.Type == EHouseFurnitureType::Bed || I.Type == EHouseFurnitureType::SingleBed || I.Type == EHouseFurnitureType::Wardrobe; }));
  TestTrue(TEXT("Converted furniture has safe clearance"), FHouseFurnishing::Validate(S, L, Error));
@@ -34,8 +46,10 @@ bool FHouseBedroomFallbackTest::RunTest(const FString& Parameters)
  TestEqual(TEXT("Same count"), Repeat.Furniture.Num(), L.Furniture.Num());
  for (int32 I = 0; I < L.Furniture.Num(); ++I) TestEqual(TEXT("Same placement"), Repeat.Furniture[I].Center, L.Furniture[I].Center);
  L = Original; L.Rooms[0].Purpose = EHouseRoomPurpose::PrimaryBedroom;
+ FHouseRoomRules::Refresh(S, L);
  TestFalse(TEXT("Primary cannot silently disappear"), FHouseFurnishing::Generate(S, L, Error));
  L = Original; L.Rooms[0].Purpose = EHouseRoomPurpose::ChildBedroom;
+ FHouseRoomRules::Refresh(S, L);
  TestFalse(TEXT("Child bedroom cannot silently disappear"), FHouseFurnishing::Generate(S, L, Error));
  L = Original; L.Rooms[0].bUnfurnished = true;
  TestTrue(TEXT("Explicitly empty room supported"), FHouseFurnishing::Generate(S, L, Error));
@@ -49,6 +63,16 @@ bool FHouseBedroomFallbackTest::RunTest(const FString& Parameters)
   if (Rule.Type == EHouseFurnitureType::Desk) Rule.Size = FVector(600, 600, 75);
  L = Original;
  TestFalse(TEXT("Cannot just relabel a room without a fitting desk"), FHouseFurnishing::Generate(S, L, Error));
+ S.RoomRules.Reset();
+ FHouseRoomRule BedRule;
+ BedRule.RuleName = TEXT("Keep spare bed");
+ BedRule.MatchTags.AddTag(FGameplayTag::RequestGameplayTag(TEXT("Room.Purpose.GuestBedroom")));
+ BedRule.RequiredFurniture.Add(EHouseFurnitureType::SingleBed);
+ S.RoomRules.Add(BedRule);
+ L = Original; FHouseRoomRules::Refresh(S, L);
+ TestFalse(TEXT("Office fallback cannot evade required spare bed"), FHouseFurnishing::Generate(S, L, Error));
+ TestEqual(TEXT("Required bedroom purpose retained on failure"), L.Rooms[0].Purpose, EHouseRoomPurpose::GuestBedroom);
+ TestTrue(TEXT("Failure names the required bed rule"), Error.Contains(TEXT("Keep spare bed")));
  return true;
 }
 #endif

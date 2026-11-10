@@ -1,60 +1,46 @@
 #include "Gameplay/Procedural/HouseFurnishing.h"
+#include "Gameplay/Procedural/HouseRoomRules.h"
 #include "Gameplay/Procedural/HouseHousehold.h"
 #include "Math/RandomStream.h"
 #include "Gameplay/Procedural/HouseSizing.h"
 #include "Gameplay/Procedural/HouseNavigation.h"
+#include "Gameplay/Procedural/HouseSpatial.h"
 
 namespace
 {
 	FVector2D Facing(int32 Turns)
 	{
-		switch (Turns)
-		{
-		case 1: return FVector2D(-1, 0);
-		case 2: return FVector2D(0, -1);
-		case 3: return FVector2D(1, 0);
-		default: return FVector2D(0, 1);
-		}
+		return FHouseSpatial::FurnitureFacing(Turns);
 	}
 
 	FBox2D RoomBounds(const FHouseGenerationSettings& S, const FHouseRoom& Room)
 	{
-		const double Inset = S.WallThickness * 0.5 + 5.0;
-		return FBox2D(FVector2D(Room.Min) * S.CellSize + FVector2D(Inset),
-			FVector2D(Room.Max) * S.CellSize - FVector2D(Inset));
+		return FHouseSpatial::RoomBounds(S, Room, S.WallThickness * 0.5 + 5.0);
 	}
 
 	bool Overlaps(const FBox2D& A, const FBox2D& B)
 	{
-		return A.Min.X < B.Max.X && A.Max.X > B.Min.X && A.Min.Y < B.Max.Y && A.Max.Y > B.Min.Y;
+		return FHouseSpatial::Overlaps(A, B);
 	}
 
 	bool Contains(const FBox2D& Outer, const FBox2D& Inner)
 	{
-		return Inner.Min.X >= Outer.Min.X && Inner.Min.Y >= Outer.Min.Y &&
-			Inner.Max.X <= Outer.Max.X && Inner.Max.Y <= Outer.Max.Y;
+		return FHouseSpatial::Contains(Outer, Inner);
 	}
 
 	FBox2D AccessArea(const FHouseGenerationSettings& S, const FHouseFurniturePlacement& Item)
 	{
-		const FBox2D Body = FHouseFurnishing::Footprint(S, Item);
-		const FVector2D Front = Facing(Item.QuarterTurns);
-		const FVector2D Face = Item.Center + Front * Body.GetExtent();
-		const double Depth = S.FurnitureRules[Item.RuleIndex].FrontClearance;
-		const FVector2D Size = Item.QuarterTurns % 2 ? FVector2D(Depth, Body.GetSize().Y) : FVector2D(Body.GetSize().X, Depth);
-		const FVector2D Center = Face + Front * (Depth * 0.5);
-		return FBox2D(Center - Size * 0.5, Center + Size * 0.5);
+		return FHouseSpatial::FurnitureAccess(S, Item);
 	}
 
 	FVector2D DoorCenter(const FHouseGenerationSettings& S, const FHouseWall& Wall)
 	{
-		return (FVector2D(Wall.Start) + FVector2D(Wall.End)) * (S.CellSize * 0.5);
+		return FHouseSpatial::DoorCenter(S, Wall);
 	}
 
 	FVector2D Inward(const FHouseRoom& Room, const FHouseWall& Wall)
 	{
-		if (Wall.Start.X == Wall.End.X) return FVector2D(Wall.Start.X == Room.Min.X ? 1 : -1, 0);
-		return FVector2D(0, Wall.Start.Y == Room.Min.Y ? 1 : -1);
+		return FHouseSpatial::DoorInward(Room, Wall);
 	}
 
 	bool Fits(const FHouseGenerationSettings& S, const FHouseLayout& L, const FHouseFurniturePlacement& Item, int32 IgnoreIndex = INDEX_NONE)
@@ -76,15 +62,9 @@ namespace
 		{
 			if (Wall.RoomA != Item.RoomIndex && Wall.RoomB != Item.RoomIndex) continue;
 			const bool AlongX = Wall.Start.Y == Wall.End.Y;
-			const FVector2D Normal = Inward(Room, Wall);
 			if (Wall.Opening == EHouseOpening::Door)
 			{
-				// Reserve the swept body as well as its centre's approach to the threshold.
-				// Otherwise a bed just beyond the anchor can clip a player walking through before turning.
-				const double Depth = 1.5 * S.WalkwayWidth + S.WallThickness;
-				const FVector2D Half = AlongX ? FVector2D(S.DoorWidth * 0.5 + 10, Depth * 0.5) : FVector2D(Depth * 0.5, S.DoorWidth * 0.5 + 10);
-				const FVector2D Center = DoorCenter(S, Wall) + Normal * Depth * 0.5;
-				if (Overlaps(Body, FBox2D(Center - Half, Center + Half))) return false;
+				if (Overlaps(Body, FHouseSpatial::DoorAccess(S, Room, Wall))) return false;
 			}
 			// Low counters can sit beneath a window; tall pieces cannot cover it.
 			for (const FHouseWindow& Window : Wall.Windows)
@@ -103,9 +83,7 @@ namespace
 
 FBox2D FHouseFurnishing::Footprint(const FHouseGenerationSettings& S, const FHouseFurniturePlacement& Item)
 {
-	const FVector& Size = S.FurnitureRules[Item.RuleIndex].Size;
-	const FVector2D Half = (Item.QuarterTurns % 2 ? FVector2D(Size.Y, Size.X) : FVector2D(Size.X, Size.Y)) * 0.5;
-	return FBox2D(Item.Center - Half, Item.Center + Half);
+	return FHouseSpatial::FurnitureBody(S, Item);
 }
 
 bool FHouseFurnishing::FindWalkPaths(const FHouseGenerationSettings& S, const FHouseLayout& L,
@@ -190,7 +168,16 @@ bool FHouseFurnishing::Generate(const FHouseGenerationSettings& S, FHouseLayout&
 {
 	L.Furniture.Reset();
 	L.SkippedFurnitureCount = 0;
-	if (!S.bGenerateFurniture) return true;
+	L.FurnitureArrangementsTried = 0;
+	L.FurnitureRoomsImproved = 0;
+	if (S.FurnitureArrangementAttempts < 1 || S.FurnitureArrangementAttempts > 8)
+	{ OutError = TEXT("Furniture Arrangement Attempts must be between 1 and 8."); return false; }
+	if (!S.bGenerateFurniture)
+	{
+		for (int32 I = 0; I < L.Rooms.Num(); ++I)
+			if (!FHouseRoomRules::ValidateFurniture(S, L, I, OutError)) return false;
+		return true;
+	}
 	FRandomStream Random(static_cast<int32>(static_cast<uint32>(S.Seed) ^ 0x61C88647u));
 	TArray<int32> RuleOrder;
 	for (int32 I = 0; I < S.FurnitureRules.Num(); ++I) RuleOrder.Add(I);
@@ -204,12 +191,18 @@ bool FHouseFurnishing::Generate(const FHouseGenerationSettings& S, FHouseLayout&
 	for (int32 RoomIndex = 0; RoomIndex < L.Rooms.Num(); ++RoomIndex)
 	{
 		const FBox2D Room = RoomBounds(S, L.Rooms[RoomIndex]);
-		auto FurnishRoom = [&]()
+		auto TryArrangement = [&](FRandomStream& ArrangementRandom)
 		{
-			for (int32 RuleIndex : RuleOrder)
+			TArray<int32> RoomOrder = RuleOrder;
+			RoomOrder.StableSort([&](int32 A, int32 B)
+			{
+				return FHouseRoomRules::RequiresFurniture(S, L.Rooms[RoomIndex], S.FurnitureRules[A].Type) &&
+					!FHouseRoomRules::RequiresFurniture(S, L.Rooms[RoomIndex], S.FurnitureRules[B].Type);
+			});
+			for (int32 RuleIndex : RoomOrder)
 			{
 				const FHouseFurnitureRule& Rule = S.FurnitureRules[RuleIndex];
-				if (!FHouseHousehold::WantsFurniture(S, L.Rooms[RoomIndex], RoomIndex, RuleIndex)) continue;
+				if (!FHouseRoomRules::WantsFurniture(S, L.Rooms[RoomIndex], RoomIndex, RuleIndex)) continue;
 				TArray<FHouseFurniturePlacement> Candidates;
 				for (int32 Turn = 0; Turn < 4; ++Turn)
 				{
@@ -241,7 +234,7 @@ bool FHouseFurnishing::Generate(const FHouseGenerationSettings& S, FHouseLayout&
 						}
 					}
 				}
-				for (int32 I = Candidates.Num() - 1; I > 0; --I) Candidates.Swap(I, Random.RandRange(0, I));
+				for (int32 I = Candidates.Num() - 1; I > 0; --I) Candidates.Swap(I, ArrangementRandom.RandRange(0, I));
 				bool bPlaced = false;
 				for (const FHouseFurniturePlacement& Item : Candidates)
 				{
@@ -255,7 +248,56 @@ bool FHouseFurnishing::Generate(const FHouseGenerationSettings& S, FHouseLayout&
 			}
 		};
 		const int32 SkippedBefore = L.SkippedFurnitureCount;
+		bool bRoomImproved = false;
+		auto FurnishRoom = [&]()
+		{
+			const int32 Prefix = L.Furniture.Num();
+			const int32 InitialSkipped = L.SkippedFurnitureCount;
+			TArray<FHouseFurniturePlacement> Best;
+			int32 BestMissing = MAX_int32, BestSkipped = MAX_int32;
+			bool bImproved = false;
+			for (int32 Attempt = 0; Attempt < S.FurnitureArrangementAttempts; ++Attempt)
+			{
+				L.Furniture.SetNum(Prefix);
+				L.SkippedFurnitureCount = InitialSkipped;
+				// Retry streams cannot perturb the original random sequence used by later rooms.
+				FRandomStream Retry(static_cast<int32>(static_cast<uint32>(S.Seed) ^
+					(0x9e3779b9u * (RoomIndex + 1)) ^ (0x85ebca6bu * Attempt) ^
+					(0xc2b2ae35u * static_cast<uint32>(L.Rooms[RoomIndex].Purpose))));
+				TryArrangement(Attempt == 0 ? Random : Retry);
+				++L.FurnitureArrangementsTried;
+				const auto& CurrentRoom = L.Rooms[RoomIndex];
+				auto HasType = [&](EHouseFurnitureType Type)
+				{ return L.Furniture.ContainsByPredicate([&](const FHouseFurniturePlacement& F) { return F.RoomIndex == RoomIndex && F.Type == Type; }); };
+				int32 Missing = 0;
+				for (uint8 Type = 0; Type < static_cast<uint8>(EHouseFurnitureType::Count); ++Type)
+					if (FHouseRoomRules::RequiresFurniture(S, CurrentRoom, static_cast<EHouseFurnitureType>(Type)) && !HasType(static_cast<EHouseFurnitureType>(Type))) ++Missing;
+				const bool bNeedsBed = S.Navigation.Pattern != EHouseLayoutPattern::LegacyRandom &&
+					CurrentRoom.RoomType == EHouseRoomType::Bedroom && !CurrentRoom.bUnfurnished &&
+					CurrentRoom.Purpose != EHouseRoomPurpose::Office && CurrentRoom.Purpose != EHouseRoomPurpose::Storage;
+				if (bNeedsBed && !HasType(EHouseFurnitureType::Bed) && !HasType(EHouseFurnitureType::SingleBed)) ++Missing;
+				// Office fallback must keep its desk even if another arrangement fits more optional pieces.
+				if (CurrentRoom.Purpose == EHouseRoomPurpose::Office && !CurrentRoom.bUnfurnished && !HasType(EHouseFurnitureType::Desk)) ++Missing;
+				const int32 Skipped = L.SkippedFurnitureCount - InitialSkipped;
+				if (Missing < BestMissing || (Missing == BestMissing && Skipped < BestSkipped))
+				{
+					Best.Reset();
+					for (int32 I = Prefix; I < L.Furniture.Num(); ++I) Best.Add(L.Furniture[I]);
+					BestMissing = Missing; BestSkipped = Skipped;
+					bImproved |= Attempt > 0;
+				}
+				if (Missing == 0 && Skipped == 0) break;
+			}
+			L.Furniture.SetNum(Prefix);
+			L.Furniture.Append(Best);
+			L.SkippedFurnitureCount = InitialSkipped + BestSkipped;
+			// A bedroom-to-office fallback replaces this room's earlier result, not a second room.
+			L.FurnitureRoomsImproved += static_cast<int32>(bImproved) - static_cast<int32>(bRoomImproved);
+			bRoomImproved = bImproved;
+		};
 		FurnishRoom();
+		// Validate before an optional bedroom becomes an office: fallback must not evade a requirement.
+		if (!FHouseRoomRules::ValidateFurniture(S, L, RoomIndex, OutError)) return false;
 		FHouseRoom& R = L.Rooms[RoomIndex];
 		const bool bBedroom = R.RoomType == EHouseRoomType::Bedroom && R.Purpose != EHouseRoomPurpose::Office && R.Purpose != EHouseRoomPurpose::Storage;
 		if (S.Navigation.Pattern == EHouseLayoutPattern::LegacyRandom || !bBedroom || R.bUnfurnished || L.Furniture.ContainsByPredicate([&](const FHouseFurniturePlacement& I) { return I.RoomIndex == RoomIndex && IsBed(I.Type); })) continue;
@@ -275,6 +317,7 @@ bool FHouseFurnishing::Generate(const FHouseGenerationSettings& S, FHouseLayout&
 			return false;
 		}
 		R.Purpose = EHouseRoomPurpose::Office;
+		FHouseRoomRules::Refresh(S, L);
 		if (S.Navigation.Pattern != EHouseLayoutPattern::LegacyRandom && !FHouseSizing::Fits(S, R, R.Max - R.Min, false))
 		{
 			OutError = FString::Printf(TEXT("Bedroom %d cannot fit a bed and does not meet office size limits."), RoomIndex);
@@ -283,6 +326,7 @@ bool FHouseFurnishing::Generate(const FHouseGenerationSettings& S, FHouseLayout&
 		L.Furniture.RemoveAll([&](const FHouseFurniturePlacement& I) { return I.RoomIndex == RoomIndex; });
 		L.SkippedFurnitureCount = SkippedBefore;
 		FurnishRoom();
+		if (!FHouseRoomRules::ValidateFurniture(S, L, RoomIndex, OutError)) return false;
 		if (!L.Furniture.ContainsByPredicate([&](const FHouseFurniturePlacement& I) { return I.RoomIndex == RoomIndex && I.Type == EHouseFurnitureType::Desk; }))
 		{
 			OutError = FString::Printf(TEXT("Room %d cannot fit a bed or an office desk. Check dimensions and furniture rules."), RoomIndex);
@@ -304,7 +348,7 @@ bool FHouseFurnishing::Validate(const FHouseGenerationSettings& S, const FHouseL
 			return false;
 		}
 		const FHouseFurnitureRule& Rule = S.FurnitureRules[Item.RuleIndex];
-		if (Item.Type != Rule.Type || !FHouseHousehold::WantsFurniture(S, L.Rooms[Item.RoomIndex], Item.RoomIndex, Item.RuleIndex))
+		if (Item.Type != Rule.Type || !FHouseRoomRules::WantsFurniture(S, L.Rooms[Item.RoomIndex], Item.RoomIndex, Item.RuleIndex))
 		{
 			OutError = TEXT("Furniture does not match the room type/rule.");
 			return false;

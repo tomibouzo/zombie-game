@@ -101,12 +101,32 @@ private:
 	FVector StartPosition;
 };
 
+class FHouseZombieTestSettings : public IAutomationLatentCommand
+{
+	bool Update() override
+	{
+		// Exercise a known large house independently of personal settings currently saved in the test map.
+		for (TActorIterator<AHouseEncounter> It(GEditor->GetEditorWorldContext().World()); It; ++It)
+		{
+			It->HouseSettings = FHouseGenerationSettings();
+			It->HouseSettings.Seed = 234;
+			It->HouseSettings.WidthCells = 40;
+			It->HouseSettings.DepthCells = 24;
+			It->HouseSettings.RoomCount = 15;
+			It->ZombieCount = 3; It->ItemCount = 6;
+			It->bStartOnBeginPlay = true;
+		}
+		return true; // In-memory fixture only; never save over the authored map.
+	}
+};
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHouseZombieIntegrationTest,"Prototype.Encounter.RealZombiePlayIntegration",
 	EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
 bool FHouseZombieIntegrationTest::RunTest(const FString&)
 {
 	if (GEditor->PlayWorld) { AddError(TEXT("Run house zombie integration outside Play.")); return false; }
 	ADD_LATENT_AUTOMATION_COMMAND(FEditorLoadMap(TEXT("/Game/Procedural/Lvl_HouseEncounter")));
+	ADD_LATENT_AUTOMATION_COMMAND(FHouseZombieTestSettings());
 	ADD_LATENT_AUTOMATION_COMMAND(FStartPIECommand(false));
 	ADD_LATENT_AUTOMATION_COMMAND(FHouseZombieScenario(this));
 	ADD_LATENT_AUTOMATION_COMMAND(FEndPlayMapCommand());
