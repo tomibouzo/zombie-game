@@ -11,6 +11,7 @@ class UInputAction;
 class UUserWidget;
 class UInventoryDemoWidget;
 class AHouseEncounter;
+class UShelterBuildComponent;
 
 /**
  *  Simple first person Player Controller
@@ -60,11 +61,17 @@ public:
 	/** Routes backpack and locomotion buttons before the focused Slate inventory consumes them. */
 	bool HandleInventoryControlKey(FKey Key, EInputEvent Event);
 	bool IsInventoryInterfaceOpen() const { return bInventoryDemoOpen; }
+	UShelterBuildComponent* GetBuildComponent() const { return BuildComponent; }
+	/** Releases held keys and cancels item use or a held attack, keeping held movement keys. */
+	void FlushKeysPreservingMovement();
 
 protected:
 	friend class FBackpackInputRoutingTest;
 	UPROPERTY(Transient)
 	TObjectPtr<UInventoryDemoWidget> InventoryDemoWidget;
+	/** Build mode sees every key first; see InputKey. */
+	UPROPERTY(VisibleAnywhere, Category="Shelter")
+	TObjectPtr<UShelterBuildComponent> BuildComponent;
 	bool bInventoryDemoOpen = false;
 	bool bCursorBeforeInventory = false;
 	bool bCursorBeforePause = false;

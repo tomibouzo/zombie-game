@@ -11,6 +11,9 @@
 #include "Gameplay/AI/Zombies/ZombieCharacter.h"
 #include "Gameplay/AI/Zombies/ZombieAIController.h"
 #include "EngineUtils.h"
+#include "Gameplay/Shelter/Build/ShelterBuildComponent.h"
+#include "Gameplay/Shelter/Build/ShelterPiece.h"
+#include "UI/Inventory/InventoryInputSettings.h"
 
 void AHorrorHUD::DrawHUD()
 {
@@ -41,6 +44,8 @@ void AHorrorHUD::DrawHUD()
 	DrawBar(X, StaminaY, PlayerCharacter->GetStaminaPercent(), FLinearColor(0.04f, 0.32f, 0.95f, 1.0f));
 
 	const auto* Controller = Cast<Aprototype3PlayerController>(PlayerOwner);
+	if (const auto* Build = Controller ? Controller->GetBuildComponent() : nullptr; Build && Build->IsActive() && !PlayerOwner->IsPaused())
+		DrawBuildOverlay(*Build);
 	const bool bGameplayAimVisible = !(Controller && Controller->IsInventoryInterfaceOpen()) && !PlayerOwner->IsPaused();
 	if (bGameplayAimVisible)
 	{
@@ -93,4 +98,44 @@ void AHorrorHUD::DrawHUD()
 		const FString Prompt = FString::Printf(TEXT("pick up (%s)"), *Floor->GetItem().Definition->DisplayName.ToString());
 		DrawText(Prompt, FLinearColor::White, Canvas->SizeX * .5f - 100.f, Canvas->SizeY * .62f, GEngine->GetSmallFont(), 1.f);
 	}
+}
+
+void AHorrorHUD::DrawBuildOverlay(const UShelterBuildComponent& Build)
+{
+	using A = EInventoryControl;
+	const auto* Controls = GetDefault<UInventoryInputSettings>();
+	UFont* Font = GEngine->GetSmallFont();
+	const bool bMenu = Build.GetState() == EShelterBuildState::Menu;
+	const TArray<FText>& Categories = Build.GetCategories();
+	const TArray<UShelterPieceDefinition*> Pieces = Build.GetPiecesInCategory(Build.GetCategoryIndex());
+	const int32 Rows = bMenu ? Categories.Num() : Pieces.Num();
+	constexpr float Width = 330.f, Line = 22.f, Pad = 14.f;
+	const float Height = Pad * 2 + Line * (Rows + 6);
+	const float Left = 48.f;
+	const float Top = FMath::Max(40.f, (Canvas->SizeY - Height) * .5f);
+	DrawRect(FLinearColor(.02f, .03f, .045f, .88f), Left, Top, Width, Height);
+	float Y = Top + Pad;
+	auto Text = [&](const FString& Value, const FLinearColor& Color) { DrawText(Value, Color, Left + Pad, Y, Font, 1.f); Y += Line; };
+	const FLinearColor Muted(.65f, .72f, .78f);
+	const FString Category = Categories.IsValidIndex(Build.GetCategoryIndex()) ? Categories[Build.GetCategoryIndex()].ToString() : FString();
+	Text(bMenu ? FString(TEXT("BUILD: choose a category")) : TEXT("BUILD: ") + Category, FLinearColor::White);
+	Y += 4.f;
+	for (int32 Index = 0; Index < Rows; ++Index)
+	{
+		const bool bSelected = Index == (bMenu ? Build.GetCategoryIndex() : Build.GetPieceIndex());
+		if (bSelected) DrawRect(FLinearColor(.16f, .32f, .42f, .95f), Left + 6.f, Y - 2.f, Width - 12.f, Line);
+		const FString Name = bMenu ? Categories[Index].ToString() : Pieces[Index]->DisplayName.ToString();
+		Text(bMenu && Index < 9 ? FString::Printf(TEXT("%d  %s"), Index + 1, *Name) : Name, bSelected ? FLinearColor::White : Muted);
+	}
+	Y += 6.f;
+	Text(Controls->KeyLabel(A::BuildPrevious) + TEXT(" / ") + Controls->KeyLabel(A::BuildNext) + (bMenu ? TEXT(": change category") : TEXT(": change piece")), Muted);
+	if (bMenu) Text(Controls->KeyLabel(A::Primary) + TEXT(": choose"), Muted);
+	else
+	{
+		Text(Controls->KeyLabel(A::Primary) + TEXT(": place   ") + Controls->KeyLabel(A::Secondary) + TEXT(": remove"), Muted);
+		Text(Controls->KeyLabel(A::BuildRotate) + TEXT(": rotate   ") + Controls->KeyLabel(A::BuildMenu) + TEXT(": categories"), Muted);
+	}
+	Text(Controls->KeyLabel(A::BuildExit) + TEXT(" / ") + Controls->KeyLabel(A::Back) + TEXT(": exit build mode"), Muted);
+	if (!bMenu && !Build.GetStatus().IsEmpty())
+		Text(Build.GetStatus(), Build.HasValidTarget() ? FLinearColor(.3f, 1.f, .6f) : FLinearColor(1.f, .45f, .35f));
 }

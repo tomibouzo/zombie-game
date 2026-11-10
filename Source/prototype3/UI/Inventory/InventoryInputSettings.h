@@ -12,10 +12,12 @@ enum class EInventoryControl : uint8
 	AssignShortcut1, AssignShortcut2, AssignShortcut3, ToggleGrabMode,
 	MoveForward, MoveBackward, MoveLeft, MoveRight, Run, Sprint, Crouch,
 	Primary, Secondary, Bandage, Food, Water, CyclePocket, FasterRotation,
-	SlowerRotation, ScrollFloorUp, ScrollFloorDown, Back, PickUpWorld, DropHeld, Count
+	SlowerRotation, ScrollFloorUp, ScrollFloorDown, Back, PickUpWorld, DropHeld,
+	// Saved bindings are stored by position: append new controls here, never insert above.
+	BuildMenu, BuildPrevious, BuildNext, BuildRotate, BuildExit, Count
 };
 
-enum class EControlSection : uint8 { Movement, ItemActions, Inventory, Gameplay };
+enum class EControlSection : uint8 { Movement, ItemActions, Inventory, Gameplay, Building, Count };
 
 /** Saved keyboard/mouse controls. The legacy Add slot is used only by the isolated laboratory. */
 UCLASS(Config=GameUserSettings)

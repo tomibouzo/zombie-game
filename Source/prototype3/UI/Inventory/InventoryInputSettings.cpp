@@ -6,7 +6,7 @@ namespace
 using A = EInventoryControl;
 namespace InputContexts
 {
-constexpr uint32 Game = 1, Pockets = 2, Backpack = 4, PocketDrag = 8, BackpackDrag = 16, MenuContext = 32;
+constexpr uint32 Game = 1, Pockets = 2, Backpack = 4, PocketDrag = 8, BackpackDrag = 16, MenuContext = 32, Build = 64;
 constexpr uint32 Inventory = Pockets | Backpack | PocketDrag | BackpackDrag;
 }
 TArray<FKey> DefaultKeys()
@@ -29,6 +29,8 @@ TArray<FKey> DefaultKeys()
 	Set(A::ScrollFloorUp, EKeys::MouseScrollUp); Set(A::ScrollFloorDown, EKeys::MouseScrollDown);
 	Set(A::Back, EKeys::Escape);
 	Set(A::PickUpWorld, EKeys::E); Set(A::DropHeld, EKeys::P);
+	Set(A::BuildMenu, EKeys::B); Set(A::BuildPrevious, EKeys::Q); Set(A::BuildNext, EKeys::E);
+	Set(A::BuildRotate, EKeys::R); Set(A::BuildExit, EKeys::V);
 	return Result;
 }
 }
@@ -186,12 +188,17 @@ uint32 UInventoryInputSettings::Contexts(A Action)
 	if (Action == A::Back) return Game | Inventory | MenuContext;
 	if (Action == A::ScrollFloorUp || Action == A::ScrollFloorDown) return Pockets | Backpack;
 	if (!IsBindable(Action)) return 0;
-	if (Action == A::Toggle || Action == A::Stow || Action == A::DropHeld) return Game | Inventory;
+	// Keys that stay live while building share the Build context, so a build key cannot collide with them.
+	if (Action == A::BuildMenu) return Game | Build;
+	if (Action >= A::BuildPrevious && Action <= A::BuildExit) return Build;
+	if (Action == A::Toggle) return Game | Inventory | Build;
+	if (Action == A::Stow || Action == A::DropHeld) return Game | Inventory;
 	if (Action == A::PickUpWorld) return Game;
-	if (Action == A::ShowQuick) return Game | Pockets | PocketDrag;
+	if (Action == A::ShowQuick) return Game | Pockets | PocketDrag | Build;
 	if (Action == A::CyclePocket) return Backpack | BackpackDrag;
 	if (Action == A::FasterRotation || Action == A::SlowerRotation) return PocketDrag | BackpackDrag;
-	if (Action >= A::MoveForward && Action <= A::Sprint) return Game | Backpack | BackpackDrag;
+	if (Action >= A::MoveForward && Action <= A::Sprint) return Game | Backpack | BackpackDrag | Build;
+	if (Action == A::Crouch || Action == A::Primary || Action == A::Secondary) return Game | Build;
 	if (Action >= A::MoveForward && Action <= A::Water) return Game;
 	return Inventory;
 }
@@ -237,6 +244,7 @@ bool UInventoryInputSettings::AssignKey(A Action, int32 Slot, FKey Key, bool bRe
 bool UInventoryInputSettings::TrySetKey(A Action, FKey Key, FString& Error) { return AssignKey(Action, 0, Key, false, Error); }
 EControlSection UInventoryInputSettings::Section(A Action)
 {
+	if (Action >= A::BuildMenu && Action <= A::BuildExit) return EControlSection::Building;
 	if (Action >= A::MoveForward && Action <= A::Crouch) return EControlSection::Movement;
 	if ((Action >= A::Primary && Action <= A::Water) || Action == A::Stow || Action == A::DropHeld || Action == A::PickUpWorld) return EControlSection::ItemActions;
 	if (Action == A::Toggle || Action == A::ShowQuick) return EControlSection::Gameplay;
@@ -289,6 +297,11 @@ FString UInventoryInputSettings::Label(A Action)
 	case A::ScrollFloorUp: return TEXT("Scroll floor items up");
 	case A::ScrollFloorDown: return TEXT("Scroll floor items down");
 	case A::Back: return TEXT("Close interface / Back / Pause");
+	case A::BuildMenu: return TEXT("Build menu");
+	case A::BuildPrevious: return TEXT("Previous category / piece");
+	case A::BuildNext: return TEXT("Next category / piece");
+	case A::BuildRotate: return TEXT("Rotate piece");
+	case A::BuildExit: return TEXT("Exit build mode");
 	default: return TEXT("Retired action");
 	}
 }
