@@ -2,6 +2,7 @@
 
 
 #include "Core/PlayerControllers/prototype3PlayerController.h"
+#include "Gameplay/Player/Interaction/PlayerInteractionComponent.h"
 #include "EnhancedInputSubsystems.h"
 #include "Engine/LocalPlayer.h"
 #include "InputMappingContext.h"
@@ -289,6 +290,12 @@ bool Aprototype3PlayerController::HandleInventoryControlKey(FKey Key, EInputEven
 	return bRoute;
 }
 
+bool Aprototype3PlayerController::IsInteractionInputBlocked() const
+{
+	return bInventoryDemoOpen || PauseMenu.IsValid() || IsPaused() || HouseExitMenu.IsValid()
+		|| (BuildComponent && BuildComponent->IsActive());
+}
+
 bool Aprototype3PlayerController::InputKey(const FInputKeyEventArgs& Params)
 {
 	if (HouseExitMenu.IsValid()) return true;
@@ -345,8 +352,9 @@ bool Aprototype3PlayerController::InputKey(const FInputKeyEventArgs& Params)
 	{
 		if (Controls->Matches(EInventoryControl::PickUpWorld, Params.Key))
 		{
-			if (Params.Event == IE_Pressed) if (auto* Use = ItemUse(this))
-				Use->PickUpToHands(Use->GetLookedAtFloorItem(), true);
+			if (Params.Event == IE_Pressed && GetPawn())
+				if (auto* Interaction = GetPawn()->FindComponentByClass<UPlayerInteractionComponent>())
+					Interaction->TryInteract();
 			return true;
 		}
 		if (Controls->Matches(EInventoryControl::DropHeld, Params.Key))

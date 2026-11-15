@@ -173,13 +173,13 @@ bool UPlayerItemUseComponent::IsPickupBlockedNoticeVisible() const
 	return GetWorld() && GetWorld()->GetTimeSeconds() < PickupBlockedUntil;
 }
 
-ADroppedItem* UPlayerItemUseComponent::GetLookedAtFloorItem() const
+ADroppedItem* UPlayerItemUseComponent::GetLookedAtFloorItem(float* OutHitDistance) const
 {
 	auto* Pawn = Cast<APawn>(GetOwner());
 	const auto* Controller = Pawn ? Cast<APlayerController>(Pawn->GetController()) : nullptr;
 	if (!Controller || !Controller->PlayerCameraManager || !GetWorld()) return nullptr;
 	const FVector Start = Controller->PlayerCameraManager->GetCameraLocation();
-	const FVector End = Start + Controller->PlayerCameraManager->GetCameraRotation().Vector() * 300.f;
+	const FVector End = Start + Controller->PlayerCameraManager->GetCameraRotation().Vector() * FloorPickupTraceDistance;
 	FCollisionObjectQueryParams Objects;
 	Objects.AddObjectTypesToQuery(ECC_WorldStatic);
 	Objects.AddObjectTypesToQuery(ECC_PhysicsBody);
@@ -187,7 +187,9 @@ ADroppedItem* UPlayerItemUseComponent::GetLookedAtFloorItem() const
 	FHitResult Hit;
 	if (!GetWorld()->LineTraceSingleByObjectType(Hit, Start, End, Objects, Query)) return nullptr;
 	auto* Floor = Cast<ADroppedItem>(Hit.GetActor());
-	return Floor && Floor->CanInteract(Pawn) ? Floor : nullptr;
+	if (!Floor || !Floor->CanInteract(Pawn)) return nullptr;
+	if (OutHitDistance) *OutHitDistance = Hit.Distance;
+	return Floor;
 }
 
 bool UPlayerItemUseComponent::PickUpToHands(ADroppedItem* Floor, bool bRequireLook)

@@ -1,4 +1,5 @@
 #include "Gameplay/Items/World/DroppedItem.h"
+#include "Gameplay/Player/Inventory/PlayerItemUseComponent.h"
 #include "Gameplay/Items/ItemDefinition.h"
 #include "Gameplay/Player/Inventory/InventoryComponent.h"
 #include "Gameplay/Player/Inventory/PlayerItemUseComponent.h"
@@ -237,7 +238,25 @@ ADroppedItem* ADroppedItem::DropFromInventory(UInventoryComponent* Inventory, FG
 	return Dropped;
 }
 
-bool ADroppedItem::CanInteract(APawn* Player) const
+bool ADroppedItem::CanInteract(const AActor* Instigator) const
+{
+	return CanInteract(Cast<APawn>(Instigator));
+}
+
+FText ADroppedItem::GetInteractionPrompt(const AActor* Instigator) const
+{
+	return Item.IsValid()
+		? FText::Format(NSLOCTEXT("Interaction", "Pickup", "Pick up {0}"), Item.Definition->DisplayName)
+		: FText::GetEmpty();
+}
+
+void ADroppedItem::Interact(AActor* Instigator)
+{
+	if (auto* Use = Instigator ? Instigator->FindComponentByClass<UPlayerItemUseComponent>() : nullptr)
+		Use->PickUpToHands(this, true);
+}
+
+bool ADroppedItem::CanInteract(const APawn* Player) const
 {
 	if (!IsValid(this) || IsActorBeingDestroyed() || bTransferring || !Item.IsValid()
 		|| !IsValid(Player) || Player->GetWorld() != GetWorld() || !FMath::IsFinite(PickupRadius) || PickupRadius <= 0) return false;

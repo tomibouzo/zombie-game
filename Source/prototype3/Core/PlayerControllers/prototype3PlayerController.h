@@ -60,6 +60,7 @@ public:
 	bool IsAssigningControls() const;
 	/** Routes backpack and locomotion buttons before the focused Slate inventory consumes them. */
 	bool HandleInventoryControlKey(FKey Key, EInputEvent Event);
+	bool IsInteractionInputBlocked() const;
 	bool IsInventoryInterfaceOpen() const { return bInventoryDemoOpen; }
 	UShelterBuildComponent* GetBuildComponent() const { return BuildComponent; }
 	/** Releases held keys and cancels item use or a held attack, keeping held movement keys. */

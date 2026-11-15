@@ -55,7 +55,8 @@ public:
 	static FName HandsPocketId() { return TEXT("Hands"); }
 	bool EquipToHands(FGuid Id);
 	bool PickUpToHands(ADroppedItem* Floor, bool bRequireLook = false);
-	ADroppedItem* GetLookedAtFloorItem() const;
+	static constexpr float FloorPickupTraceDistance = 300.f;
+	ADroppedItem* GetLookedAtFloorItem(float* OutHitDistance = nullptr) const;
 	bool DropHeld();
 	bool Stow();
 	void ClearHeld();

@@ -4,8 +4,7 @@
 #include "Core/Characters/prototype3Character.h"
 #include "Core/PlayerControllers/prototype3PlayerController.h"
 #include "Gameplay/Player/Inventory/PlayerItemUseComponent.h"
-#include "Gameplay/Items/World/DroppedItem.h"
-#include "Gameplay/Items/ItemDefinition.h"
+#include "Gameplay/Player/Interaction/PlayerInteractionComponent.h"
 #include "Engine/Canvas.h"
 #include "Engine/Engine.h"
 #include "Gameplay/AI/Zombies/ZombieCharacter.h"
@@ -93,10 +92,17 @@ void AHorrorHUD::DrawHUD()
 		DrawRect(FLinearColor(.42f,.035f,.035f,.95f), Left, 35.f, Width, 38.f);
 		DrawText(TEXT("Item replacement is off in Settings"), FLinearColor::White, Left + 18.f, 45.f, GEngine->GetSmallFont(), 1.f);
 	}
-	if (const auto* Floor = Use->GetLookedAtFloorItem(); Floor && Floor->GetItem().IsValid())
+	if (const auto* Interaction = PlayerCharacter->FindComponentByClass<UPlayerInteractionComponent>())
 	{
-		const FString Prompt = FString::Printf(TEXT("pick up (%s)"), *Floor->GetItem().Definition->DisplayName.ToString());
-		DrawText(Prompt, FLinearColor::White, Canvas->SizeX * .5f - 100.f, Canvas->SizeY * .62f, GEngine->GetSmallFont(), 1.f);
+		const FText Action = Interaction->GetPrompt();
+		if (Action.IsEmpty()) return;
+
+		const auto* Controls = GetDefault<UInventoryInputSettings>();
+		const FText Key = Controls->GetKey(EInventoryControl::PickUpWorld).GetDisplayName();
+		const FString Prompt = FText::Format(NSLOCTEXT("Interaction", "KeyPrompt", "[{0}] {1}"), Key, Action).ToString();
+		float Width, Height;
+		GetTextSize(Prompt, Width, Height, GEngine->GetSmallFont());
+		DrawText(Prompt, FLinearColor::White, (Canvas->SizeX - Width) * .5f, Canvas->SizeY * .5f + 20.f, GEngine->GetSmallFont());
 	}
 }
 

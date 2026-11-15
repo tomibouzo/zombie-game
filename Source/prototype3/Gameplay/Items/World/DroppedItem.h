@@ -4,6 +4,7 @@
 #include "GameFramework/Actor.h"
 #include "Gameplay/Items/ItemInstance.h"
 #include "Gameplay/Player/Inventory/InventoryTypes.h"
+#include "Gameplay/Player/Interaction/Interactable.h"
 #include "DroppedItem.generated.h"
 
 class UBoxComponent;
@@ -16,7 +17,7 @@ class UItemDefinition;
 
 /** Temporary physical representation of one owned item, with guarded local transfers. */
 UCLASS(Config=Game)
-class PROTOTYPE3_API ADroppedItem : public AActor
+class PROTOTYPE3_API ADroppedItem : public AActor, public IInteractable
 {
 	GENERATED_BODY()
 public:
@@ -31,7 +32,10 @@ public:
 	static bool GetWorldHalfExtent(const UItemDefinition* Definition, FVector& OutExtent);
 	bool WouldMoveAtFeet(APawn* Player) const;
 	static TArray<TWeakObjectPtr<ADroppedItem>> FindNearby(APawn* Player);
-	bool CanInteract(APawn* Player) const;
+	bool CanInteract(const APawn* Player) const;
+	virtual bool CanInteract(const AActor* Instigator) const override;
+	virtual FText GetInteractionPrompt(const AActor* Instigator) const override;
+	virtual void Interact(AActor* Instigator) override;
 	EInventoryResult PickUp(UInventoryComponent* Inventory, APawn* Player, FName Pocket, FVector2D Position, double Angle);
 	/** Reserve a floor transfer while another ownership change commits. */
 	EInventoryResult StagePickUp(UInventoryComponent* Inventory, APawn* Player, FName Pocket, FVector2D Position, double Angle);
