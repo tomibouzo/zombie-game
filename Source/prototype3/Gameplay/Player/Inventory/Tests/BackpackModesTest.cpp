@@ -7,6 +7,8 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Core/Characters/prototype3Character.h"
 #include "Core/PlayerControllers/prototype3PlayerController.h"
+#include "Camera/PlayerCameraManager.h"
+#include "Components/BoxComponent.h"
 #include "Engine/LocalPlayer.h"
 #include "GameFramework/PlayerInput.h"
 #include "EnhancedPlayerInput.h"
@@ -193,6 +195,88 @@ bool FHandPickupRulesTest::RunTest(const FString&)
 	Place.Pocket = TEXT("Backpack"); Place.Position = FVector2D(80);
 	TestTrue(TEXT("Manual placement into bag succeeds"), F.Use->RequestArrangement(Place));
 	TestFalse(TEXT("Manual placement clears hands"), F.Use->HasHeldItem());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FInteractionFloorInputTest, "Prototype.Interaction.FloorInput",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FInteractionFloorInputTest::RunTest(const FString&)
+{
+	FBackpackFixture F(true);
+	if (!TestNotNull(TEXT("Bandage profile from the inventory fixture"), F.Profile.Definition.Get())) return false;
+	auto* Type = LoadClass<Aprototype3PlayerController>(nullptr,
+		TEXT("/Game/FirstPerson/Blueprints/BP_FirstPersonPlayerController.BP_FirstPersonPlayerController_C"));
+	if (!TestNotNull(TEXT("Player controller class"), Type)) return false;
+	auto* Controller = F.World->SpawnActor<Aprototype3PlayerController>(Type);
+	if (!TestNotNull(TEXT("Player controller"), Controller)) return false;
+	Controller->Player = NewObject<ULocalPlayer>(GEngine);
+	Controller->Player->PlayerController = Controller;
+	Controller->PlayerInput = NewObject<UEnhancedPlayerInput>(Controller);
+	Controller->Possess(F.Player);
+	Controller->SetControlRotation(FRotator::ZeroRotator);
+	if (!Controller->PlayerCameraManager)
+	{
+		FActorSpawnParameters CameraParams;
+		CameraParams.Owner = Controller;
+		Controller->PlayerCameraManager = F.World->SpawnActor<APlayerCameraManager>(CameraParams);
+		if (!TestNotNull(TEXT("Player camera"), Controller->PlayerCameraManager.Get())) return false;
+		Controller->PlayerCameraManager->InitializeFor(Controller);
+	}
+	Controller->PlayerCameraManager->SetViewTarget(F.Player);
+	Controller->PlayerCameraManager->UpdateCamera(0.f);
+
+	const FVector Eye = Controller->PlayerCameraManager->GetCameraLocation();
+	const FVector Direction = Controller->PlayerCameraManager->GetCameraRotation().Vector();
+	auto SpawnFloor = [&](float Distance)
+	{
+		auto* Item = ADroppedItem::SpawnWorldItem(F.World, F.Profile,
+			FTransform(FRotator::ZeroRotator, Eye + Direction * Distance));
+		if (Item) Item->GetBody()->SetSimulatePhysics(false);
+		return Item;
+	};
+
+	auto* First = SpawnFloor(110.f);
+	auto* Second = SpawnFloor(195.f);
+	if (!TestNotNull(TEXT("First floor item"), First) || !TestNotNull(TEXT("Second floor item"), Second)) return false;
+	const FGuid FirstId = First->GetItem().InstanceId;
+	const FGuid SecondId = Second->GetItem().InstanceId;
+	auto* Settings = GetMutableDefault<UInventoryInputSettings>();
+	TGuardValue<bool> ReplaceSetting(Settings->bAllowItemReplace, false);
+	const FKey Key = Settings->GetKey(EInventoryControl::PickUpWorld);
+	const auto Route = [&](EInputEvent Event)
+	{
+		return Controller->InputKey(FInputKeyEventArgs::CreateSimulated(Key, Event, Event == IE_Released ? 0.f : 1.f));
+	};
+
+	auto* Obstacle = F.World->SpawnActor<AActor>();
+	auto* Box = NewObject<UBoxComponent>(Obstacle);
+	Obstacle->SetRootComponent(Box);
+	Box->SetBoxExtent(FVector(10.f, 50.f, 50.f));
+	Box->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+	Box->SetCollisionResponseToAllChannels(ECR_Ignore);
+	Box->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
+	Box->RegisterComponent();
+	Obstacle->SetActorLocation(Eye + Direction * 55.f);
+	Route(IE_Pressed);
+	Route(IE_Released);
+	TestFalse(TEXT("Visibility obstruction blocks an otherwise reachable item"), F.Use->HasHeldItem());
+	Obstacle->SetActorEnableCollision(false);
+
+	TestTrue(TEXT("Press consumed"), Route(IE_Pressed));
+	TestEqual(TEXT("Only the nearer item enters empty hands"), F.Use->GetHeldId(), FirstId);
+	TestTrue(TEXT("Repeat consumed"), Route(IE_Repeat));
+	TestTrue(TEXT("Release consumed"), Route(IE_Released));
+	TestFalse(TEXT("Repeat and release do not attempt another pickup"), F.Use->IsPickupBlockedNoticeVisible());
+	TestTrue(TEXT("Second item still on floor"), IsValid(Second));
+	Route(IE_Pressed);
+	Route(IE_Released);
+	TestTrue(TEXT("Blocked replacement notice preserved"), F.Use->IsPickupBlockedNoticeVisible());
+	TestEqual(TEXT("Blocked pickup keeps old item"), F.Use->GetHeldId(), FirstId);
+
+	Settings->bAllowItemReplace = true;
+	Route(IE_Pressed);
+	Route(IE_Released);
+	TestEqual(TEXT("Fresh press with replacement enabled takes second item"), F.Use->GetHeldId(), SecondId);
 	return true;
 }
 
