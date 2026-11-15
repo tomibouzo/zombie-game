@@ -397,7 +397,7 @@ bool Aprototype3PlayerController::InputKey(const FInputKeyEventArgs& Params)
 	return Super::InputKey(Params);
 }
 
-void Aprototype3PlayerController::ToggleInventoryDemo(bool bLegacyLab, bool bPocketsOnly)
+void Aprototype3PlayerController::ToggleInventoryDemo(bool bLegacyLab, bool bPocketsOnly, FName ChestPocket)
 {
 	if (HouseExitMenu.IsValid()) return;
 	if (PauseMenu.IsValid()) return;
@@ -424,7 +424,11 @@ void Aprototype3PlayerController::ToggleInventoryDemo(bool bLegacyLab, bool bPoc
 	}
 	if (auto* Use=ItemUse(this))
 	{
-		if (!bLegacyLab && !bPocketsOnly && !Use->BeginOpenBackpack(true)) return;
+		if (!ChestPocket.IsNone())
+		{
+			if (!Use->OpenChest(ChestPocket)) return;
+		}
+		else if (!bLegacyLab && !bPocketsOnly && !Use->BeginOpenBackpack(true)) return;
 		Use->CancelUse();
 		if (bPocketsOnly) Use->CloseBackpack();
 	}
@@ -436,7 +440,7 @@ void Aprototype3PlayerController::ToggleInventoryDemo(bool bLegacyLab, bool bPoc
 	if (APawn* ControlledPawn = GetPawn())
 		if (UPlayerMeleeComponent* Melee = ControlledPawn->FindComponentByClass<UPlayerMeleeComponent>()) Melee->StopAttacking();
 	ResetIgnoreMoveInput();
-	if (bPocketsOnly || bLegacyLab) SetIgnoreMoveInput(true);
+	if (bPocketsOnly || bLegacyLab || !ChestPocket.IsNone()) SetIgnoreMoveInput(true);
 	SetIgnoreLookInput(true);
 	bShowMouseCursor = true;
 	InventoryDemoWidget->AddToViewport(100);

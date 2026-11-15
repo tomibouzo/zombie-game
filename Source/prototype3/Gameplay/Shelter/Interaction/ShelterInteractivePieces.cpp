@@ -1,5 +1,10 @@
 #include "Gameplay/Shelter/Interaction/ShelterInteractivePieces.h"
 
+#include "Core/PlayerControllers/prototype3PlayerController.h"
+#include "Gameplay/Items/World/DroppedItem.h"
+#include "Gameplay/Player/Inventory/InventoryComponent.h"
+#include "Gameplay/Shelter/Build/ShelterBuildArea.h"
+#include "Components/BoxComponent.h"
 #include "Components/PointLightComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
@@ -63,8 +68,10 @@ void AShelterDoorPiece::InitializePiece(const UShelterPieceDefinition* InDefinit
 	const double Width = InModule.Width;
 	const double Height = InModule.Height;
 	const double Thickness = FMath::Clamp<double>(InModule.WallThickness, 5.0, FMath::Min(Width, Height) / 4.0);
-	const double OpeningWidth = FMath::Min<double>(DoorOpeningWidth, Width - 2.0 * Thickness);
-	const double OpeningHeight = FMath::Min<double>(DoorOpeningHeight, Height - Thickness);
+	const double RequestedWidth = InDefinition && InDefinition->OpeningWidth > 1.f ? InDefinition->OpeningWidth : DoorOpeningWidth;
+	const double RequestedHeight = InDefinition && InDefinition->OpeningHeight > 1.f ? InDefinition->OpeningHeight : DoorOpeningHeight;
+	const double OpeningWidth = FMath::Min(RequestedWidth, Width - 2.0 * Thickness);
+	const double OpeningHeight = FMath::Min(RequestedHeight, Height - Thickness);
 	const double SideWidth = (Width - OpeningWidth) / 2.0;
 	const double SideCenter = (OpeningWidth + SideWidth) / 2.0;
 	SizeBox(*LeftFrame, FVector(-SideCenter, 0, Height / 2.0), FVector(SideWidth, Thickness, Height));
@@ -160,4 +167,125 @@ void AShelterLampPiece::Interact(AActor* Instigator)
 	const bool bLightOn = !IsLit();
 	Light->SetVisibility(bLightOn);
 	SetPieceColor(*Shade, bLightOn ? FLinearColor(1.f, .8f, .45f) : FLinearColor(.25f, .23f, .2f));
+}
+
+AShelterChestPiece::AShelterChestPiece()
+{
+	Box = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Box"));
+	Lid = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Lid"));
+	ConfigureBox(*Box, *GetRootComponent());
+	ConfigureBox(*Lid, *GetRootComponent());
+	SizeBox(*Box, FVector(0, 0, 36), FVector(105, 65, 72));
+	SizeBox(*Lid, FVector(0, 0, 75), FVector(110, 70, 12));
+}
+
+void AShelterChestPiece::SetPreview(bool bValid)
+{
+	Super::SetPreview(bValid);
+	SetPieceColor(*Box, PreviewColor(bValid));
+	SetPieceColor(*Lid, PreviewColor(bValid));
+}
+
+bool AShelterChestPiece::CanInteract(const AActor* Instigator) const
+{
+	const auto* Pawn = Cast<APawn>(Instigator);
+	return !IsPreview() && Pawn && Cast<Aprototype3PlayerController>(Pawn->GetController());
+}
+
+FText AShelterChestPiece::GetInteractionPrompt(const AActor* Instigator) const
+{
+	return NSLOCTEXT("Interaction", "OpenChest", "Open chest");
+}
+
+void AShelterChestPiece::Interact(AActor* Instigator)
+{
+	if (!CanInteract(Instigator)) return;
+	auto* Pawn = CastChecked<APawn>(Instigator);
+	auto* Inventory = Pawn->FindComponentByClass<UInventoryComponent>();
+	if (!Inventory) return;
+	const FName Pocket = GetOrCreateStoragePocket(*Inventory);
+	if (!Pocket.IsNone())
+		CastChecked<Aprototype3PlayerController>(Pawn->GetController())->ToggleInventoryDemo(false, false, Pocket);
+}
+
+FName AShelterChestPiece::GetOrCreateStoragePocket(UInventoryComponent& Inventory)
+{
+	if (StorageInventory.IsValid())
+		return StorageInventory.Get() == &Inventory ? StoragePocket : NAME_None;
+	FInventoryPocket Pocket;
+	Pocket.Id = FName(TEXT("Chest_") + FGuid::NewGuid().ToString(EGuidFormats::Digits));
+	Pocket.Size = FVector2D(520, 480);
+	if (Inventory.AddPocket(Pocket) != EInventoryResult::Success) return NAME_None;
+	StorageInventory = &Inventory;
+	StoragePocket = Pocket.Id;
+	return StoragePocket;
+}
+
+bool AShelterChestPiece::CanRemove() const
+{
+	return !StorageInventory.IsValid() || !StorageInventory->GetEntries().ContainsByPredicate(
+		[this](const FInventoryEntry& Entry) { return Entry.PocketId == StoragePocket; });
+}
+
+void AShelterChestPiece::Destroyed()
+{
+	if (StorageInventory.IsValid()) StorageInventory->RemoveEmptyPocket(StoragePocket);
+	Super::Destroyed();
+}
+
+AShelterStockPiece::AShelterStockPiece()
+{
+	PreviewMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("PreviewMesh"));
+	ConfigureBox(*PreviewMesh, *GetRootComponent());
+	PreviewMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	PreviewMesh->SetVisibility(false);
+}
+
+void AShelterStockPiece::SetPreview(bool bValid)
+{
+	Super::SetPreview(bValid);
+	FVector Extent;
+	const auto* Stock = Cast<UShelterStockPieceDefinition>(GetDefinition());
+	if (Stock && ADroppedItem::GetWorldHalfExtent(Stock->Item, Extent))
+		SizeBox(*PreviewMesh, FVector(0, 0, Extent.Z), Extent * 2.0);
+	PreviewMesh->SetVisibility(true);
+	SetPieceColor(*PreviewMesh, PreviewColor(bValid));
+}
+
+bool AShelterStockPiece::OnPlaced()
+{
+	const auto* Stock = Cast<UShelterStockPieceDefinition>(GetDefinition());
+	FVector Extent;
+	if (!Stock || !ADroppedItem::GetWorldHalfExtent(Stock->Item, Extent)) return false;
+	FInventoryItemProfile Profile;
+	Profile.Id = Stock->ProfileId;
+	Profile.Definition = Stock->Item;
+	FTransform Transform = GetActorTransform();
+	Transform.AddToTranslation(FVector(0, 0, Extent.Z + 1.0));
+	WorldItem = ADroppedItem::SpawnWorldItem(GetWorld(), Profile, Transform);
+	if (!WorldItem) return false;
+
+	WorldItem->SetOwner(this);
+	WorldItem->GetBody()->SetSimulatePhysics(false);
+	WorldItem->OnDestroyed.AddDynamic(this, &AShelterStockPiece::ClearSlot);
+	WorldItem->OnPickedUp.AddUObject(this, &AShelterStockPiece::ClearSlot);
+	return true;
+}
+
+void AShelterStockPiece::ClearSlot(AActor* RemovedItem)
+{
+	if (WorldItem) WorldItem->OnDestroyed.RemoveDynamic(this, &AShelterStockPiece::ClearSlot);
+	WorldItem = nullptr;
+	if (auto* Area = Cast<AShelterBuildArea>(GetOwner())) Area->RemovePiece(this);
+}
+
+void AShelterStockPiece::Destroyed()
+{
+	if (IsValid(WorldItem))
+	{
+		WorldItem->OnDestroyed.RemoveDynamic(this, &AShelterStockPiece::ClearSlot);
+		WorldItem->OnPickedUp.RemoveAll(this);
+		WorldItem->Destroy();
+	}
+	Super::Destroyed();
 }

@@ -304,6 +304,7 @@ void ADroppedItem::FinishStagedPickUp()
 	Item = FItemInstance();
 	SetActorEnableCollision(false);
 	SetActorHiddenInGame(true);
+	OnPickedUp.Broadcast(this);
 	Destroy();
 }
 

@@ -12,6 +12,7 @@
 #include "GameFramework/GameModeBase.h"
 #include "GameFramework/PlayerStart.h"
 #include "GameFramework/WorldSettings.h"
+#include "Gameplay/Items/ItemDefinition.h"
 #include "Gameplay/Shelter/Build/ShelterBuildArea.h"
 #include "Gameplay/Shelter/Interaction/ShelterInteractivePieces.h"
 #include "HAL/FileManager.h"
@@ -25,7 +26,7 @@
 namespace
 {
 UShelterPieceDefinition* LoadOrCreateInteractionPiece(const TCHAR* AssetName, const TCHAR* Id,
-	const TCHAR* Category, int32 SortOrder, EShelterSlotKind Slot, TSubclassOf<AShelterPiece> ActorClass)
+	const TCHAR* Category, int32 SortOrder, EShelterSlotKind Slot, TSubclassOf<AShelterPiece> ActorClass, const TCHAR* StockItem = nullptr)
 {
 	const FString PackageName = FString(TEXT("/Game/Shelter/Pieces/")) + AssetName;
 	const FString File = FPackageName::LongPackageNameToFilename(PackageName, FPackageName::GetAssetPackageExtension());
@@ -34,7 +35,21 @@ UShelterPieceDefinition* LoadOrCreateInteractionPiece(const TCHAR* AssetName, co
 
 	IFileManager::Get().MakeDirectory(*FPaths::GetPath(File), true);
 	UPackage* Package = CreatePackage(*PackageName);
-	auto* Piece = NewObject<UShelterPieceDefinition>(Package, AssetName, RF_Public | RF_Standalone);
+	UShelterPieceDefinition* Piece;
+	if (StockItem)
+	{
+		const FString ItemPath = FString::Printf(TEXT("/Game/Items/DA_Item_%s.DA_Item_%s"), StockItem, StockItem);
+		auto* Item = LoadObject<UItemDefinition>(nullptr, *ItemPath);
+		if (!Item) return nullptr;
+		auto* Stock = NewObject<UShelterStockPieceDefinition>(Package, AssetName, RF_Public | RF_Standalone);
+		Stock->Item = Item;
+		Stock->ProfileId = FName(FString(StockItem) + TEXT("_TestOnly"));
+		Piece = Stock;
+	}
+	else
+	{
+		Piece = NewObject<UShelterPieceDefinition>(Package, AssetName, RF_Public | RF_Standalone);
+	}
 	Piece->PieceId = Id;
 	Piece->DisplayName = FText::FromString(Id);
 	Piece->Category = FText::FromString(Category);
@@ -83,6 +98,30 @@ bool FShelterInteractionFixtures::RunTest(const FString&)
 		EShelterSlotKind::Edge, AShelterDoorPiece::StaticClass());
 	auto* Lamp = LoadOrCreateInteractionPiece(TEXT("DA_ShelterPiece_Lamp"), TEXT("Lamp"), TEXT("Objects"), 30,
 		EShelterSlotKind::Cell, AShelterLampPiece::StaticClass());
+	auto* Roof = LoadOrCreateInteractionPiece(TEXT("DA_ShelterPiece_Roof"), TEXT("Roof"), TEXT("Roofs"), 25,
+		EShelterSlotKind::Roof, AShelterPlaceholderPiece::StaticClass());
+	auto* Chest = LoadOrCreateInteractionPiece(TEXT("DA_ShelterPiece_Chest"), TEXT("Chest"), TEXT("Objects"), 31,
+		EShelterSlotKind::Cell, AShelterChestPiece::StaticClass());
+	auto* Bandage = LoadOrCreateInteractionPiece(TEXT("DA_ShelterPiece_Bandage"), TEXT("Bandage"), TEXT("Supplies"), 40,
+		EShelterSlotKind::Cell, AShelterStockPiece::StaticClass(), TEXT("Bandage"));
+	auto* Beans = LoadOrCreateInteractionPiece(TEXT("DA_ShelterPiece_CannedBeans"), TEXT("CannedBeans"), TEXT("Supplies"), 41,
+		EShelterSlotKind::Cell, AShelterStockPiece::StaticClass(), TEXT("CannedBeans"));
+	if (!TestNotNull(TEXT("Roof definition"), Roof) || !TestNotNull(TEXT("Chest definition"), Chest)
+		|| !TestNotNull(TEXT("Bandage stock definition"), Bandage) || !TestNotNull(TEXT("Food stock definition"), Beans)) return false;
+	if (FParse::Param(FCommandLine::Get(), TEXT("ShelterUpgradeDoorway")))
+	{
+		const TCHAR* Path = TEXT("/Game/Shelter/Pieces/DA_ShelterPiece_Doorway");
+		auto* Doorway = LoadObject<UShelterPieceDefinition>(nullptr, TEXT("/Game/Shelter/Pieces/DA_ShelterPiece_Doorway.DA_ShelterPiece_Doorway"));
+		if (!TestNotNull(TEXT("Existing doorway definition"), Doorway)) return false;
+		if (!Doorway->ActorClass)
+		{
+			Doorway->ActorClass = AShelterDoorPiece::StaticClass();
+			const FString File = FPackageName::LongPackageNameToFilename(Path, FPackageName::GetAssetPackageExtension());
+			FSavePackageArgs Args;
+			Args.TopLevelFlags = RF_Public | RF_Standalone;
+			if (!TestTrue(TEXT("Save upgraded doorway definition"), UPackage::SavePackage(Doorway->GetOutermost(), Doorway, *File, Args))) return false;
+		}
+	}
 	if (!TestNotNull(TEXT("Door definition"), Door) || !TestNotNull(TEXT("Lamp definition"), Lamp)) return false;
 
 	const FString MapFile = FPackageName::LongPackageNameToFilename(TEXT("/Game/Shelter/Lvl_Shelter"), FPackageName::GetMapPackageExtension());

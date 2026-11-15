@@ -25,11 +25,15 @@ TSharedRef<SWidget> UInventoryDemoWidget::RebuildWidget()
 		Inventory = NewObject<UInventoryComponent>(this, NAME_None, RF_Transient);
 		if (!InventoryDemo::Populate(Inventory)) UE_LOG(LogTemp, Error, TEXT("Inventory demo could not load its sample items."));
 	}
+	const auto PanelHeight = [this]() -> float
+	{
+		return ItemUse && !ItemUse->GetOpenChest().IsNone() ? 1130.f : 940.f;
+	};
 	return SNew(SScaleBox).Stretch(EStretch::ScaleToFit)
 	[
-		SNew(SBox).WidthOverride(1780).HeightOverride(1040).HAlign(HAlign_Center).VAlign(VAlign_Center)
+		SNew(SBox).WidthOverride(1780).HeightOverride_Lambda([PanelHeight]() { return FOptionalSize(PanelHeight() + 100.f); }).HAlign(HAlign_Center).VAlign(VAlign_Center)
 		[
-			SNew(SBox).WidthOverride(1540).HeightOverride(940)
+			SNew(SBox).WidthOverride(1540).HeightOverride_Lambda([PanelHeight]() { return FOptionalSize(PanelHeight()); })
 			[
 			SAssignNew(Panel, SInventoryPanel).Inventory(Inventory).ItemUse(ItemUse).Player(GetOwningPlayerPawn()).PocketsOnly(bPocketsOnly)
 			.OnClose(FSimpleDelegate::CreateWeakLambda(this, [this]() { OnClose.ExecuteIfBound(); }))

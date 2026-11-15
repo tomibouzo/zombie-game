@@ -15,6 +15,8 @@ class UTextRenderComponent;
 class APawn;
 class UItemDefinition;
 
+DECLARE_MULTICAST_DELEGATE_OneParam(FDroppedItemPickedUp, AActor*);
+
 /** Temporary physical representation of one owned item, with guarded local transfers. */
 UCLASS(Config=Game)
 class PROTOTYPE3_API ADroppedItem : public AActor, public IInteractable
@@ -40,6 +42,7 @@ public:
 	/** Reserve a floor transfer while another ownership change commits. */
 	EInventoryResult StagePickUp(UInventoryComponent* Inventory, APawn* Player, FName Pocket, FVector2D Position, double Angle);
 	void FinishStagedPickUp();
+	FDroppedItemPickedUp OnPickedUp;
 	void CancelStagedPickUp(UInventoryComponent* Inventory);
 	bool DropAtFeet(APawn* Player, FString& Error);
 	const FItemInstance& GetItem() const { return Item; }

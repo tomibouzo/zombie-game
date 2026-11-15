@@ -51,7 +51,7 @@ bool AShelterBuildArea::ContainsLocation(const FVector& WorldLocation) const
 FTransform AShelterBuildArea::SlotTransform(const FShelterSlot& Slot, int32 Turns) const
 {
 	const FVector2D Center = FShelterBuildModel::SlotCenter(Slot, Module.Width);
-	const FTransform Local(FRotator(0, FShelterBuildModel::SlotYaw(Slot, Turns), 0), FVector(Center.X, Center.Y, 0));
+	const FTransform Local(FRotator(0, FShelterBuildModel::SlotYaw(Slot, Turns), 0), FVector(Center.X, Center.Y, Slot.Kind == EShelterSlotKind::Roof ? Module.Height : 0));
 	return Local * GetActorTransform();
 }
 
@@ -62,7 +62,12 @@ bool AShelterBuildArea::FindSlotFromView(const FVector& Start, const FVector& Di
 	const FVector LocalStart = Transform.InverseTransformPosition(Start);
 	const FVector LocalDirection = Transform.InverseTransformVectorNoScale(Direction.GetSafeNormal());
 	double Distance = MaxDistance;
-	if (LocalDirection.Z < -UE_KINDA_SMALL_NUMBER) Distance = FMath::Min<double>(MaxDistance, -LocalStart.Z / LocalDirection.Z);
+	const double PlaneZ = Kind == EShelterSlotKind::Roof ? Module.Height : 0.0;
+	if (!FMath::IsNearlyZero(LocalDirection.Z))
+	{
+		const double PlaneDistance = (PlaneZ - LocalStart.Z) / LocalDirection.Z;
+		if (PlaneDistance > 0) Distance = FMath::Min(MaxDistance, PlaneDistance);
+	}
 	const FVector Aim = LocalStart + LocalDirection * FMath::Max(0.0, Distance);
 	return Model.NearestSlot(FVector2D(Aim.X, Aim.Y), Kind, Module.Width, OutSlot);
 }
@@ -74,10 +79,11 @@ EShelterBuildResult AShelterBuildArea::CanPlace(const FShelterSlot& Slot, const 
 	if (Result != EShelterBuildResult::Success || !GetWorld()) return Result;
 	const FTransform Transform = SlotTransform(Slot, 0);
 	const bool bEdge = Slot.Kind == EShelterSlotKind::Edge;
+	const bool bRoof = Slot.Kind == EShelterSlotKind::Roof;
 	const FVector Half = bEdge
 		? FVector(Module.Width * 0.5 - 2, Module.WallThickness * 0.5 + 2, Module.Height * 0.5 - 2)
-		: FVector(Module.Width * 0.5 - 2, Module.Width * 0.5 - 2, Module.Height * 0.5 - 2);
-	const FVector Center = Transform.TransformPosition(FVector(0, 0, Module.Height * 0.5));
+		: FVector(Module.Width * 0.5 - 2, Module.Width * 0.5 - 2, bRoof ? FMath::Min(Module.WallThickness, 20.f) * 0.5 : Module.Height * 0.5 - 2);
+	const FVector Center = Transform.TransformPosition(FVector(0, 0, bRoof ? Half.Z : Module.Height * 0.5));
 	if (GetWorld()->OverlapAnyTestByObjectType(Center, Transform.GetRotation(), FCollisionObjectQueryParams(ECC_Pawn),
 		FCollisionShape::MakeBox(Half), FCollisionQueryParams(SCENE_QUERY_STAT(ShelterBuildSlot), false)))
 		return EShelterBuildResult::Blocked;
@@ -110,9 +116,14 @@ EShelterBuildResult AShelterBuildArea::PlacePiece(const FShelterSlot& Slot, cons
 	const int32 Normalized = FShelterBuildModel::NormalizeTurns(Slot.Kind, Turns);
 	AShelterPiece* Actor = SpawnPiece(Piece, SlotTransform(Slot, Normalized));
 	if (!Actor) return EShelterBuildResult::InvalidPiece;
-	const EShelterBuildResult Result = Model.Place(Slot, Piece->PieceId, Piece->SlotKind, Normalized);
+	const EShelterBuildResult Result = Model.Place(Slot, Piece->PieceId, Piece->SlotKind, Normalized, Piece->ProvidesRoofSupport());
 	if (Result != EShelterBuildResult::Success) { Actor->Destroy(); return Result; }
 	PieceActors.Add(Actor);
+	if (!Actor->OnPlaced())
+	{
+		RemoveAt(Slot);
+		return EShelterBuildResult::InvalidPiece;
+	}
 	return EShelterBuildResult::Success;
 }
 
@@ -120,7 +131,10 @@ EShelterBuildResult AShelterBuildArea::RemoveAt(const FShelterSlot& Slot)
 {
 	const int32 Index = Model.FindIndex(Slot);
 	if (Index == INDEX_NONE) return EShelterBuildResult::NotFound;
-	Model.Remove(Slot);
+	if (PieceActors.IsValidIndex(Index) && IsValid(PieceActors[Index]) && !PieceActors[Index]->CanRemove())
+		return EShelterBuildResult::PieceHasContents;
+	const EShelterBuildResult Result = Model.Remove(Slot);
+	if (Result != EShelterBuildResult::Success) return Result;
 	if (PieceActors.IsValidIndex(Index))
 	{
 		if (IsValid(PieceActors[Index])) PieceActors[Index]->Destroy();

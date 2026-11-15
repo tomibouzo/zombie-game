@@ -27,6 +27,7 @@ void SInventoryPanel::Construct(const FArguments& Args)
 	ItemUse = Args._ItemUse;
 	Player = Args._Player;
 	bPocketsOnly = Args._PocketsOnly;
+	bChestPanel = !ChestPocket().IsNone();
 	Controls = Args._Controls ? Args._Controls : GetMutableDefault<UInventoryInputSettings>();
 	bSaveControls = Args._SaveControls;
 	OnClose = Args._OnClose;
@@ -35,9 +36,14 @@ void SInventoryPanel::Construct(const FArguments& Args)
 	RefreshFloor();
 }
 
+FName SInventoryPanel::ChestPocket() const
+{
+	return ItemUse.IsValid() ? ItemUse->GetOpenChest() : NAME_None;
+}
+
 bool SInventoryPanel::IsInterfaceReady() const
 {
-	return !bRequestedClose && (!ItemUse.IsValid() || bPocketsOnly || ItemUse->IsBackpackOpen());
+	return !bRequestedClose && (!ItemUse.IsValid() || bPocketsOnly || ItemUse->IsBackpackOpen() || !ChestPocket().IsNone());
 }
 
 FVector2D SInventoryPanel::FloorSize() const
@@ -62,7 +68,8 @@ void SInventoryPanel::CycleQuickPocket()
 
 void SInventoryPanel::SetPocketsOnly(bool bOnly)
 {
-	if (!bOnly && ItemUse.IsValid() && !ItemUse->BeginOpenBackpack()) { Status = TEXT("Equip a backpack first."); return; }
+	bChestPanel = !ChestPocket().IsNone();
+	if (!bOnly && !bChestPanel && ItemUse.IsValid() && !ItemUse->BeginOpenBackpack()) { Status = TEXT("Equip a backpack first."); return; }
 	CancelInteraction(); SelectedId.Invalidate();
 	bRequestedClose = false;
 	bPocketsOnly = bOnly;
@@ -77,7 +84,7 @@ void SInventoryPanel::SetPocketsOnly(bool bOnly)
 void SInventoryPanel::Tick(const FGeometry& Geometry, double Time, float Delta)
 {
 	SLeafWidget::Tick(Geometry, Time, Delta);
-	if (!bPocketsOnly && ItemUse.IsValid() && !ItemUse->IsOpeningBackpack() && !ItemUse->IsBackpackOpen())
+	if (!bPocketsOnly && ItemUse.IsValid() && !ItemUse->IsOpeningBackpack() && !ItemUse->IsBackpackOpen() && ChestPocket().IsNone())
 	{
 		CancelInteraction();
 		if (!bRequestedClose) { bRequestedClose = true; OnClose.ExecuteIfBound(); }
@@ -437,7 +444,7 @@ FReply SInventoryPanel::Press(FKey Key)
 {
 	if (!Controls.IsValid()) return FReply::Handled();
 	auto Is = [&](EInventoryControl Action) { return Controls->Matches(Action, Key); };
-	if (Is(EInventoryControl::Back) || Is(EInventoryControl::Toggle))
+	if (Is(EInventoryControl::Back) || Is(EInventoryControl::Toggle) || (bChestPanel && Is(EInventoryControl::PickUpWorld)))
 	{
 		if (!Is(EInventoryControl::Back) && ItemUse.IsValid() && bPocketsOnly) { SetPocketsOnly(false); return Reply(); }
 		CancelInteraction(); OnClose.ExecuteIfBound();
@@ -612,7 +619,7 @@ int32 SInventoryPanel::OnPaint(const FPaintArgs&, const FGeometry& G, const FSla
 {
 	// Tap/hold recognition is input bookkeeping, not a third loading screen.
 	// Keep the focused input route alive without painting until a mode is chosen.
-	if (!bPocketsOnly && ItemUse.IsValid() && (!ItemUse->IsBackpackActive()
+	if (!bPocketsOnly && !bChestPanel && ItemUse.IsValid() && (!ItemUse->IsBackpackActive()
 		|| ItemUse->GetBackpackMode() == EBackpackMode::Selecting)) return Layer;
 	const FSlateBrush* Brush = FCoreStyle::Get().GetBrush(TEXT("WhiteBrush"));
 	auto Box = [&](FVector2D Pos, FVector2D Size, FLinearColor Color)
@@ -646,7 +653,7 @@ int32 SInventoryPanel::OnPaint(const FPaintArgs&, const FGeometry& G, const FSla
 	const FLinearColor Muted(0.65f, 0.72f, 0.78f);
 	if (!Inventory.IsValid() || !Controls.IsValid()) return Layer;
 	Box(FVector2D::ZeroVector, PanelSize(), FLinearColor(0.022f, 0.03f, 0.043f));
-	Text(FVector2D(40, 27), bPocketsOnly ? TEXT("POCKETS") : TEXT("INVENTORY"), 25);
+	Text(FVector2D(40, 27), bChestPanel ? TEXT("CHEST") : bPocketsOnly ? TEXT("POCKETS") : TEXT("INVENTORY"), 25);
 	if (!bPocketsOnly && ItemUse.IsValid() && ItemUse->IsBackpackOpen())
 		Text(FVector2D(300,35), ItemUse->GetBackpackMode() == EBackpackMode::Slow ? TEXT("WALKING MODE") : TEXT("QUICK MODE"), 14, Muted);
 	if (!IsInterfaceReady())
@@ -678,6 +685,7 @@ int32 SInventoryPanel::OnPaint(const FPaintArgs&, const FGeometry& G, const FSla
 	{
 		const bool bBag = View.Pocket.Id == TEXT("Backpack");
 		const FString Label = !ItemUse.IsValid() ? TEXT("TEST STORAGE") : bBag ? TEXT("BACKPACK")
+			: View.Pocket.Id == ChestPocket() ? TEXT("CHEST STORAGE")
 			: FString::Printf(TEXT("POCKET %d"), View.Pocket.Id == TEXT("Quick") ? 1 : View.Pocket.Id == TEXT("Quick2") ? 2 : 3);
 		Text(View.Origin - FVector2D(0, 32), Label, 14, Muted);
 		Box(View.Origin - FVector2D(2), View.Pocket.Size + FVector2D(4), FLinearColor(0.22f, 0.3f, 0.36f));
@@ -748,7 +756,7 @@ int32 SInventoryPanel::OnPaint(const FPaintArgs&, const FGeometry& G, const FSla
 		Control(EInventoryControl::ScrollFloorDown, TEXT("scroll floor items down"));
 		Control(EInventoryControl::Drop, TEXT("drop selected item at your feet"));
 		Control(EInventoryControl::DropHeld, TEXT("drop held item at your feet"));
-		Control(EInventoryControl::Toggle, bPocketsOnly ? TEXT("tap: quick / hold: walking backpack") : TEXT("close backpack"));
+		Control(EInventoryControl::Toggle, bChestPanel ? TEXT("close chest") : bPocketsOnly ? TEXT("tap: quick / hold: walking backpack") : TEXT("close backpack"));
 		Control(bPocketsOnly ? EInventoryControl::ShowQuick : EInventoryControl::CyclePocket, bPocketsOnly ? TEXT("close pockets") : TEXT("next pocket"));
 		Line(TEXT("Double ") + Key(EInventoryControl::Grab) + TEXT(": take / stow item"));
 		Control(EInventoryControl::Stow, TEXT("stow held item"));
@@ -821,6 +829,13 @@ TArray<SInventoryPanel::FPocketView> SInventoryPanel::DisplayPockets() const
 	if (!ItemUse.IsValid())
 		return Pockets.IsEmpty() ? TArray<FPocketView>() : TArray<FPocketView>{ { Pockets[0], PocketOrigin(), true } };
 	TArray<FPocketView> Views;
+	if (const FName Chest = ChestPocket(); !Chest.IsNone())
+		for (const auto& Pocket : Pockets)
+			if (Pocket.Id == Chest)
+			{
+				Views.Add({ Pocket, FVector2D(500, 610), true });
+				break;
+			}
 	for (const auto& Pocket : Pockets)
 		if (!bPocketsOnly && Pocket.Id == TEXT("Backpack"))
 		{

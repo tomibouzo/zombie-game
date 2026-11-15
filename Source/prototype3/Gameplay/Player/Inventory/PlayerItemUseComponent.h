@@ -79,6 +79,8 @@ public:
 	bool BeginOpenBackpack(bool bSelectMode = false);
 	void ReleaseBackpackInput();
 	void CloseBackpack();
+	bool OpenChest(FName PocketId);
+	FName GetOpenChest() const { return OpenChestPocket; }
 	EBackpackMode GetBackpackMode() const { return BackpackMode; }
 	bool IsBackpackActive() const { return bOpening || bBackpackOpen; }
 	bool IsArranging() const { return bArranging; }
@@ -106,6 +108,7 @@ protected:
 	virtual void EndPlay(const EEndPlayReason::Type Reason) override;
 	virtual void TickComponent(float Delta, ELevelTick Type, FActorComponentTickFunction* Tick) override;
 private:
+	FName OpenChestPocket;
 	UPROPERTY(Transient) TObjectPtr<UPlayerVitalsComponent> Vitals;
 	UPROPERTY(Transient) TObjectPtr<UStaticMeshComponent> HeldVisual;
 	UPROPERTY(Transient) TObjectPtr<USpotLightComponent> HeldLight;

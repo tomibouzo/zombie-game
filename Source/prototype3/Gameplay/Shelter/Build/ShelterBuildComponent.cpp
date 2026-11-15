@@ -233,14 +233,14 @@ void UShelterBuildComponent::TryRemove()
 	if (GetWorld()->LineTraceSingleByChannel(Hit, Eye, Eye + View.Vector() * (Reach + 150.f), ECC_Visibility, Query))
 		if (const auto* Piece = Cast<AShelterPiece>(Hit.GetActor()); Piece && FVector::Dist2D(Piece->GetActorLocation(), Pawn->GetActorLocation()) <= Reach)
 			Result = Area->RemovePiece(Piece);
-	if (Result != EShelterBuildResult::Success && State == EShelterBuildState::Placing)
+	if (Result == EShelterBuildResult::NotFound && State == EShelterBuildState::Placing)
 	{
 		RefreshTarget();
 		if (FVector::Dist2D(Area->SlotTransform(TargetSlot, 0).GetLocation(), Pawn->GetActorLocation()) <= Reach)
 			Result = Area->RemoveAt(TargetSlot);
 	}
 	RefreshTarget();
-	Status = Result == EShelterBuildResult::Success ? FString(TEXT("Piece removed")) : FShelterBuildModel::Describe(EShelterBuildResult::NotFound);
+	Status = Result == EShelterBuildResult::Success ? FString(TEXT("Piece removed")) : FShelterBuildModel::Describe(Result);
 }
 
 bool UShelterBuildComponent::HandleKey(const FKey& Key, EInputEvent Event)
