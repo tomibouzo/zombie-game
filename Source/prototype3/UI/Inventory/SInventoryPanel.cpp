@@ -740,10 +740,11 @@ int32 SInventoryPanel::OnPaint(const FPaintArgs&, const FGeometry& G, const FSla
 	if (ItemUse.IsValid())
 	{
 		auto Key = [this](EInventoryControl Action) { return Controls->KeyLabel(Action); };
-		Box(FVector2D(1120,0), FVector2D(420,940), FLinearColor(.022f,.03f,.043f,.95f));
-		Text(FVector2D(1140,30), TEXT("CONTROLS"), 20);
+		const double ControlsX = LayoutSize(bChestPanel).X - 420;
+		Box(FVector2D(ControlsX,0), FVector2D(420,940), FLinearColor(.022f,.03f,.043f,.95f));
+		Text(FVector2D(ControlsX + 20,30), TEXT("CONTROLS"), 20);
 		float Y = 86;
-		auto Line = [&](const FString& Value) { Text(FVector2D(1140,Y),Value,12,Muted); Y += 27; };
+		auto Line = [&](const FString& Value) { Text(FVector2D(ControlsX + 20,Y),Value,12,Muted); Y += 27; };
 		auto Control = [&](EInventoryControl Action, const TCHAR* Description) { Line(Key(Action) + TEXT(": ") + Description); };
 		Control(EInventoryControl::Grab, Controls->bToggleGrab ? TEXT("click to grab / place") : TEXT("hold to drag; release to place"));
 		Control(EInventoryControl::RotateWithMouse, TEXT("hold + move to rotate"));
@@ -833,7 +834,7 @@ TArray<SInventoryPanel::FPocketView> SInventoryPanel::DisplayPockets() const
 		for (const auto& Pocket : Pockets)
 			if (Pocket.Id == Chest)
 			{
-				Views.Add({ Pocket, FVector2D(500, 610), true });
+				Views.Add({ Pocket, ChestStorageOrigin(), true });
 				break;
 			}
 	for (const auto& Pocket : Pockets)

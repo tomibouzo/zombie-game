@@ -25,15 +25,17 @@ TSharedRef<SWidget> UInventoryDemoWidget::RebuildWidget()
 		Inventory = NewObject<UInventoryComponent>(this, NAME_None, RF_Transient);
 		if (!InventoryDemo::Populate(Inventory)) UE_LOG(LogTemp, Error, TEXT("Inventory demo could not load its sample items."));
 	}
-	const auto PanelHeight = [this]() -> float
+	const auto PanelSize = [this]()
 	{
-		return ItemUse && !ItemUse->GetOpenChest().IsNone() ? 1130.f : 940.f;
+		return SInventoryPanel::LayoutSize(ItemUse && !ItemUse->GetOpenChest().IsNone());
 	};
 	return SNew(SScaleBox).Stretch(EStretch::ScaleToFit)
 	[
-		SNew(SBox).WidthOverride(1780).HeightOverride_Lambda([PanelHeight]() { return FOptionalSize(PanelHeight() + 100.f); }).HAlign(HAlign_Center).VAlign(VAlign_Center)
+		SNew(SBox).WidthOverride_Lambda([PanelSize]() { const auto Size = PanelSize(); return FOptionalSize(Size.X + (Size.X > SInventoryPanel::LayoutSize(false).X ? 60.f : 240.f)); })
+		.HeightOverride_Lambda([PanelSize]() { return FOptionalSize(PanelSize().Y + 100.f); }).HAlign(HAlign_Center).VAlign(VAlign_Center)
 		[
-			SNew(SBox).WidthOverride(1540).HeightOverride_Lambda([PanelHeight]() { return FOptionalSize(PanelHeight()); })
+			SNew(SBox).WidthOverride_Lambda([PanelSize]() { return FOptionalSize(PanelSize().X); })
+			.HeightOverride_Lambda([PanelSize]() { return FOptionalSize(PanelSize().Y); })
 			[
 			SAssignNew(Panel, SInventoryPanel).Inventory(Inventory).ItemUse(ItemUse).Player(GetOwningPlayerPawn()).PocketsOnly(bPocketsOnly)
 			.OnClose(FSimpleDelegate::CreateWeakLambda(this, [this]() { OnClose.ExecuteIfBound(); }))
