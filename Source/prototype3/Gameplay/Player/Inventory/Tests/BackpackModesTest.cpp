@@ -18,7 +18,12 @@
 #include "InputKeyEventArgs.h"
 #include "Gameplay/Player/Inventory/InventoryComponent.h"
 #include "Gameplay/Player/Inventory/PlayerItemUseComponent.h"
+#include "Gameplay/Player/Interaction/PlayerInteractionComponent.h"
 #include "Gameplay/Player/Vitals/PlayerVitalsComponent.h"
+#include "Gameplay/Shelter/Build/ShelterBuildArea.h"
+#include "Gameplay/Shelter/Build/ShelterBuildComponent.h"
+#include "Gameplay/Shelter/Interaction/ShelterInteractivePieces.h"
+#include "Misc/ScopeExit.h"
 #include "Gameplay/Items/ItemDefinition.h"
 #include "Gameplay/Items/World/DroppedItem.h"
 #include "UI/Inventory/SInventoryPanel.h"
@@ -235,11 +240,25 @@ bool FInteractionFloorInputTest::RunTest(const FString&)
 		return Item;
 	};
 
-	auto* First = SpawnFloor(110.f);
-	auto* Second = SpawnFloor(195.f);
+	auto* First = SpawnFloor(90.f);
+	auto* Second = SpawnFloor(145.f);
 	if (!TestNotNull(TEXT("First floor item"), First) || !TestNotNull(TEXT("Second floor item"), Second)) return false;
 	const FGuid FirstId = First->GetItem().InstanceId;
 	const FGuid SecondId = Second->GetItem().InstanceId;
+	auto* Interaction = F.Player->FindComponentByClass<UPlayerInteractionComponent>();
+	if (!TestNotNull(TEXT("Player interaction component"), Interaction)) return false;
+	auto RefreshTarget = [&]
+	{
+		static_cast<UActorComponent*>(Interaction)->TickComponent(0.f, LEVELTICK_All, &Interaction->PrimaryComponentTick);
+	};
+	RefreshTarget();
+	TestTrue(TEXT("Visible, reachable item shows a prompt"), Interaction->GetCurrentTarget() == First && !Interaction->GetPrompt().IsEmpty());
+	First->SetActorLocation(Eye + Direction * 410.f);
+	Second->SetActorLocation(Eye + Direction * 450.f);
+	RefreshTarget();
+	TestTrue(TEXT("No prompt beyond reach"), Interaction->GetPrompt().IsEmpty());
+	First->SetActorLocation(Eye + Direction * 90.f);
+	Second->SetActorLocation(Eye + Direction * 145.f);
 	auto* Settings = GetMutableDefault<UInventoryInputSettings>();
 	TGuardValue<bool> ReplaceSetting(Settings->bAllowItemReplace, false);
 	const FKey Key = Settings->GetKey(EInventoryControl::PickUpWorld);
@@ -257,6 +276,8 @@ bool FInteractionFloorInputTest::RunTest(const FString&)
 	Box->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
 	Box->RegisterComponent();
 	Obstacle->SetActorLocation(Eye + Direction * 55.f);
+	RefreshTarget();
+	TestTrue(TEXT("Obstruction clears the prompt"), Interaction->GetPrompt().IsEmpty());
 	Route(IE_Pressed);
 	Route(IE_Released);
 	TestFalse(TEXT("Visibility obstruction blocks an otherwise reachable item"), F.Use->HasHeldItem());
@@ -277,6 +298,57 @@ bool FInteractionFloorInputTest::RunTest(const FString&)
 	Route(IE_Pressed);
 	Route(IE_Released);
 	TestEqual(TEXT("Fresh press with replacement enabled takes second item"), F.Use->GetHeldId(), SecondId);
+
+	const FVector DoorPosition = Eye + Direction * 170.f - FVector(0, 0, 150);
+	const FRotator DoorRotation(0, Direction.Rotation().Yaw - 90.f, 0);
+	auto* Door = F.World->SpawnActor<AShelterDoorPiece>(DoorPosition, DoorRotation);
+	if (!TestNotNull(TEXT("Door on the same aim line"), Door)) return false;
+	Door->InitializePiece(nullptr, FShelterModule());
+	auto* InFront = SpawnFloor(95.f);
+	if (!TestNotNull(TEXT("Item in front of door"), InFront)) return false;
+	const FGuid InFrontId = InFront->GetItem().InstanceId;
+	Route(IE_Pressed);
+	Route(IE_Released);
+	TestEqual(TEXT("Item in front wins the interaction"), F.Use->GetHeldId(), InFrontId);
+	TestFalse(TEXT("Door remains closed after pickup"), Door->IsOpen());
+
+	// Put the same kind of item behind a closer door, still within inventory reach.
+	Door->SetActorLocation(Eye + Direction * 105.f - FVector(0, 0, 150));
+	auto* Behind = SpawnFloor(145.f);
+	if (!TestNotNull(TEXT("Item behind the door"), Behind)) return false;
+	const FGuid BehindId = Behind->GetItem().InstanceId;
+
+	const auto Saved = TStrongObjectPtr<UInventoryInputSettings>(DuplicateObject(Settings, GetTransientPackage()));
+	Settings->ResetDefaults();
+	ON_SCOPE_EXIT { Settings->CopySettingsFrom(*Saved.Get()); };
+	auto* Area = F.World->SpawnActor<AShelterBuildArea>(F.Player->GetActorLocation() - FVector(300, 300, 100), FRotator::ZeroRotator);
+	if (!TestNotNull(TEXT("Build area"), Area)) return false;
+	Area->DispatchBeginPlay();
+	auto* Build = Controller->GetBuildComponent();
+	if (!TestNotNull(TEXT("Build component"), Build) || !TestTrue(TEXT("Build menu opens"), Build->Open())) return false;
+
+	const int32 InitialCategory = Build->GetCategoryIndex();
+	auto EKey = [&](EInputEvent Event)
+	{
+		return Controller->InputKey(FInputKeyEventArgs::CreateSimulated(EKeys::E, Event, Event == IE_Released ? 0.f : 1.f));
+	};
+	TestTrue(TEXT("Build mode consumes E press"), EKey(IE_Pressed));
+	const int32 NextCategory = Build->GetCategoryIndex();
+	TestNotEqual(TEXT("E cycles the build category"), NextCategory, InitialCategory);
+	TestTrue(TEXT("Build mode consumes E release"), EKey(IE_Released));
+	TestEqual(TEXT("Release does not cycle again"), Build->GetCategoryIndex(), NextCategory);
+	TestFalse(TEXT("Build mode suppresses door interaction"), Door->IsOpen());
+	TestEqual(TEXT("Build mode preserves held identity"), F.Use->GetHeldId(), InFrontId);
+	TestTrue(TEXT("Build mode leaves the visible actors intact"), IsValid(Behind));
+	RefreshTarget();
+	TestTrue(TEXT("Build mode suppresses the interaction prompt"), Interaction->GetPrompt().IsEmpty());
+	Build->Close();
+
+	EKey(IE_Pressed);
+	EKey(IE_Released);
+	TestTrue(TEXT("Door in front wins the interaction"), Door->IsOpen());
+	TestEqual(TEXT("Opening the door does not pick up the item behind it"), F.Use->GetHeldId(), InFrontId);
+	TestTrue(TEXT("Item behind the door remains in the world"), IsValid(Behind) && Behind->GetItem().InstanceId == BehindId);
 	return true;
 }
 
