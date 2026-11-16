@@ -43,6 +43,7 @@ public:
 
 	UFUNCTION(BlueprintPure, Category="Piece") bool IsValidDefinition() const;
 	TSubclassOf<AShelterPiece> ResolveActorClass() const;
+	bool ProvidesRoofSupport() const;
 	virtual FPrimaryAssetId GetPrimaryAssetId() const override;
 };
 
@@ -72,6 +73,10 @@ public:
 	virtual void SetPreview(bool bValid);
 	const UShelterPieceDefinition* GetDefinition() const { return Definition; }
 	bool IsPreview() const { return bPreview; }
+	/** Runtime setup after the piece has claimed its slot. False cancels placement. */
+	virtual bool OnPlaced() { return true; }
+	/** Keep pieces with live contents in place until emptied. */
+	virtual bool CanRemove() const { return true; }
 protected:
 	UPROPERTY(VisibleAnywhere, Category="Shelter") TObjectPtr<UShelterPieceDefinition> Definition;
 	UPROPERTY(VisibleAnywhere, Category="Shelter") FShelterModule Module;

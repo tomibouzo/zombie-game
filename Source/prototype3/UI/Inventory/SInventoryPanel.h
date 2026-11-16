@@ -32,7 +32,8 @@ public:
 	void CycleQuickPocket();
 	FName GetVisibleQuickPocket() const;
 	void CancelInteraction();
-	virtual FVector2D ComputeDesiredSize(float) const override { return FVector2D(1540, 940); }
+	static FVector2D LayoutSize(bool bChest) { return FVector2D(bChest ? 1820 : 1540, bChest ? 1130 : 940); }
+	virtual FVector2D ComputeDesiredSize(float) const override { return LayoutSize(bChestPanel); }
 	virtual bool SupportsKeyboardFocus() const override { return true; }
 	virtual void Tick(const FGeometry&, double, float) override;
 	virtual int32 OnPaint(const FPaintArgs&, const FGeometry&, const FSlateRect&, FSlateWindowElementList&, int32, const FWidgetStyle&, bool) const override;
@@ -54,13 +55,16 @@ private:
 	float FloorRefreshRemaining = 0;
 	FVector2D FloorSize() const;
 	int32 FloorRows() const { return FMath::Max(1, FMath::FloorToInt(FloorSize().Y / 36)); }
-	static FVector2D FloorOrigin() { return FVector2D(760, 150); }
+	FVector2D FloorOrigin() const { return FVector2D(bChestPanel ? 1080 : 760, 150); }
+	static FVector2D ChestStorageOrigin() { return FVector2D(500, 610); }
 	static FVector2D HeldOrigin() { return FVector2D(500, 150); }
 	bool bPocketsOnly = false;
+	FName ChestPocket() const;
+	bool bChestPanel = false;
 	int32 QuickPocketIndex = 0;
 	bool bRequestedClose = false;
 	bool bWasArranging = false;
-	FVector2D PanelSize() const { return FVector2D(1040, ItemUse.IsValid() ? (bPocketsOnly ? 620 : 940) : 800); }
+	FVector2D PanelSize() const { return FVector2D(bChestPanel ? 1360 : 1040, bChestPanel ? 1130 : ItemUse.IsValid() ? (bPocketsOnly ? 620 : 940) : 800); }
 	void RefreshFloor();
 	bool BeginFloorDrag();
 	bool BeginHeldDrag(FKey Key, double Now);

@@ -1,6 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Core/Characters/prototype3Character.h"
+#include "Gameplay/Player/Interaction/PlayerInteractionComponent.h"
 #include "Core/Settings/PrototypeDebugSettings.h"
 #include "Gameplay/AI/Zombies/ZombieCharacter.h"
 #include "Gameplay/AI/Zombies/ZombieAIController.h"
@@ -30,6 +31,7 @@ Aprototype3Character::Aprototype3Character()
 	VitalsComponent = CreateDefaultSubobject<UPlayerVitalsComponent>(TEXT("Vitals"));
 	InventoryComponent = CreateDefaultSubobject<UInventoryComponent>(TEXT("Inventory"));
 	ItemUseComponent = CreateDefaultSubobject<UPlayerItemUseComponent>(TEXT("ItemUse"));
+	CreateDefaultSubobject<UPlayerInteractionComponent>(TEXT("Interaction"));
 	MeleeComponent = CreateDefaultSubobject<UPlayerMeleeComponent>(TEXT("Melee"));
 	NoiseComponent = CreateDefaultSubobject<UPlayerNoiseComponent>(TEXT("FootstepNoise"));
 	// Set size for collision capsule

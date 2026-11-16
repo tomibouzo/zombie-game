@@ -15,12 +15,18 @@ bool UShelterPieceDefinition::IsValidDefinition() const
 		&& OpeningWidth >= 0 && OpeningHeight >= 0 && OpeningSillHeight >= 0
 		&& !CellObjectSize.ContainsNaN() && CellObjectSize.GetMin() > 0 && CellObjectSize.GetMax() <= 1000;
 	return !PieceId.IsNone() && !DisplayName.IsEmpty() && !Category.IsEmpty() && bNumbers
-		&& (SlotKind == EShelterSlotKind::Edge || SlotKind == EShelterSlotKind::Cell);
+		&& (SlotKind == EShelterSlotKind::Edge || SlotKind == EShelterSlotKind::Cell || SlotKind == EShelterSlotKind::Roof);
 }
 
 TSubclassOf<AShelterPiece> UShelterPieceDefinition::ResolveActorClass() const
 {
 	return ActorClass ? ActorClass : TSubclassOf<AShelterPiece>(AShelterPlaceholderPiece::StaticClass());
+}
+
+bool UShelterPieceDefinition::ProvidesRoofSupport() const
+{
+	return SlotKind == EShelterSlotKind::Edge
+		&& ResolveActorClass() == AShelterPlaceholderPiece::StaticClass() && OpeningWidth <= 1.f;
 }
 
 FPrimaryAssetId UShelterPieceDefinition::GetPrimaryAssetId() const
@@ -77,6 +83,12 @@ void AShelterPlaceholderPiece::InitializePiece(const UShelterPieceDefinition* In
 	{
 		Material = UMaterialInstanceDynamic::Create(BaseMaterial, this);
 		Material->SetVectorParameterValue(TEXT("Color"), InDefinition->PlaceholderColor);
+	}
+	if (InDefinition->SlotKind == EShelterSlotKind::Roof)
+	{
+		const float Thickness = FMath::Min(InModule.WallThickness, 20.f);
+		AddBox(FVector(0, 0, Thickness * 0.5), FVector(InModule.Width, InModule.Width, Thickness));
+		return;
 	}
 	if (InDefinition->SlotKind == EShelterSlotKind::Cell)
 	{

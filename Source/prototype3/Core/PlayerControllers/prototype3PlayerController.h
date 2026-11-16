@@ -39,7 +39,7 @@ public:
 	UInputAction* GetSecondaryAction();
 
 	/** Temporary local inventory laboratory; its items persist until this controller ends. */
-	void ToggleInventoryDemo(bool bLegacyLab = false, bool bPocketsOnly = false);
+	void ToggleInventoryDemo(bool bLegacyLab = false, bool bPocketsOnly = false, FName ChestPocket = NAME_None);
 	void CloseInventoryDemo();
 	void HandleInterfaceEscape();
 	bool HasInterfaceFocus(int32 UserIndex) const;
@@ -60,6 +60,7 @@ public:
 	bool IsAssigningControls() const;
 	/** Routes backpack and locomotion buttons before the focused Slate inventory consumes them. */
 	bool HandleInventoryControlKey(FKey Key, EInputEvent Event);
+	bool IsInteractionInputBlocked() const;
 	bool IsInventoryInterfaceOpen() const { return bInventoryDemoOpen; }
 	UShelterBuildComponent* GetBuildComponent() const { return BuildComponent; }
 	/** Releases held keys and cancels item use or a held attack, keeping held movement keys. */

@@ -5,12 +5,12 @@
 
 /** Edge slots hold wall-sized pieces between cells; cell slots hold one object on a floor cell. */
 UENUM(BlueprintType)
-enum class EShelterSlotKind : uint8 { Edge, Cell };
+enum class EShelterSlotKind : uint8 { Edge, Cell, Roof };
 
 UENUM(BlueprintType)
 enum class EShelterBuildResult : uint8
 {
-	Success, InvalidGrid, OutOfBounds, Occupied, WrongSlotKind, InvalidPiece, NotFound, Blocked, TooFar
+	Success, InvalidGrid, OutOfBounds, Occupied, WrongSlotKind, InvalidPiece, NotFound, Blocked, TooFar, UnsupportedRoof, SupportsRoof, PieceHasContents
 };
 
 /**
@@ -27,7 +27,7 @@ struct PROTOTYPE3_API FShelterSlot
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Shelter") bool bAlongX = true;
 	bool operator==(const FShelterSlot& Other) const
 	{
-		return Kind == Other.Kind && Coord == Other.Coord && (Kind == EShelterSlotKind::Cell || bAlongX == Other.bAlongX);
+		return Kind == Other.Kind && Coord == Other.Coord && (Kind != EShelterSlotKind::Edge || bAlongX == Other.bAlongX);
 	}
 };
 
@@ -39,6 +39,7 @@ struct PROTOTYPE3_API FShelterPlacement
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Shelter") FShelterSlot Slot;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Shelter") FName PieceId;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Shelter") int32 Turns = 0;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Shelter") bool bSupportsRoof = false;
 };
 
 /**
@@ -61,7 +62,8 @@ struct PROTOTYPE3_API FShelterBuildModel
 	const FShelterPlacement* Find(const FShelterSlot& Slot) const;
 	/** PieceKind is the slot kind the piece declares; it must match the slot. */
 	EShelterBuildResult CanPlace(const FShelterSlot& Slot, FName PieceId, EShelterSlotKind PieceKind) const;
-	EShelterBuildResult Place(const FShelterSlot& Slot, FName PieceId, EShelterSlotKind PieceKind, int32 Turns);
+	EShelterBuildResult Place(const FShelterSlot& Slot, FName PieceId, EShelterSlotKind PieceKind, int32 Turns, bool bSupportsRoof = false);
+	EShelterBuildResult CanRemove(const FShelterSlot& Slot) const;
 	EShelterBuildResult Remove(const FShelterSlot& Slot, FShelterPlacement* OutRemoved = nullptr);
 	/** Rejects out-of-range slots, duplicate slots, unnamed pieces and out-of-range turns. */
 	bool Validate(FString& OutError) const;
@@ -74,4 +76,8 @@ struct PROTOTYPE3_API FShelterBuildModel
 	/** Nearest slot of Kind to a grid-local point, clamped to the grid. False only for an invalid grid. */
 	bool NearestSlot(FVector2D LocalPoint, EShelterSlotKind Kind, double ModuleWidth, FShelterSlot& OutSlot) const;
 	static FString Describe(EShelterBuildResult Result);
+
+private:
+	bool HasRoofSupport(FIntPoint Coord) const;
+	bool AllRoofsSupported(int32 IgnoredIndex = INDEX_NONE) const;
 };

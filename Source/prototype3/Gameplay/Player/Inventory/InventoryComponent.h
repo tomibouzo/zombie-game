@@ -20,6 +20,7 @@ public:
 	EInventoryResult RegisterProfile(const FInventoryItemProfile& Profile);
 	UFUNCTION(BlueprintCallable, Category="Inventory")
 	EInventoryResult AddPocket(const FInventoryPocket& Pocket);
+	bool RemoveEmptyPocket(FName PocketId);
 	/** Caller hands over the instance after success. Duplicate IDs in this inventory are rejected. */
 	UFUNCTION(BlueprintCallable, Category="Inventory")
 	EInventoryResult AddItem(const FItemInstance& Item, FName ProfileId, FName PocketId, FVector2D Position, double AngleDegrees);

@@ -30,6 +30,14 @@ EInventoryResult UInventoryComponent::AddPocket(const FInventoryPocket& Pocket)
 	return EInventoryResult::Success;
 }
 
+bool UInventoryComponent::RemoveEmptyPocket(FName PocketId)
+{
+	if (Entries.ContainsByPredicate([PocketId](const FInventoryEntry& Entry) { return Entry.PocketId == PocketId; })) return false;
+	if (Pockets.RemoveAll([PocketId](const FInventoryPocket& Pocket) { return Pocket.Id == PocketId; }) == 0) return false;
+	OnInventoryChanged.Broadcast();
+	return true;
+}
+
 bool UInventoryComponent::GetProfile(FName ProfileId, FInventoryItemProfile& OutProfile) const
 {
 	const FInventoryItemProfile* Profile = Profiles.FindByPredicate([&](const FInventoryItemProfile& P) { return P.Id == ProfileId; });

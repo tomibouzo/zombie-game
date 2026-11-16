@@ -112,14 +112,15 @@ void UPlayerItemUseComponent::BeginPlay()
 
 bool UPlayerItemUseComponent::CanAccess(FName Pocket) const
 {
-	return Pocket == HandsPocketId() || IsQuickPocket(Pocket) || (Pocket == TEXT("Backpack") && bBackpackEquipped && bBackpackOpen);
+	return Pocket == HandsPocketId() || IsQuickPocket(Pocket) || (!OpenChestPocket.IsNone() && Pocket == OpenChestPocket)
+		|| (Pocket == TEXT("Backpack") && bBackpackEquipped && (bBackpackOpen || !OpenChestPocket.IsNone()));
 }
 
 bool UPlayerItemUseComponent::HasStowHome() const
 {
 	FInventoryEntry Entry;
 	return HeldId.IsValid() && Inventory && Inventory->IsReserved(HeldId) && Inventory->GetItem(HeldId, Entry)
-		&& (IsQuickPocket(Entry.PocketId) || (Entry.PocketId == TEXT("Backpack") && bBackpackOpen && bBackpackEquipped));
+		&& Entry.PocketId != HandsPocketId() && CanAccess(Entry.PocketId);
 }
 
 bool UPlayerItemUseComponent::EquipToHands(FGuid Id)
@@ -173,13 +174,13 @@ bool UPlayerItemUseComponent::IsPickupBlockedNoticeVisible() const
 	return GetWorld() && GetWorld()->GetTimeSeconds() < PickupBlockedUntil;
 }
 
-ADroppedItem* UPlayerItemUseComponent::GetLookedAtFloorItem() const
+ADroppedItem* UPlayerItemUseComponent::GetLookedAtFloorItem(float* OutHitDistance) const
 {
 	auto* Pawn = Cast<APawn>(GetOwner());
 	const auto* Controller = Pawn ? Cast<APlayerController>(Pawn->GetController()) : nullptr;
 	if (!Controller || !Controller->PlayerCameraManager || !GetWorld()) return nullptr;
 	const FVector Start = Controller->PlayerCameraManager->GetCameraLocation();
-	const FVector End = Start + Controller->PlayerCameraManager->GetCameraRotation().Vector() * 300.f;
+	const FVector End = Start + Controller->PlayerCameraManager->GetCameraRotation().Vector() * FloorPickupTraceDistance;
 	FCollisionObjectQueryParams Objects;
 	Objects.AddObjectTypesToQuery(ECC_WorldStatic);
 	Objects.AddObjectTypesToQuery(ECC_PhysicsBody);
@@ -187,7 +188,9 @@ ADroppedItem* UPlayerItemUseComponent::GetLookedAtFloorItem() const
 	FHitResult Hit;
 	if (!GetWorld()->LineTraceSingleByObjectType(Hit, Start, End, Objects, Query)) return nullptr;
 	auto* Floor = Cast<ADroppedItem>(Hit.GetActor());
-	return Floor && Floor->CanInteract(Pawn) ? Floor : nullptr;
+	if (!Floor || !Floor->CanInteract(Pawn)) return nullptr;
+	if (OutHitDistance) *OutHitDistance = Hit.Distance;
+	return Floor;
 }
 
 bool UPlayerItemUseComponent::PickUpToHands(ADroppedItem* Floor, bool bRequireLook)
@@ -406,12 +409,27 @@ void UPlayerItemUseComponent::ReleaseBackpackInput()
 	SelectQuickBackpack();
 }
 
+bool UPlayerItemUseComponent::OpenChest(FName PocketId)
+{
+	if (!Inventory || !Vitals || !Vitals->IsAlive() || PocketId.IsNone() || IsBackpackActive()) return false;
+	const auto Pockets = Inventory->GetPockets();
+	if (!Pockets.ContainsByPredicate([PocketId](const FInventoryPocket& Pocket) { return Pocket.Id == PocketId; })) return false;
+	CancelUse();
+	CancelArrangement();
+	StopInventoryMovement();
+	OpenChestPocket = PocketId;
+	return true;
+}
+
 void UPlayerItemUseComponent::CloseBackpack()
 {
 	CancelArrangement();
 	FInventoryEntry HeldEntry;
-	if (bBackpackOpen && Inventory && Inventory->GetItem(HeldId, HeldEntry) && HeldEntry.PocketId == TEXT("Backpack"))
+	if (Inventory && Inventory->GetItem(HeldId, HeldEntry)
+		&& ((HeldEntry.PocketId == TEXT("Backpack") && (bBackpackOpen || !OpenChestPocket.IsNone()))
+			|| (!OpenChestPocket.IsNone() && HeldEntry.PocketId == OpenChestPocket)))
 		Inventory->MoveItem(HeldId, HandsPocketId(), FVector2D(5000,5000), HeldEntry.AngleDegrees, true);
+	OpenChestPocket = NAME_None;
 	bOpening = bBackpackOpen = false;
 	BackpackMode = EBackpackMode::Closed;
 	if (!bUsing) Elapsed = 0;
